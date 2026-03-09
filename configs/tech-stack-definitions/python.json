@@ -1,0 +1,27 @@
+{
+  "language": "Python 3.11+",
+  "version_notes": "Type hints required for all functions",
+  "framework": "Standard Library",
+  "testing": "pytest with coverage",
+  "tools": [
+    "mypy (type checking)",
+    "black (formatting)",
+    "ruff (linting)",
+    "pytest (testing)"
+  ],
+  "code_quality": {
+    "type_hints": "Required",
+    "docstrings": "Google style for public APIs",
+    "max_line_length": 100
+  },
+  "testing_strategy": {
+    "framework": "pytest",
+    "coverage_target": "80%",
+    "test_naming": "test_<function>_when_<condition>_then_<expected>"
+  },
+  "security": {
+    "linter": "bandit",
+    "dependency_scanner": "safety",
+    "sensitive_data": "Use environment variables, never hardcode"
+  }
+}

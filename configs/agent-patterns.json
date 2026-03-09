@@ -1,0 +1,110 @@
+{
+  "version": "1.0.0",
+  "description": "Validation patterns for Claude Code specialist agents",
+  "patterns": [
+    {
+      "name": "Inheritance Header",
+      "type": "structural",
+      "applies_to": "specialist",
+      "description": "Specialist agents must declare base agent and versions"
+    },
+    {
+      "name": "Tech Stack Override",
+      "type": "structural",
+      "applies_to": "specialist",
+      "description": "Specialist agents must override tech stack placeholders"
+    },
+    {
+      "name": "CLAUDE.md Reference",
+      "type": "structural",
+      "applies_to": "all",
+      "description": "All agents must reference CLAUDE.md for runtime context"
+    },
+    {
+      "name": "No Base Duplication",
+      "type": "content",
+      "applies_to": "specialist",
+      "description": "Specialist agents should not duplicate base agent content"
+    },
+    {
+      "name": "Conflict Resolution",
+      "type": "structural",
+      "applies_to": "specialist",
+      "description": "Specialist agents should document precedence rules"
+    }
+  ],
+  "agent_types": {
+    "coder": {
+      "base_agent": "coder-base.md",
+      "base_version": "2.1.0",
+      "variants": ["security", "frontend", "python", "typescript"],
+      "required_sections": [
+        "Inheritance",
+        "Tech Stack Override",
+        "Project Patterns Reference",
+        "Quality Bar Extensions",
+        "Conflict Resolution"
+      ]
+    },
+    "qa-engineer": {
+      "base_agent": "qa-engineer-base.md",
+      "base_version": "1.8.0",
+      "variants": ["security", "frontend", "python"],
+      "required_sections": [
+        "Inheritance",
+        "Testing Framework Override",
+        "Project Patterns Reference",
+        "Quality Bar Extensions",
+        "Conflict Resolution"
+      ]
+    },
+    "code-reviewer": {
+      "base_agent": null,
+      "base_version": null,
+      "is_standalone": true,
+      "required_sections": [
+        "Identity",
+        "Mission",
+        "Review Dimensions",
+        "Output Format",
+        "Review Scope Policy"
+      ]
+    },
+    "code-reviewer-specialist": {
+      "base_agent": "code-reviewer-base.md",
+      "base_version": "1.0.0",
+      "variants": ["security", "performance"],
+      "required_sections": [
+        "Inheritance",
+        "Review Dimensions Override",
+        "Project Patterns Reference",
+        "Quality Bar Extensions",
+        "Conflict Resolution"
+      ]
+    },
+    "security-analyst": {
+      "base_agent": "architect-base.md",
+      "base_version": "1.5.0",
+      "variants": [],
+      "required_sections": [
+        "Inheritance",
+        "Identity",
+        "Mission",
+        "Threat Modeling Framework",
+        "Security Standards"
+      ]
+    },
+    "senior-architect": {
+      "base_agent": "architect-base.md",
+      "base_version": "1.5.0",
+      "variants": [],
+      "required_sections": [
+        "Identity",
+        "Mission",
+        "Operating Rules",
+        "Output Contract",
+        "Plan Output Format"
+      ]
+    }
+  }
+}

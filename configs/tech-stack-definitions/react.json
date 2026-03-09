@@ -1,0 +1,33 @@
+{
+  "language": "TypeScript",
+  "framework": "React 18+",
+  "testing": "Vitest + React Testing Library",
+  "tools": [
+    "React 18+ (UI library)",
+    "TypeScript (type safety)",
+    "Vite (build tool)",
+    "Vitest (testing)",
+    "React Testing Library (component testing)"
+  ],
+  "code_quality": {
+    "hooks": "Use hooks (useState, useEffect, etc.) over class components",
+    "prop_types": "Use TypeScript interfaces for props",
+    "component_naming": "PascalCase for components, camelCase for utilities"
+  },
+  "testing_strategy": {
+    "framework": "Vitest + React Testing Library",
+    "coverage_target": "70%",
+    "test_approach": "Test behavior, not implementation",
+    "user_centric": "Query by accessible roles and text"
+  },
+  "component_patterns": {
+    "composition": "Prefer composition over inheritance",
+    "props_children": "Use children prop for flexible layouts",
+    "controlled_components": "Form inputs should be controlled"
+  },
+  "performance": {
+    "memoization": "Use React.memo, useMemo, useCallback appropriately",
+    "lazy_loading": "React.lazy for code splitting",
+    "key_prop": "Always provide stable keys for lists"
+  }
+}

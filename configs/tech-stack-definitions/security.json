@@ -1,0 +1,46 @@
+{
+  "language": "Python 3.11+",
+  "framework": "FastAPI (security-hardened)",
+  "testing": "pytest with security test cases",
+  "tools": [
+    "bandit (security linter)",
+    "safety (dependency scanner)",
+    "mypy (type safety)",
+    "pytest (testing with security focus)",
+    "OWASP ZAP (optional penetration testing)"
+  ],
+  "code_quality": {
+    "type_hints": "Required for all security-critical code",
+    "input_validation": "Validate and sanitize all inputs",
+    "error_handling": "Never expose stack traces or internal details"
+  },
+  "testing_strategy": {
+    "framework": "pytest",
+    "coverage_target": "95% for security-critical code",
+    "security_tests": "Include OWASP Top 10 test cases",
+    "fuzzing": "Consider fuzzing for input validation"
+  },
+  "security_requirements": {
+    "owasp_top_10": "Mandatory compliance",
+    "code_review": "Security review for all changes",
+    "secrets": "No hardcoded secrets, use environment variables",
+    "input_sanitization": "Required for all user inputs"
+  },
+  "cryptography": {
+    "standard_libraries": "Use cryptography, hashlib (no custom crypto)",
+    "random_generation": "Use secrets module for secure random",
+    "password_hashing": "bcrypt or argon2",
+    "encryption": "AES-256 for data at rest, TLS 1.3+ for transit"
+  },
+  "audit_trail": {
+    "logging": "Log all security-relevant events",
+    "format": "Structured logging (JSON)",
+    "redaction": "Sensitive data redacted in logs",
+    "retention": "Follow compliance requirements"
+  },
+  "dependency_management": {
+    "scanning": "Regular safety scans",
+    "updates": "Keep dependencies current",
+    "pinning": "Pin versions in production"
+  }
+}

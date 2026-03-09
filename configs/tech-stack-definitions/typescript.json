@@ -1,0 +1,26 @@
+{
+  "language": "TypeScript 5.x",
+  "framework": "Node.js",
+  "testing": "Vitest or Jest",
+  "tools": [
+    "TypeScript (type safety)",
+    "ESLint (linting)",
+    "Prettier (formatting)",
+    "Vitest or Jest (testing)"
+  ],
+  "code_quality": {
+    "strict_mode": "Enable strict TypeScript checks",
+    "no_any": "Avoid 'any' type, use unknown or proper types",
+    "explicit_returns": "Explicitly type function return values"
+  },
+  "testing_strategy": {
+    "framework": "Vitest (modern, fast) or Jest",
+    "coverage_target": "80%",
+    "test_naming": "describe/it pattern with clear descriptions"
+  },
+  "build": {
+    "bundler": "Vite, esbuild, or tsc",
+    "target": "ES2020+",
+    "module": "ESNext"
+  }
+}

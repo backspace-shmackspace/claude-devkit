@@ -1,0 +1,35 @@
+{
+  "language": "Python 3.11+",
+  "framework": "FastAPI",
+  "testing": "pytest with FastAPI TestClient",
+  "tools": [
+    "FastAPI (async API framework)",
+    "Pydantic (data validation)",
+    "uvicorn (ASGI server)",
+    "pytest (testing)",
+    "httpx (async HTTP client)"
+  ],
+  "code_quality": {
+    "type_hints": "Required (Pydantic models)",
+    "async_await": "Use async/await for I/O operations",
+    "dependency_injection": "Use FastAPI Depends()"
+  },
+  "testing_strategy": {
+    "framework": "pytest with FastAPI TestClient",
+    "coverage_target": "85%",
+    "test_client": "from fastapi.testclient import TestClient",
+    "async_tests": "Use pytest-asyncio for async endpoints"
+  },
+  "security": {
+    "authentication": "OAuth2, JWT",
+    "cors": "Configure CORS middleware",
+    "rate_limiting": "slowapi or custom middleware",
+    "input_validation": "Pydantic models for all inputs"
+  },
+  "api_design": {
+    "versioning": "/api/v1/ prefix",
+    "response_models": "Define Pydantic response models",
+    "error_handling": "HTTPException with status codes",
+    "documentation": "Auto-generated from docstrings and types"
+  }
+}

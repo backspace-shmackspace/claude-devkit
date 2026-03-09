@@ -1,0 +1,233 @@
+---
+name: {skill_name}
+description: {description}
+model: {model}
+version: {version}
+---
+# /{skill_name} Workflow
+
+## Role
+
+This skill is a **scan coordinator**. It orchestrates parallel analysis tasks, synthesizes results with severity ratings, and produces actionable reports. It does not fix issues—it identifies and categorizes them.
+
+## Inputs
+- Scope: $ARGUMENTS (optional - define scope types)
+  - [TODO: Define scope option 1]
+  - [TODO: Define scope option 2]
+  - [TODO: Define scope option 3 (e.g., "full")]
+
+## Step 0 — Determine scope
+
+Detect or parse the scan scope from $ARGUMENTS.
+
+Tool: `Bash` or `Read` (depending on scope detection logic)
+
+**Scope resolution:**
+- If `$ARGUMENTS` is empty:
+  - [TODO: Define default scope logic]
+- Else: scope = `$ARGUMENTS`
+
+**Validate scope:** Must be one of: [TODO: list valid scopes]
+
+If invalid: Stop with "Invalid scope. Use: /{skill_name} [scope1|scope2|scope3]"
+
+Derive timestamp: `[timestamp]` = current ISO datetime (e.g., `2026-02-08T14-30-00`)
+
+## Step 1 — Scan: [TODO: Analysis Type 1]
+
+Run the first type of analysis in parallel with other scans.
+
+Tool: `Task` (subagent_type=general-purpose, model=opus) or local agent
+
+**Prompt varies by scope:**
+
+**If scope is [scope1]:**
+"Analyze [TODO: what to analyze] for:
+- [TODO: Check 1]
+- [TODO: Check 2]
+- [TODO: Check 3]
+
+Rate findings: Critical / High / Medium / Low.
+Write to `./plans/{skill_name}-[timestamp].scan1.md`"
+
+**If scope is [scope2]:**
+"Analyze [TODO: what to analyze] for:
+- [TODO: Check 1]
+- [TODO: Check 2]
+
+Rate findings: Critical / High / Medium / Low.
+Write to `./plans/{skill_name}-[timestamp].scan1.md`"
+
+**If scope is [scope3]:**
+"Full [TODO: analysis type] scan:
+- [TODO: Comprehensive check 1]
+- [TODO: Comprehensive check 2]
+- [TODO: Comprehensive check 3]
+
+Rate findings: Critical / High / Medium / Low.
+Write to `./plans/{skill_name}-[timestamp].scan1.md`"
+
+## Step 2 — Scan: [TODO: Analysis Type 2]
+
+Run the second type of analysis.
+
+Tool: `Task` (subagent_type=general-purpose, model=sonnet) or MCP agent
+
+**Prompt varies by scope:**
+
+**If scope is [scope1]:**
+"Analyze [TODO: what to analyze] for:
+- [TODO: Check 1]
+- [TODO: Check 2]
+
+Rate findings: Critical / High / Medium / Low.
+Write to `./plans/{skill_name}-[timestamp].scan2.md`"
+
+**If scope is [scope2]:**
+"Analyze [TODO: what to analyze] for:
+- [TODO: Check 1]
+- [TODO: Check 2]
+
+Rate findings: Critical / High / Medium / Low.
+Write to `./plans/{skill_name}-[timestamp].scan2.md`"
+
+**If scope is [scope3]:**
+"Full [TODO: analysis type] scan:
+- [TODO: Comprehensive check 1]
+- [TODO: Comprehensive check 2]
+
+Rate findings: Critical / High / Medium / Low.
+Write to `./plans/{skill_name}-[timestamp].scan2.md`"
+
+## Step 3 — Scan: [TODO: Analysis Type 3] (conditional)
+
+**Trigger:** Only run if scope is [scope2] or [scope3] (skip for [scope1])
+
+Tool: `Task` (subagent_type=general-purpose, model=sonnet)
+
+Prompt: "You are running [TODO: analysis type].
+Read the `.claude/agents/` directory to find the appropriate agent.
+Follow that agent's standards.
+
+[TODO: Describe analysis to perform]
+
+Write `./plans/{skill_name}-[timestamp].scan3.md` with:
+- [TODO: Report structure]
+- Findings rated: Critical / High / Medium / Low"
+
+## Step 4 — Synthesis
+
+Read all scan reports and synthesize into a summary.
+
+Tool: `Read` (direct — coordinator does this)
+
+Read all scan reports:
+- `./plans/{skill_name}-[timestamp].scan1.md`
+- `./plans/{skill_name}-[timestamp].scan2.md`
+- `./plans/{skill_name}-[timestamp].scan3.md` (if exists)
+
+Generate `./plans/{skill_name}-[timestamp].summary.md` with this structure:
+
+```markdown
+# {skill_name} Summary — [scope] — [timestamp]
+
+## Verdict
+[PASS / PASS_WITH_NOTES / BLOCKED]
+
+## Critical Findings
+[Count: N]
+- [Finding 1 from any report]
+- [Finding 2 from any report]
+
+## High Findings
+[Count: N]
+- [Finding 1 from any report]
+- [Finding 2 from any report]
+
+## Medium Findings
+[Count: N]
+(Summarize or list)
+
+## Low Findings
+[Count: N]
+(Summarize or list)
+
+## Risk Score
+[1-10 scale]
+- 1-3: Low risk (PASS)
+- 4-6: Medium risk (PASS_WITH_NOTES)
+- 7-10: High risk (BLOCKED)
+
+## Action Items
+(Prioritized list of what must be addressed)
+
+1. [Critical item 1]
+2. [Critical item 2]
+3. [High item 1]
+...
+
+## Reports
+- [Analysis 1]: ./plans/{skill_name}-[timestamp].scan1.md
+- [Analysis 2]: ./plans/{skill_name}-[timestamp].scan2.md
+- [Analysis 3]: ./plans/{skill_name}-[timestamp].scan3.md (if run)
+```
+
+**Verdict rules:**
+- **BLOCKED**: Any Critical findings OR 3+ High findings
+- **PASS_WITH_NOTES**: 1-2 High findings OR 3+ Medium findings
+- **PASS**: Only Medium/Low findings
+
+## Step 5 — Verdict gate
+
+Read `./plans/{skill_name}-[timestamp].summary.md` and check verdict.
+
+Tool: `Read`
+
+**If BLOCKED:**
+Output:
+"🚫 {skill_name} BLOCKED — Critical issues found.
+
+Summary: ./plans/{skill_name}-[timestamp].summary.md
+Action items must be resolved before proceeding.
+
+Critical findings: [count]
+High findings: [count]"
+
+**If PASS_WITH_NOTES:**
+Output:
+"⚠️ {skill_name} PASS with notes — Review recommended but not blocking.
+
+Summary: ./plans/{skill_name}-[timestamp].summary.md
+Consider addressing high-priority findings.
+
+High findings: [count]
+Medium findings: [count]"
+
+**If PASS:**
+Output:
+"✅ {skill_name} PASS — No blocking issues found.
+
+Summary: ./plans/{skill_name}-[timestamp].summary.md
+Only minor findings to consider.
+
+Medium findings: [count]
+Low findings: [count]"
+
+## Step 6 — Archive on completion
+
+Move scan artifacts to archive.
+
+Tool: `Bash`
+
+Archive path: `./plans/archive/{skill_name}/[timestamp]/`
+
+Command:
+```bash
+mkdir -p "./plans/archive/{skill_name}/[timestamp]"
+mv ./plans/{skill_name}-[timestamp].* "./plans/archive/{skill_name}/[timestamp]/"
+```
+
+Output: "Scan complete. Results archived to ./plans/archive/{skill_name}/[timestamp]/"
+
+<!-- Generated by claude-tools/generators/generate_skill.py v{generator_version} -->
+<!-- Archetype: scan | Generated: {timestamp} -->

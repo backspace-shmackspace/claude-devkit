@@ -1,0 +1,37 @@
+{
+  "language": "TypeScript",
+  "framework": "Astro 4.x",
+  "testing": "Vitest",
+  "tools": [
+    "Astro 4.x (static site generator)",
+    "TypeScript (type safety)",
+    "Tailwind CSS (styling)",
+    "Chart.js (visualizations)",
+    "Vitest (testing)"
+  ],
+  "code_quality": {
+    "components": "Use .astro files for pages, TypeScript for logic",
+    "islands": "Use framework components (React, Vue) as islands",
+    "typescript": "Enable for all .ts/.astro files"
+  },
+  "testing_strategy": {
+    "framework": "Vitest for business logic",
+    "coverage_target": "60%",
+    "static_analysis": "Build-time type checking"
+  },
+  "architecture": {
+    "pages": "src/pages/ for routes",
+    "components": "src/components/ for reusable components",
+    "layouts": "src/layouts/ for page templates",
+    "content": "src/content/ for content collections"
+  },
+  "performance": {
+    "partial_hydration": "Use client:* directives sparingly",
+    "static_first": "Default to static HTML, add interactivity only where needed",
+    "image_optimization": "Use Astro's built-in image optimization"
+  },
+  "build": {
+    "output": "static (default) or server (SSR)",
+    "integrations": "Tailwind, Sitemap, MDX as needed"
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "patterns": [
+    {
+      "id": 1,
+      "name": "Coordinator Pattern",
+      "description": "Skills coordinate work; agents execute. Contains 'coordinator' language.",
+      "type": "keyword",
+      "rule": "(?i)(coordinator|delegate|dispatch)",
+      "severity": "warning",
+      "message": "Pattern 1 (Coordinator): Consider adding coordinator language (delegate, dispatch) to clarify that this skill coordinates rather than executes work directly."
+    },
+    {
+      "id": 2,
+      "name": "Numbered Steps",
+      "description": "All step headers match '## Step N -- [Action]' format",
+      "type": "regex",
+      "rule": "^## Step \\d+( —|--) .+",
+      "severity": "error",
+      "message": "Pattern 2 (Numbered Steps): All workflow steps must use format '## Step N -- [Action]' or '## Step N — [Action]'."
+    },
+    {
+      "id": 3,
+      "name": "Tool Declarations",
+      "description": "Every step contains a 'Tool:' line specifying which tool to use",
+      "type": "keyword",
+      "rule": "Tool:",
+      "severity": "warning",
+      "message": "Pattern 3 (Tool Declarations): Most steps should explicitly declare which tool they use with a 'Tool:' line. Coordinator/verdict steps may omit this."
+    },
+    {
+      "id": 4,
+      "name": "Verdict Gates",
+      "description": "At least one step contains verdict logic (PASS/FAIL/BLOCKED or CURRENT/UPDATES_NEEDED)",
+      "type": "keyword",
+      "rule": "(PASS|FAIL|BLOCKED|CURRENT|UPDATES_NEEDED)",
+      "severity": "error",
+      "message": "Pattern 4 (Verdict Gates): Skill must include at least one verdict gate (e.g., PASS/FAIL/BLOCKED or CURRENT/UPDATES_NEEDED) to control workflow progression."
+    },
+    {
+      "id": 5,
+      "name": "Timestamped Artifacts",
+      "description": "References to [timestamp] or ISO datetime patterns",
+      "type": "regex",
+      "rule": "(\\[timestamp\\]|\\d{4}-\\d{2}-\\d{2}T\\d{2}[-:]\\d{2}[-:]\\d{2})",
+      "severity": "warning",
+      "message": "Pattern 5 (Timestamped Artifacts): Consider using timestamped filenames (e.g., [timestamp] placeholder or ISO format) for artifact outputs."
+    },
+    {
+      "id": 6,
+      "name": "Structured Reporting",
+      "description": "Output paths reference ./plans/ directory",
+      "type": "keyword",
+      "rule": "./plans/",
+      "severity": "warning",
+      "message": "Pattern 6 (Structured Reporting): Skill outputs should typically be written to ./plans/ directory for consistency."
+    },
+    {
+      "id": 7,
+      "name": "Bounded Iterations",
+      "description": "If revision loop exists, has 'Max N revision' language",
+      "type": "keyword",
+      "rule": "([Mm]ax \\d+ (revision|round|iteration))",
+      "severity": "warning",
+      "message": "Pattern 7 (Bounded Iterations): If skill includes a revision loop, specify maximum iterations (e.g., 'Max 2 revision rounds')."
+    },
+    {
+      "id": 8,
+      "name": "Model Selection",
+      "description": "YAML frontmatter contains valid 'model:' field",
+      "type": "structural",
+      "rule": "model",
+      "severity": "error",
+      "message": "Pattern 8 (Model Selection): YAML frontmatter must include a 'model:' field specifying which Claude model to use."
+    },
+    {
+      "id": 9,
+      "name": "Scope Parameters",
+      "description": "'## Inputs' section exists with reference to inputs/arguments",
+      "type": "structural",
+      "rule": "## Inputs",
+      "severity": "error",
+      "message": "Pattern 9 (Scope Parameters): Skill must have an '## Inputs' section documenting what parameters it accepts."
+    },
+    {
+      "id": 10,
+      "name": "Archive on Success",
+      "description": "Reference to ./plans/archive/ or explicit archive step",
+      "type": "keyword",
+      "rule": "(./plans/archive/|archive|mv .+ archive)",
+      "severity": "warning",
+      "message": "Pattern 10 (Archive on Success): Consider moving artifacts to ./plans/archive/ on successful completion to keep the plans directory clean."
+    }
+  ],
+  "structural_requirements": [
+    {
+      "name": "Valid YAML Frontmatter",
+      "description": "File starts with --- markers containing YAML metadata",
+      "severity": "error",
+      "message": "Skill must start with valid YAML frontmatter delimited by --- markers."
+    },
+    {
+      "name": "Required Frontmatter Fields",
+      "fields": ["name", "description", "model"],
+      "severity": "error",
+      "message": "YAML frontmatter must contain: name, description, and model fields."
+    },
+    {
+      "name": "Workflow Header",
+      "description": "File contains '# /skill-name Workflow' header",
+      "severity": "error",
+      "message": "Skill must have a '# /[skill-name] Workflow' header matching the skill name."
+    },
+    {
+      "name": "Minimum Steps",
+      "description": "At least 2 numbered step sections",
+      "minimum": 2,
+      "severity": "error",
+      "message": "Skill must have at least 2 numbered workflow steps."
+    },
+    {
+      "name": "Non-Empty Steps",
+      "description": "No step header is followed immediately by another step header",
+      "severity": "error",
+      "message": "Every step must have content. Empty steps are not allowed."
+    }
+  ],
+  "archetypes": {
+    "reference": {
+      "description": "Behavioral discipline documents (Iron Laws, principles, gates). Not executable workflows.",
+      "required_frontmatter": ["name", "description", "version", "type", "attribution"],
+      "required_sections": ["core_principle"],
+      "core_principle_patterns": ["Iron Law", "Core Principle", "Fundamental Rule", "The Gate"],
+      "requires_numbered_steps": false,
+      "requires_tool_declarations": false,
+      "requires_verdict_gates": false,
+      "requires_artifacts": false,
+      "requires_inputs_section": false,
+      "requires_workflow_header": false,
+      "requires_model": false
+    }
+  }
+}

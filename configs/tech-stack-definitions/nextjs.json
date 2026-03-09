@@ -1,0 +1,38 @@
+{
+  "language": "TypeScript",
+  "framework": "Next.js 14+ (App Router)",
+  "testing": "Vitest + React Testing Library + Playwright",
+  "tools": [
+    "Next.js 14+ (React framework)",
+    "TypeScript (type safety)",
+    "Tailwind CSS (styling)",
+    "Vitest (unit tests)",
+    "Playwright (E2E tests)"
+  ],
+  "code_quality": {
+    "server_components": "Use React Server Components by default",
+    "client_components": "Mark with 'use client' only when needed",
+    "typescript": "Strict mode enabled"
+  },
+  "testing_strategy": {
+    "unit_tests": "Vitest for components and utilities",
+    "integration_tests": "React Testing Library for user flows",
+    "e2e_tests": "Playwright for critical paths",
+    "coverage_target": "75%"
+  },
+  "routing": {
+    "app_router": "Use app/ directory (not pages/)",
+    "file_conventions": "page.tsx, layout.tsx, loading.tsx, error.tsx",
+    "dynamic_routes": "[slug]/page.tsx pattern"
+  },
+  "data_fetching": {
+    "server_side": "Use async Server Components",
+    "client_side": "Use SWR or React Query for client fetching",
+    "caching": "Leverage Next.js caching strategies"
+  },
+  "performance": {
+    "images": "Use next/image for optimization",
+    "fonts": "Use next/font for font optimization",
+    "metadata": "Define metadata in each route"
+  }
+}
