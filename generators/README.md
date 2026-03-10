@@ -109,9 +109,9 @@ color: purple
 
 3. **Restart Claude Code session** to register the agent:
    ```bash
-   # Exit and restart claude-code CLI
+   # Exit and restart Claude Code CLI
    /exit
-   claude-code
+   claude
    ```
 
 4. **Test the agent:**
@@ -1071,7 +1071,7 @@ python3 ~/projects/claude-devkit/generators/generate_agents.py . --type all
 **Solution:**
 1. Verify file exists: `ls .claude/agents/`
 2. Check filename matches expected pattern: `coder*.md`, `qa-engineer*.md`, `code-reviewer*.md`
-3. Restart Claude Code session: `/exit` then `claude-code`
+3. Restart Claude Code session: `/exit` then `claude`
 
 ### Validation Fails
 

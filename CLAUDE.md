@@ -322,7 +322,7 @@ code .claude/agents/senior-architect.md
 
 # 4. Test
 /exit
-claude-code
+claude
 > Use senior-architect to plan a checkout flow
 ```
 
@@ -812,7 +812,7 @@ bash generators/test_skill_generator.sh
 
 **Solution:**
 1. Verify deployment: `ls ~/.claude/skills/<skill-name>/SKILL.md`
-2. Restart Claude Code session: `/exit` then `claude-code`
+2. Restart Claude Code session: `/exit` then `claude`
 3. Check frontmatter has correct `name:` field
 
 ### Generator command not found
@@ -859,33 +859,13 @@ model: claude-opus-4-6  # Must be exactly this
 
 **Solution:** Never edit skills in `~/.claude/skills/`. Always edit in `~/projects/claude-devkit/skills/` and redeploy.
 
-## Syncing Across Machines
-
-If you work on multiple machines:
-
-### Machine 1 (Initial Setup)
+## Setting Up on Another Machine
 
 ```bash
-cd ~/projects/claude-devkit
-git init
-git add .
-git commit -m "Initial commit: Claude Devkit"
-git remote add origin <your-repo-url>
-git push -u origin main
-```
-
-### Machine 2+ (Clone)
-
-```bash
-cd ~/projects
-git clone <your-repo-url> claude-devkit
-
-# Add to shell config (same as installation)
-echo 'export PATH="$PATH:$HOME/projects/claude-devkit/generators"' >> ~/.zshrc
-source ~/.zshrc
-
-# Deploy skills
+git clone https://github.com/backspace-shmackspace/claude-devkit.git
 cd claude-devkit
+./scripts/install.sh
+source ~/.zshrc
 ./scripts/deploy.sh
 ```
 

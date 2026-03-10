@@ -1,6 +1,10 @@
 # Claude Devkit
 
-Complete development toolkit for Claude Code - skills, agents, generators, and templates.
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![Python 3.8+](https://img.shields.io/badge/Python-3.8+-green.svg)
+![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-lightgrey.svg)
+
+A structured toolkit for building reusable workflows with [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview), Anthropic's agentic coding tool. Define multi-step skills (plan, implement, audit, sync), generate project-specific agents, and validate everything with built-in tooling.
 
 **New to Claude Devkit?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a 15-minute tutorial.
 
@@ -10,8 +14,8 @@ Complete development toolkit for Claude Code - skills, agents, generators, and t
 
 ```bash
 # Clone the repository
-cd ~/projects
-git clone <your-repo-url> claude-devkit
+git clone https://github.com/backspace-shmackspace/claude-devkit.git
+cd claude-devkit
 
 # Run installation script
 cd claude-devkit
@@ -155,7 +159,7 @@ code .claude/agents/
 
 # Restart Claude Code
 /exit
-claude-code
+claude
 
 # Use with skills
 /dream add checkout flow
@@ -417,7 +421,7 @@ validate-agent .claude/agents/*.md --json
 ### Prerequisites
 
 - Python 3.8 or higher
-- Claude Code CLI installed and configured
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) CLI installed and configured
 - git
 
 ### Automated Installation (Recommended)
@@ -570,15 +574,10 @@ claude-devkit/
 │   ├── install.sh             # Automated installation
 │   └── uninstall.sh           # Clean uninstallation
 │
-├── .claude/                   # Project-specific agents
-│   └── agents/
-│       ├── coder.md
-│       ├── code-reviewer.md
-│       ├── code-reviewer-specialist.md
-│       ├── devkit-architect.md
-│       ├── qa-engineer.md
-│       ├── security-analyst.md
-│       └── senior-architect.md
+├── contrib/                   # Optional/personal skills
+│   ├── journal/               # Obsidian journal writing
+│   ├── journal-recall/        # Journal search and retrieval
+│   └── journal-review/        # Journal entry promotion
 │
 ├── CLAUDE.md                  # Detailed documentation
 ├── README.md                  # This file
@@ -626,7 +625,7 @@ Generated architects live in project directories:
 
 **Solution:**
 1. Verify deployment: `ls ~/.claude/skills/<skill-name>/SKILL.md`
-2. Restart Claude Code: `/exit` then `claude-code`
+2. Restart Claude Code: `/exit` then `claude`
 
 ### Generator not found
 
@@ -662,52 +661,6 @@ chmod +x ~/projects/claude-devkit/scripts/*.sh
 - **[generators/README.md](generators/README.md)** — Generator documentation
 - **skills/*/SKILL.md** — Individual skill documentation
 
-## Version Control
-
-### Recommended .gitignore
-
-```gitignore
-# Test outputs
-test-output/
-*.test.md
-.test/
-
-# Python
-__pycache__/
-*.py[cod]
-venv/
-
-# OS files
-.DS_Store
-
-# Editor
-.vscode/
-.idea/
-
-# Logs
-*.log
-```
-
-### Syncing Across Machines
-
-**Machine 1:**
-```bash
-cd ~/projects/claude-devkit
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin <repo-url>
-git push -u origin main
-```
-
-**Machine 2+:**
-```bash
-cd ~/projects
-git clone <repo-url> claude-devkit
-cd claude-devkit
-./scripts/deploy.sh
-```
-
 ## Contributing
 
 Contributions welcome:
@@ -717,6 +670,13 @@ Contributions welcome:
 3. **Improve templates** — Enhance archetypes
 4. **Write tests** — Extend test suite
 5. **Submit PR** — Share improvements
+
+## Acknowledgments
+
+This project was inspired by and built on ideas from:
+
+- **[claude-code-superpowers](https://github.com/anthropics/claude-code-superpowers)** — Anthropic's skill patterns and workflow conventions for Claude Code
+- **[Swarm](https://github.com/openai/swarm)** — OpenAI's multi-agent orchestration framework, which informed the coordinator and delegation patterns
 
 ## License
 
@@ -728,12 +688,6 @@ MIT - Use freely in your projects
 - **Documentation:** See `CLAUDE.md` for detailed docs
 - **Examples:** Check `skills/` directory for working examples
 
-## Links
-
-- **Claude Code:** https://claude.ai/code
-- **Deployment:** `~/.claude/skills/`
-
 ---
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-09

@@ -18,7 +18,7 @@ Claude Devkit is the complete toolkit for building with Claude Code. It provides
 ### Required
 
 - **Python 3.8 or higher**
-- **Claude Code CLI** installed and configured
+- **[Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)** CLI installed and configured
 - **git**
 
 ### Recommended
@@ -30,7 +30,7 @@ Claude Devkit is the complete toolkit for building with Claude Code. It provides
 
 ```bash
 python3 --version  # Should be 3.8+
-claude-code --version
+claude --version
 git --version
 ```
 
@@ -39,8 +39,7 @@ git --version
 ### Step 1: Clone the Repository
 
 ```bash
-cd ~/projects
-git clone <your-repo-url> claude-devkit
+git clone https://github.com/backspace-shmackspace/claude-devkit.git
 cd claude-devkit
 ```
 
@@ -63,7 +62,7 @@ cd claude-devkit
 source ~/.zshrc  # or source ~/.bashrc
 ```
 
-### Step 3.5: Configure Model Aliases (Optional, Recommended for Vertex AI)
+### Step 3.5: Configure Model Aliases (Optional)
 
 Claude Code's Task tool uses short aliases (`opus`, `sonnet`, `haiku`) when spawning subagents. You can control which model IDs these aliases resolve to via environment variables:
 
@@ -97,7 +96,7 @@ which gen-agent
 which validate-skill
 
 # Should all return paths like:
-# /Users/yourname/workspaces/claude-devkit/generators/generate_skill.py
+# /home/yourname/projects/claude-devkit/generators/generate_skill.py
 ```
 
 ## Quick Start: Your First Skill (10 minutes)
@@ -126,7 +125,7 @@ ls ~/.claude/skills/
 cd ~/projects/my-app
 
 # Start Claude Code
-claude-code
+claude
 
 # Use /dream skill
 /dream add user authentication
@@ -201,7 +200,7 @@ cd ~/projects/claude-devkit
 ./scripts/deploy.sh hello-world
 
 # Test it
-claude-code
+claude
 /hello-world Claude
 ```
 
@@ -246,7 +245,7 @@ ls .claude/agents/
 
 ```bash
 # Start Claude Code
-claude-code
+claude
 
 # Use /ship skill (requires coder, code-reviewer, qa-engineer agents)
 /dream add README file
@@ -359,7 +358,7 @@ If you encounter issues, check these resources:
 
 **Solution:**
 1. Verify deployment: `ls ~/.claude/skills/<skill-name>/SKILL.md`
-2. Restart Claude Code: `/exit` then `claude-code`
+2. Restart Claude Code: `/exit` then `claude`
 3. Check frontmatter has correct `name:` field
 
 #### Generator commands not found
@@ -383,7 +382,7 @@ source ~/.zshrc
 **Solution:**
 1. Verify file exists: `ls .claude/agents/`
 2. Check filename matches pattern: `coder*.md`, `qa-engineer*.md`, `code-reviewer*.md`
-3. Restart Claude Code: `/exit` then `claude-code`
+3. Restart Claude Code: `/exit` then `claude`
 
 #### Permission denied on scripts
 
