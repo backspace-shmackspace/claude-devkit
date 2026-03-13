@@ -1,7 +1,7 @@
 # Claude Devkit
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-09
+**Last Updated:** 2026-03-12
 **Purpose:** Unified development toolkit for Claude Code - skills, agents, generators, and templates
 
 **New to Claude Devkit?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a 15-minute tutorial.
@@ -11,7 +11,7 @@
 Claude Devkit is the complete toolkit for building with Claude Code. It combines skill definitions, agent generators, templates, and reusable configurations into a single, version-controlled repository.
 
 **What's Inside:**
-- **Skills** — Reusable Claude Code workflows (`/dream`, `/ship`, `/audit`, `/sync`)
+- **Skills** — Reusable Claude Code workflows (`/dream`, `/ship`, `/retro`, `/audit`, `/sync`)
 - **Generators** — Scripts to create agents, skills, and project structures
 - **Templates** — Reusable templates for agents and skills
 - **Configs** — Shared configurations and patterns
@@ -26,6 +26,7 @@ claude-devkit/
 ├── skills/              # Tier 1: Core skill definitions (source of truth)
 │   ├── dream/           # Planning with approval gates
 │   ├── ship/            # Implementation pipeline
+│   ├── retro/           # Retrospective and learnings capture
 │   ├── audit/           # Security and performance scanning
 │   └── sync/            # Documentation synchronization
 │
@@ -605,6 +606,7 @@ Source of truth for **core skill definitions** (deployed to all users). Each ski
 skills/
 ├── dream/SKILL.md
 ├── ship/SKILL.md
+├── retro/SKILL.md
 ├── audit/SKILL.md
 ├── sync/SKILL.md
 ├── test-idempotent/SKILL.md
