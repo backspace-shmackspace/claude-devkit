@@ -1,7 +1,7 @@
 ---
 name: ship
 description: Execute an approved plan using unattended implementation and validation with worktree isolation.
-version: 3.3.0
+version: 3.4.0
 model: claude-opus-4-6
 ---
 # /ship Workflow
@@ -271,7 +271,10 @@ Hard rules:
 - Only modify files listed in your scope within {WORKTREE_PATH}.
 - Do not access files outside your worktree.
 - Follow the plan exactly. Do not expand scope.
-- If blocked on something you cannot resolve, write `BLOCKED.md` at {WORKTREE_PATH}/BLOCKED.md and stop."
+- If blocked on something you cannot resolve, write `BLOCKED.md` at {WORKTREE_PATH}/BLOCKED.md and stop.
+
+**Learnings (optional):**
+If the file `.claude/learnings.md` exists, read the `## Coder Patterns` section before starting implementation. Apply any relevant learnings to avoid known recurring issues. Do not mention the learnings file in your output — just apply the patterns silently."
 
 **After all coders finish:**
 
@@ -459,7 +462,11 @@ Write your review to `./plans/[name].code-review.md` with this structure:
 - **Minor findings** (optional — style, naming, minor improvements)
 - **Positives** (what was done well)
 
-A PASS verdict means no Critical or Major findings remain."
+A PASS verdict means no Critical or Major findings remain.
+
+**Learnings (optional):**
+If the file `.claude/learnings.md` exists, read the `## Coder Patterns > ### Missed by coders, caught by reviewers` section. Explicitly verify that none of these known coder mistakes are present in the implementation. If you find a known pattern, reference it in your findings.
+Also read `## Reviewer Patterns > ### Overcorrected` to avoid flagging known false positives."
 
 ### 4b — Run tests
 
@@ -487,7 +494,10 @@ Write `./plans/[name].qa-report.md` with:
 - **Verdict:** PASS / PASS_WITH_NOTES / FAIL
 - **Acceptance criteria coverage** (checklist: criterion → met/not met)
 - **Missing tests or edge cases**
-- **Notes** (for PASS_WITH_NOTES — non-blocking observations)"
+- **Notes** (for PASS_WITH_NOTES — non-blocking observations)
+
+**Learnings (optional):**
+If the file `.claude/learnings.md` exists, read the `## QA Patterns` and `## Test Patterns` sections. Verify that known recurring coverage gaps are addressed in this implementation. If you find a known gap, reference it in your report."
 
 ### Result evaluation
 
@@ -595,6 +605,12 @@ Read `./plans/[name].qa-report.md`. Check the verdict.
 4. Clean up artifacts:
    - Tool: `Bash`
    - Command: `mkdir -p ./plans/archive/[name] && mv ./plans/[name].code-review.md ./plans/[name].qa-report.md ./plans/archive/[name]/ && if [ -f ./plans/[name].feasibility.md ]; then mv ./plans/[name].feasibility.md ./plans/archive/[name]/; fi`
+   - Then, archive test failure log if it exists:
+     ```bash
+     if [ -f "./plans/[name].test-failure.log" ]; then
+       mv "./plans/[name].test-failure.log" "./plans/archive/[name]/"
+     fi
+     ```
 
 5. Output success message:
    - "✅ Implementation complete and committed.
@@ -605,3 +621,83 @@ Read `./plans/[name].qa-report.md`. Check the verdict.
 - Do NOT commit.
 - Output: "❌ QA validation failed. See `./plans/[name].qa-report.md`."
 - Stop the workflow.
+
+## Step 7 — Retro capture (post-commit, non-blocking)
+
+**Trigger:** Step 6 committed successfully (PASS or PASS_WITH_NOTES verdict).
+If Step 6 did not commit (FAIL), skip Step 7 entirely.
+
+**This step is non-blocking.** If it fails for any reason, log the error and report success from Step 6. The commit is already done — Step 7 is best-effort learning capture.
+
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+
+Prompt:
+"You are extracting learnings from a completed /ship run.
+
+Read the archived review artifacts using glob-based discovery:
+- `./plans/archive/[name]/*.code-review.md`
+- `./plans/archive/[name]/*.qa-report.md`
+
+If any test failure logs exist, also read:
+- `./plans/archive/[name]/*.test-failure.log`
+
+Read each file in its entirety. Extract findings regardless of the specific section header format used. Look for issues by severity, positive observations, coverage gaps, and test failures regardless of how the document is structured.
+
+Read the existing learnings file (if it exists):
+- `.claude/learnings.md`
+
+**Your task:**
+
+1. From the code review, extract:
+   - Any Critical or Major findings (these are things the coder missed). Rate each: Critical / High / Medium / Low.
+   - Any Minor findings that represent a recurring pattern (check if similar issues exist in learnings.md)
+   - Positives are informational only — do not write them to learnings
+
+2. From the QA report, extract:
+   - Missing tests or edge cases. Rate each: Critical / High / Medium / Low.
+   - Acceptance criteria that were not fully met
+
+3. From test failures (if any), extract:
+   - Failure categories (what type of test failed and why). Rate each: Critical / High / Medium / Low.
+
+4. **Deduplication:** For each finding:
+   - Check if an existing learning in `.claude/learnings.md` describes the same underlying issue (same root cause, same actor, same category)
+   - If it does: update the date to today and append `[name]` to the `Seen in:` list using the Edit tool
+   - If it is a new issue: append as a new entry under the appropriate section
+
+5. **Write learnings:**
+   - If `.claude/learnings.md` does not exist, create it with the standard header and sections
+   - Use this format for each entry:
+     `- **[YYYY-MM-DD] [Pattern Title]** — [Description]. Seen in: [feature-list]. #category #tags`
+   - Place entries under the correct section based on source:
+     - Code review Critical/Major findings -> `## Coder Patterns > ### Missed by coders, caught by reviewers`
+     - QA missing coverage -> `## QA Patterns > ### Coverage gaps`
+     - Test failures -> `## Test Patterns > ### Common failures`
+   - Update the `Last updated:` timestamp in the header
+
+6. **Report** what you wrote (or that no new learnings were found) to stdout. Do NOT write any report files — just output a summary."
+
+**After Task completes:**
+
+Tool: `Bash`
+
+Auto-commit the learnings file if it was modified:
+```bash
+if git diff --name-only -- .claude/learnings.md | grep -q .; then
+  git add .claude/learnings.md
+  git commit -m "chore: update project learnings from /ship run"
+elif git ls-files --others --exclude-standard -- .claude/learnings.md | grep -q .; then
+  git add .claude/learnings.md
+  git commit -m "chore: add project learnings from /ship run"
+fi
+```
+
+If the commit fails, log the error but do not fail the step.
+
+If Task succeeded, output:
+"Retro capture complete. See `.claude/learnings.md` for updated project learnings."
+
+If Task failed, output:
+"Retro capture skipped (non-blocking). The commit from Step 6 is unaffected.
+Error: [Task error message]
+Run `/retro` manually to capture learnings."

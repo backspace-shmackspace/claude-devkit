@@ -47,14 +47,15 @@ cd ~/projects/claude-devkit
 
 ## What's Included
 
-### Skills (6)
+### Skills (7)
 
 Pre-built workflows for common development tasks:
 
 | Skill | Purpose | Usage |
 |-------|---------|-------|
 | `/dream` | Create implementation plans with context alignment and approval gates | `/dream add shopping cart` |
-| `/ship` | Execute plans with pattern validation, testing, and QA | `/ship plans/feature.md` |
+| `/ship` | Execute plans with pattern validation, testing, QA, and retro capture | `/ship plans/feature.md` |
+| `/retro` | Mine review artifacts for recurring patterns and capture learnings | `/retro` or `/retro feature-name` |
 | `/audit` | Security and performance scanning | `/audit` or `/audit code` |
 | `/sync` | Update documentation and CLAUDE.md | `/sync` or `/sync full` |
 | `/test-idempotent` | Test skill idempotency and determinism | `/test-idempotent my-skill` |
@@ -547,6 +548,7 @@ claude-devkit/
 ├── skills/                    # Skill definitions (source of truth)
 │   ├── dream/SKILL.md         # Planning with approval gates
 │   ├── ship/SKILL.md          # Implementation pipeline
+│   ├── retro/SKILL.md         # Retrospective and learnings capture
 │   ├── audit/SKILL.md         # Security and performance
 │   └── sync/SKILL.md          # Documentation sync
 │

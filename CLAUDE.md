@@ -1,7 +1,7 @@
 # Claude Devkit
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-09
+**Last Updated:** 2026-03-12
 **Purpose:** Unified development toolkit for Claude Code - skills, agents, generators, and templates
 
 **New to Claude Devkit?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a 15-minute tutorial.
@@ -11,7 +11,7 @@
 Claude Devkit is the complete toolkit for building with Claude Code. It combines skill definitions, agent generators, templates, and reusable configurations into a single, version-controlled repository.
 
 **What's Inside:**
-- **Skills** — Reusable Claude Code workflows (`/dream`, `/ship`, `/audit`, `/sync`)
+- **Skills** — Reusable Claude Code workflows (`/dream`, `/ship`, `/retro`, `/audit`, `/sync`)
 - **Generators** — Scripts to create agents, skills, and project structures
 - **Templates** — Reusable templates for agents and skills
 - **Configs** — Shared configurations and patterns
@@ -26,6 +26,7 @@ claude-devkit/
 ├── skills/              # Tier 1: Core skill definitions (source of truth)
 │   ├── dream/           # Planning with approval gates
 │   ├── ship/            # Implementation pipeline
+│   ├── retro/           # Retrospective and learnings capture
 │   ├── audit/           # Security and performance scanning
 │   └── sync/            # Documentation synchronization
 │
@@ -82,7 +83,8 @@ Deploy and use in Claude Code
 | Skill | Version | Purpose | Model | Steps |
 |-------|---------|---------|-------|-------|
 | **dream** | 3.0.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Context alignment and metadata in output. Auto-commits artifacts on verdict. | opus-4-6 | 6 |
-| **ship** | 3.3.0 | Pre-flight check → Read plan → Pattern validation (warnings) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate. Structural conflict prevention. | opus-4-6 | 7 |
+| **ship** | 3.4.0 | Pre-flight check → Read plan → Pattern validation (warnings) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate → Retro capture. Structural conflict prevention. Learnings consumption. | opus-4-6 | 8 |
+| **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
 | **audit** | 3.0.0 | Scope detection (plan/code/full) → Security scan (security-analyst agent or Task subagent) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. | opus-4-6 | 6 |
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-5 | 6 |
 | **test-idempotent** | 1.0.1 | Test skill idempotency and determinism. Runs skill multiple times, validates consistent outputs, reports variances. | opus-4-6 | 7 |
@@ -528,15 +530,23 @@ Tool: Bash (git worktree remove, delete temp files)
 ├── audit-[timestamp].performance.md       # Performance scan results
 ├── audit-[timestamp].qa.md                # QA regression results
 ├── sync-[timestamp].review.md             # Documentation reviews
+├── retro-[timestamp].coder-scan.md        # Coder calibration scan (from /retro)
+├── retro-[timestamp].reviewer-scan.md     # Reviewer calibration scan (from /retro)
+├── retro-[timestamp].test-scan.md         # Test pattern scan (from /retro)
+├── retro-[timestamp].summary.md           # Retro summary with verdict
 └── archive/
     ├── [feature]/
     │   ├── [feature].code-review.md       # Code review (from /ship)
     │   └── [feature].qa-report.md         # QA report (from /ship)
     ├── sync/
     │   └── sync-[timestamp].review.md     # Archived sync reviews
-    └── audit/
-        └── audit-[timestamp]/             # Archived audit reports
+    ├── audit/
+    │   └── audit-[timestamp]/             # Archived audit reports
+    └── retro/
+        └── retro-[timestamp]/             # Archived retro reports
 ```
+
+`.claude/learnings.md` — Project-level learnings (lives outside `./plans/`, created by `/retro` and `/ship` Step 7)
 
 ## Development Rules
 
@@ -576,6 +586,7 @@ Source of truth for **core skill definitions** (deployed to all users). Each ski
 skills/
 ├── dream/SKILL.md
 ├── ship/SKILL.md
+├── retro/SKILL.md
 ├── audit/SKILL.md
 ├── sync/SKILL.md
 ├── test-idempotent/SKILL.md
