@@ -1,4 +1,4 @@
-# Plan: Agentic SDLC Security Skills for Red Hat Development Teams
+# Plan: Agentic SDLC Security Skills
 
 ## Revision Log
 
@@ -6,10 +6,11 @@
 |-----|------|---------|---------|
 | 1 | 2026-03-23 | Initial draft | Original plan submitted for review |
 | 2 | 2026-03-23 | Red team FAIL (C1, M1-M7, STRIDE findings) + Feasibility major findings (M1-M5) + Librarian required edits | **C1:** Reframed `/dependency-audit` as CLI scanner coordinator, not LLM CVE lookup. **M1:** Added composability model -- `/secure-review` is a building block invoked by `/audit`. **M2:** Removed inline secrets patterns from `/ship`; delegates to `/secrets-scan` skill or skips. **M4:** Scoped `/compliance-check` to code-level signals with explicit Limitations section. **M5:** Added Security Maturity Levels (advisory/enforced/audited). **M7:** Split into 3 independent phases (A/B/C) each separately plannable. **STRIDE:** Added prompt injection countermeasures, secret redaction in reports, `--security-override` flag. **Feasibility M4:** Added `attribution` field to `threat-model-gate`. **Librarian:** Added Steps column, full model identifiers note, SBOM non-goal clarification. |
+| 3 | 2026-03-25 | OSS migration — repo moved to GitHub (backspace-shmackspace/claude-devkit) | Removed all platform-specific (Red Hat) content. Plan now covers generic security skills only. Platform-specific config (`redhat-security.json`), platform-specific agent template subsections, and platform-specific generator detection removed from scope — can be contributed separately. No architectural changes to the 5 security skills, maturity levels, or workflow integration. |
 
 ## Context
 
-Red Hat development teams need security embedded at every stage of the agentic SDLC pipeline -- not bolted on at the end. This plan adds a layered security stack to claude-devkit: new skills for secrets scanning, dependency auditing, semantic security review, threat model enforcement, and compliance validation; plus guardrails that weave these checks into the existing `/ship` and `/dream` workflows automatically.
+Development teams using claude-devkit need security embedded at every stage of the agentic SDLC pipeline -- not bolted on at the end. This plan adds a layered security stack to claude-devkit: new skills for secrets scanning, dependency auditing, semantic security review, threat model enforcement, and compliance validation; plus guardrails that weave these checks into the existing `/ship` and `/dream` workflows automatically.
 
 The existing codebase already has foundational security components:
 - `/audit` skill (v3.0.0) -- security + performance scanning with verdict gates
@@ -29,7 +30,7 @@ This plan extends those foundations into a complete security mesh that covers pr
 ### Key Drivers
 
 1. **Shift-left security** -- Catch issues at planning and coding time, not production
-2. **Red Hat compliance** -- FedRAMP, FIPS 140-3, SELinux, UBI, OpenShift SCC are non-negotiable for Red Hat products
+2. **Regulatory compliance** -- FedRAMP, FIPS 140-3, OWASP, SOC 2 are common requirements across regulated industries
 3. **Low friction** -- Security checks must not break developer flow; blocking only on Critical findings
 4. **Composability** -- Each skill works standalone AND as a gate within `/ship` or `/dream`. `/secure-review` is a composable building block that `/audit` can invoke as its security scan.
 5. **Existing pattern compliance** -- All new skills must follow v2.0.0 skill patterns (11 architectural patterns)
@@ -41,7 +42,6 @@ This plan extends those foundations into a complete security mesh that covers pr
 |----------|----------|----------|--------|-----------|
 | New skills vs. extend `/audit` | Add dedicated skills | Extend audit with more scan types | **Option A** | Each concern (secrets, deps, compliance) has different invocation patterns, scopes, and update cadences. Monolithic `/audit` would become unwieldy. |
 | Core vs. contrib placement | Place in `skills/` (core) | Place in `contrib/` (optional) | **Option A** | Security skills are universal, not user-specific. They have no external prerequisites like `~/journal/`. |
-| Red Hat config: separate file vs. extend security.json | New `redhat-security.json` | Extend existing `security.json` | **Option A** | Keeps generic security config clean. Red Hat teams select `redhat-security.json` during agent generation. Other teams keep using `security.json`. |
 | `/ship` integration: parallel vs. sequential | Run security checks in parallel with existing Step 4 | Add sequential security gates | **Option A** | Parallel execution preserves `/ship` latency. Security scan at Step 0 (secrets) is fast and sequential; semantic review at Step 4 runs parallel with existing code review. |
 | Threat model gate: skill vs. step in `/dream` | Standalone Reference skill | Add step to `/dream` workflow | **Both** | Reference skill provides behavioral constraints always. `/dream` Step 3 gets optional security-analyst invocation (already partially implemented). |
 | `/dependency-audit` data source | LLM-based CVE lookup | Wrapper around real CLI scanners | **Option B** | LLM training data has a cutoff and cannot detect post-cutoff CVEs. Real scanners (`npm audit`, `pip-audit`, `cargo audit`, `govulncheck`, `safety`) use live databases. The skill orchestrates real tools and synthesizes their output. |
@@ -53,7 +53,7 @@ This plan extends those foundations into a complete security mesh that covers pr
 - All skills pass `validate-skill` (v2.0.0 patterns)
 - All skills deployable via existing `deploy.sh`
 - No breaking changes to existing skill interfaces
-- Red Hat-specific features isolated in config, not hardcoded in skills
+- Platform-specific features isolated in tech stack configs, not hardcoded in skills
 - Agent templates backward-compatible (new sections are additive)
 - All new skill frontmatter must use the full model identifier (e.g., `model: claude-opus-4-6`, `model: claude-sonnet-4-5`), not the abbreviated form used in registry tables
 
@@ -62,24 +62,21 @@ This plan extends those foundations into a complete security mesh that covers pr
 1. Deploy existing security components (audit, security-analyst, receiving-code-review) as the baseline security layer
 2. Build 5 new security skills: `/secure-review`, `/dependency-audit`, `/secrets-scan`, `threat-model-gate`, `/compliance-check`
 3. Embed security gates into `/ship` and `/dream` workflows
-4. Add Red Hat-specific security configuration (FIPS, SELinux, UBI, OpenShift, Sigstore)
-5. Add security awareness to coder and qa-engineer agent templates
-6. Create CLAUDE.md security section template for project bootstrapping
+4. Add security awareness to coder and qa-engineer agent templates
+5. Create CLAUDE.md security section template for project bootstrapping
 
 ## Non-Goals
 
 - Runtime security monitoring or SIEM integration
-- Container image scanning (handled by OpenShift/Quay pipelines)
+- Container image scanning (handled by platform-specific CI/CD pipelines)
 - Automated vulnerability remediation (skills report, humans fix)
 - Replacing existing CI/CD security tools (complement, not replace)
-- SBOM generation (skills will not generate SBOMs; `redhat-security.json` documents ecosystem tools like `syft` for reference only)
+- SBOM generation (skills report on dependencies, not generate SBOMs)
 - Penetration testing or active exploitation
 
 ## Assumptions
 
 1. Development teams already have Claude Code installed and use claude-devkit skills
-2. Teams have access to standard Red Hat tooling (podman, oc, rpm) in their environments
-3. FIPS mode can be detected at the OS level (`/proc/sys/crypto/fips_enabled` or `fips-mode-setup --check`)
 4. Security-analyst agent template at `templates/agents/security-analyst.md.template` is the canonical source for threat modeling frameworks
 5. The `security.json` tech stack config provides the baseline security tooling definitions
 6. Skill generator (`generate_skill.py`) will be used for initial scaffolding but skills will be fully hand-authored for production quality
@@ -228,12 +225,6 @@ This composability eliminates the overlap concern: `/secure-review` is a buildin
 3. **OWASP scan** -- Top 10 compliance with evidence
 4. **SOC 2 scan** -- Code-level security controls, logging, error handling, data protection patterns
 
-**Red Hat specifics:**
-- FIPS: Check for `hashlib.md5` (disallowed in FIPS mode), verify `cryptography` library FIPS configuration
-- SELinux: Verify SELinux context awareness in containerized deployments
-- UBI: Check Dockerfile/Containerfile for UBI base image usage
-- OpenShift SCC: Validate security context constraints (no root, read-only root filesystem)
-
 **Required output section -- Limitations:**
 
 Every `/compliance-check` report MUST include a "Limitations" section:
@@ -264,7 +255,7 @@ are NOT verifiable from source code analysis and require separate verification:
 **This report is a development aid, not a compliance certification.**
 ```
 
-**Framework parameter validation:** Unknown framework names produce an error: "Unknown framework: [name]. Supported: fedramp, fips, owasp, soc2." NIST 800-53 is listed in `redhat-security.json` for reference but is not a supported scan target in v1.0.0.
+**Framework parameter validation:** Unknown framework names produce an error: "Unknown framework: [name]. Supported: fedramp, fips, owasp, soc2."
 
 ### Tier 3: Guardrail Integration
 
@@ -330,7 +321,7 @@ When L2 is active, `/ship` Step 0 checks:
 2. Is `/secure-review` deployed? If not, abort with similar message.
 3. Is `/dependency-audit` deployed? If not, abort with similar message.
 
-**Graduation path:** Teams start at L1 (zero friction). As security culture matures, team leads enable L2 in project settings. For regulated products (FedRAMP, SOC2), L3 provides the audit trail needed for compliance evidence.
+**Graduation path:** Teams start at L1 (zero friction). As security culture matures, leads enable L2 in project settings. For regulated products requiring compliance evidence (FedRAMP, SOC2, etc.), L3 provides the audit trail.
 
 #### `/dream` Modifications (v3.1.0)
 
@@ -375,12 +366,6 @@ This change is backward-compatible: `/audit` works identically whether `/secure-
 - Use framework-provided CSRF protections
 - Never log sensitive data (passwords, tokens, PII)
 - Use constant-time comparison for secrets
-
-## Red Hat Specific (when applicable)
-- Use FIPS-approved cryptographic algorithms
-- Set SELinux contexts for file operations
-- Use UBI base images for containers
-- Follow OpenShift SCC constraints (non-root, read-only rootfs)
 ```
 
 **qa-engineer-specialist.md.template** -- Add security testing section (insert after `# Specialist Context Injection` and before `# Conflict Resolution`):
@@ -423,74 +408,9 @@ New template at `templates/claude-md-security-section.md.template`:
 - Dependencies audited weekly (`/dependency-audit`)
 - Threat model updated with each major feature (`threat-model-gate`)
 
-### Red Hat Specific
-- FIPS: [enabled/disabled, crypto library configuration]
-- SELinux: [enforcing/permissive, custom policies]
-- Container base: [UBI version]
-- OpenShift SCC: [restricted/baseline/privileged]
-```
-
-### Red Hat Configuration
-
-New config file at `configs/tech-stack-definitions/redhat-security.json`:
-
-```json
-{
-  "language": "Python 3.11+ / Go 1.21+ / Java 17+",
-  "framework": "Red Hat security-hardened stack",
-  "based_on": "security.json (reference only, not runtime inheritance)",
-  "red_hat_requirements": {
-    "fips_140_3": {
-      "enabled": true,
-      "approved_algorithms": ["AES-128", "AES-256", "SHA-256", "SHA-384", "SHA-512", "RSA-2048+", "ECDSA-P256+"],
-      "prohibited": ["MD5", "SHA-1 (signing)", "DES", "3DES", "RC4", "Blowfish"],
-      "libraries": {
-        "python": "cryptography (with OpenSSL FIPS provider)",
-        "go": "crypto/tls (with GOFLAGS=-tags=boringcrypto)",
-        "java": "JCE with FIPS-certified provider"
-      },
-      "detection": "fips-mode-setup --check || cat /proc/sys/crypto/fips_enabled"
-    },
-    "selinux": {
-      "mode": "enforcing",
-      "custom_policies": "Use semanage for custom contexts",
-      "container_context": "container_t or container_file_t"
-    },
-    "ubi_base_images": {
-      "minimal": "registry.access.redhat.com/ubi9/ubi-minimal",
-      "standard": "registry.access.redhat.com/ubi9/ubi",
-      "micro": "registry.access.redhat.com/ubi9/ubi-micro",
-      "init": "registry.access.redhat.com/ubi9/ubi-init"
-    },
-    "openshift_scc": {
-      "default": "restricted-v2",
-      "requirements": [
-        "runAsNonRoot: true",
-        "allowPrivilegeEscalation: false",
-        "readOnlyRootFilesystem: true",
-        "drop ALL capabilities"
-      ]
-    },
-    "supply_chain": {
-      "signing": "Sigstore cosign for container images",
-      "attestation": "SLSA Level 3 provenance",
-      "sbom_tooling": "SPDX or CycloneDX format (via syft -- not generated by claude-devkit skills)",
-      "registry": "Quay.io with vulnerability scanning"
-    }
-  },
-  "tools": [
-    "bandit (Python security linter)",
-    "safety (Python dependency scanner)",
-    "gosec (Go security linter)",
-    "trivy (container vulnerability scanner)",
-    "cosign (Sigstore container signing)",
-    "syft (SBOM generator -- ecosystem reference, not invoked by skills)",
-    "grype (vulnerability scanner)",
-    "oc adm policy (OpenShift SCC validation)"
-  ],
-  "compliance_frameworks": ["FedRAMP Moderate", "FIPS 140-3", "OWASP Top 10 2021", "SOC 2 Type II", "NIST 800-53"],
-  "last_reviewed": "2026-03-23"
-}
+### Platform Specific
+[Add platform-specific security requirements here if applicable,
+e.g., FIPS crypto, container base images, security context constraints]
 ```
 
 ## Interfaces / Schema Changes
@@ -506,10 +426,10 @@ Add security-related variants to `configs/agent-patterns.json`:
 ```json
 {
   "coder": {
-    "variants": ["security", "frontend", "python", "typescript", "redhat-security"]
+    "variants": ["security", "frontend", "python", "typescript"]
   },
   "qa-engineer": {
-    "variants": ["security", "frontend", "python", "redhat-security"]
+    "variants": ["security", "frontend", "python"]
   }
 }
 ```
@@ -517,12 +437,6 @@ Add security-related variants to `configs/agent-patterns.json`:
 ### Skill Patterns Config
 
 No changes to `configs/skill-patterns.json`. All new skills conform to existing patterns.
-
-### Generator Changes
-
-Add `redhat-security` to the tech stack detection in `generate_agents.py`:
-- Detect Red Hat project markers: `Containerfile` with UBI base, `.tekton/` directory, `openshift/` directory, `fips` references in config
-- When detected, use `redhat-security.json` instead of `security.json` for tech stack content injection
 
 ### CLAUDE.md Registry Updates
 
@@ -548,7 +462,7 @@ This plan is split into **3 independent phases** (A, B, C) that can each be `/dr
 
 Build the 5 new security skills. Each skill is independent and deployable standalone. No modifications to existing skills (`/ship`, `/dream`, `/audit`).
 
-**Scope:** 5 new skill files + 1 config file
+**Scope:** 5 new skill files
 **Duration:** 2-3 sessions
 **Risk:** Medium (new code, but follows established patterns)
 **Rollback:** Remove skill directory, redeploy
@@ -583,9 +497,9 @@ Update agent templates, add CLAUDE.md security template, update CLAUDE.md regist
 | False positives in `/secrets-scan` block developers | Medium | Medium | Pattern-based detection only in v1.0.0 (entropy analysis deferred to v1.1.0). Test fixtures and documentation patterns excluded. BLOCKED verdict only for high-confidence matches. `--security-override` flag available as escape valve. |
 | `/dependency-audit` scanner not installed | High | Medium | Skill reports `INCOMPLETE` verdict with installation instructions, not a false PASS. Teams using `/dependency-audit` are told exactly which scanner to install for their ecosystem. |
 | Compliance framework definitions become stale | High | Medium | Compliance rules are in-skill (readable, editable). `last_reviewed` date field in config. Future: add staleness warning when `last_reviewed` > 6 months old. |
-| Red Hat config exposes internal tooling expectations | Low | Low | Config file describes tools generically. No proprietary tool invocations. Teams configure their own tool availability. |
+| Security skills may not cover all compliance frameworks | Low | Low | Skills cover the 4 most common frameworks (FedRAMP, FIPS, OWASP, SOC 2). Custom frameworks can be added to future versions. |
 | Security skills slow down `/ship` pipeline | Medium | Medium | Secrets scan at Step 0 delegates to Task subagent (fast pattern matching). Secure review runs parallel with existing reviews (no added latency). Dependency audit runs only at commit gate (one-time cost). |
-| Teams skip security by not deploying security skills | Medium | High | Security Maturity Levels provide graduation path. L1 (default) is advisory. L2 (enforced) requires deployment. Team security policies mandate L2 for regulated products. `/ship` logs notes when skills are missing at L1. |
+| Teams skip security by not deploying security skills | Medium | High | Security Maturity Levels provide graduation path. L1 (default) is advisory. L2 (enforced) requires deployment. `/ship` logs notes when skills are missing at L1. |
 | Threat model gate triggers too aggressively | Low | Low | Reference archetype is description-triggered, not always-on. Clear scoping criteria in the skill definition. |
 | Prompt injection in code comments defeats security review | Medium | High | `/secure-review` and `security-analyst` agent template include explicit counter-instructions: ignore `#nosec`, `@SuppressWarnings`, `// NOSONAR`, and comments claiming prior approval. Evaluate actual behavior, not annotations. |
 | Security scan reports leak actual secret values | Medium | High | All security scan skills include mandatory redaction rules: never include actual secret values in reports. Show type + file path + line number only. Redact to first 4 / last 4 characters. |
@@ -619,9 +533,6 @@ ls -la ~/.claude/skills/dependency-audit/SKILL.md
 ls -la ~/.claude/skills/secrets-scan/SKILL.md
 ls -la ~/.claude/skills/threat-model-gate/SKILL.md
 ls -la ~/.claude/skills/compliance-check/SKILL.md
-
-# Validate JSON config
-python3 -c "import json; json.load(open('configs/tech-stack-definitions/redhat-security.json'))"
 
 # Validate agent patterns config
 python3 -c "import json; json.load(open('configs/agent-patterns.json'))"
@@ -667,7 +578,6 @@ cd /Users/imurphy/projects/claude-devkit && bash generators/test_skill_generator
 - [ ] `/ship` respects security maturity levels (L1 advisory, L2 enforced)
 - [ ] `/ship --security-override` downgrades BLOCKED to PASS_WITH_NOTES with documented reason
 - [ ] `/audit` delegates to `/secure-review` when deployed, uses built-in scan when not
-- [ ] `redhat-security.json` is valid JSON and loadable by generators
 - [ ] Agent templates include security awareness sections (inserted between Specialist Context Injection and Conflict Resolution)
 - [ ] CLAUDE.md skill registry updated with all new skills (including Steps column)
 - [ ] Full test suite (`test_skill_generator.sh`) passes
@@ -683,7 +593,6 @@ cd /Users/imurphy/projects/claude-devkit && bash generators/test_skill_generator
 | 3 | `skills/secrets-scan/SKILL.md` | Pre-commit secrets detection skill (Pipeline archetype) |
 | 4 | `skills/threat-model-gate/SKILL.md` | Threat modeling discipline (Reference archetype) |
 | 5 | `skills/compliance-check/SKILL.md` | Code-level compliance signal validation skill (Scan archetype) |
-| 6 | `configs/tech-stack-definitions/redhat-security.json` | Red Hat security configuration |
 
 ### Files to Create (Phase C)
 
@@ -705,16 +614,12 @@ cd /Users/imurphy/projects/claude-devkit && bash generators/test_skill_generator
 |---|------|--------|
 | 11 | `templates/agents/coder-specialist.md.template` | Add "Security Awareness" section with secure coding standards |
 | 12 | `templates/agents/qa-engineer-specialist.md.template` | Add "Security Testing" section with security test requirements |
-| 13 | `configs/agent-patterns.json` | Add `redhat-security` variant to coder and qa-engineer agent types |
+| 13 | `configs/agent-patterns.json` | Add `security` variant to coder and qa-engineer agent types |
 | 14 | `CLAUDE.md` | Update skill registry with new skills, add security config to template registry, update version numbers for ship/dream/audit |
 
 ## Work Groups
 
 ### Phase A Work Groups
-
-#### Shared Dependencies (implement first)
-
-- `configs/tech-stack-definitions/redhat-security.json` (compliance-check and agent templates reference it)
 
 #### Work Group A1: Scan Archetype Skills
 
@@ -767,14 +672,9 @@ Registry updates. Implement last, after all skills and templates are finalized.
 
 ### Phase A: Security Skills
 
-#### Step A0: Shared Dependencies
-
-1. [ ] Create `configs/tech-stack-definitions/redhat-security.json` with FIPS, SELinux, UBI, OpenShift SCC, Sigstore/SLSA configuration, `last_reviewed` date field, and `based_on` (not `extends`) reference to security.json
-2. [ ] Validate JSON: `python3 -c "import json; json.load(open('configs/tech-stack-definitions/redhat-security.json'))"`
-
 #### Step A1: Scan Archetype Skills (Work Group A1)
 
-3. [ ] Create `skills/secure-review/SKILL.md` following Scan archetype (see Proposed Design section above for full specification)
+1. [ ] Create `skills/secure-review/SKILL.md` following Scan archetype (see Proposed Design section above for full specification)
    - Frontmatter: `model: claude-opus-4-6`
    - Scopes: `changes`, `pr`, `full`
    - 3 parallel scans: vulnerability, data flow, auth/authz
@@ -783,22 +683,21 @@ Registry updates. Implement last, after all skills and templates are finalized.
    - Include report redaction rules (no actual secret values in output)
    - Verdict: PASS / PASS_WITH_NOTES / BLOCKED
    - Archive to `./plans/archive/secure-review/[timestamp]/`
-4. [ ] Validate: `python3 generators/validate_skill.py skills/secure-review/SKILL.md`
-5. [ ] Create `skills/compliance-check/SKILL.md` following Scan archetype
+2. [ ] Validate: `python3 generators/validate_skill.py skills/secure-review/SKILL.md`
+3. [ ] Create `skills/compliance-check/SKILL.md` following Scan archetype
    - Frontmatter: `model: claude-opus-4-6`
    - Inputs: framework name(s) -- `fedramp`, `fips`, `owasp`, `soc2`
    - Error handling for unknown framework names
    - Parallel scan per framework
    - Scope each scan to "code-level signals" only
    - **REQUIRED:** Include Limitations section in output format (see Proposed Design)
-   - Reference `redhat-security.json` for Red Hat-specific compliance rules
    - Verdict: PASS / PASS_WITH_NOTES / BLOCKED
    - Archive to `./plans/archive/compliance-check/[timestamp]/`
-6. [ ] Validate: `python3 generators/validate_skill.py skills/compliance-check/SKILL.md`
+4. [ ] Validate: `python3 generators/validate_skill.py skills/compliance-check/SKILL.md`
 
 #### Step A2: Pipeline Archetype Skills (Work Group A2)
 
-7. [ ] Create `skills/dependency-audit/SKILL.md` following Pipeline archetype
+5. [ ] Create `skills/dependency-audit/SKILL.md` following Pipeline archetype
    - Frontmatter: `model: claude-sonnet-4-5`
    - **Step 0:** Auto-detect manifest type AND check scanner availability via `which <scanner>` (Bash tool)
    - **Step 1:** Read and parse manifest
@@ -810,8 +709,8 @@ Registry updates. Implement last, after all skills and templates are finalized.
    - **Step 7:** Verdict gate
    - **When no scanner available:** Verdict = `INCOMPLETE - no scanner available for [ecosystem]`. Must NOT report PASS. May still run Steps 4-5.
    - Archive at final step
-8. [ ] Validate: `python3 generators/validate_skill.py skills/dependency-audit/SKILL.md`
-9. [ ] Create `skills/secrets-scan/SKILL.md` following Pipeline archetype
+6. [ ] Validate: `python3 generators/validate_skill.py skills/dependency-audit/SKILL.md`
+7. [ ] Create `skills/secrets-scan/SKILL.md` following Pipeline archetype
     - Frontmatter: `model: claude-sonnet-4-5`
     - Scopes: `staged`, `all`, `history`
     - Pattern library: AWS keys (AKIA...), GitHub tokens (ghp_...), generic passwords, private keys (BEGIN RSA/EC/OPENSSH), connection strings, JWT tokens
@@ -820,31 +719,31 @@ Registry updates. Implement last, after all skills and templates are finalized.
     - Report redaction: never include actual secret values, show type + path + line only
     - BLOCKED on any confirmed secret (zero tolerance)
     - Archive at final step
-10. [ ] Validate: `python3 generators/validate_skill.py skills/secrets-scan/SKILL.md`
+8. [ ] Validate: `python3 generators/validate_skill.py skills/secrets-scan/SKILL.md`
 
 #### Step A3: Reference Archetype Skill (Work Group A3)
 
-11. [ ] Create `skills/threat-model-gate/SKILL.md` following Reference archetype
+9. [ ] Create `skills/threat-model-gate/SKILL.md` following Reference archetype
     - Frontmatter: `type: reference`, `model: claude-sonnet-4-5`, `attribution: Original work, claude-devkit project`
     - Core Principle: "Every feature touching user data, authentication, or system boundaries requires explicit threat modeling"
     - STRIDE quick-reference checklist
     - Security requirements template for plans
     - Anti-patterns section
     - When-to-activate guidance (authentication, authorization, data handling, cryptography, network, API design)
-12. [ ] Validate: `python3 generators/validate_skill.py skills/threat-model-gate/SKILL.md`
+10. [ ] Validate: `python3 generators/validate_skill.py skills/threat-model-gate/SKILL.md`
 
 #### Step A4: Phase A Verification
 
-13. [ ] Deploy Phase A skills: `cd /Users/imurphy/projects/claude-devkit && ./scripts/deploy.sh`
-14. [ ] Verify deployment: `ls ~/.claude/skills/ | sort`
-15. [ ] Run manual tests 1-7 from Test Plan
-16. [ ] Commit Phase A: `git add skills/secure-review skills/dependency-audit skills/secrets-scan skills/threat-model-gate skills/compliance-check configs/tech-stack-definitions/redhat-security.json`
+11. [ ] Deploy Phase A skills: `cd /Users/imurphy/projects/claude-devkit && ./scripts/deploy.sh`
+12. [ ] Verify deployment: `ls ~/.claude/skills/ | sort`
+13. [ ] Run manual tests 1-7 from Test Plan
+14. [ ] Commit Phase A: `git add skills/secure-review skills/dependency-audit skills/secrets-scan skills/threat-model-gate skills/compliance-check`
 
 ### Phase B: Guardrails and Integration (depends on Phase A)
 
 #### Step B1: Workflow Integration (Work Group B1)
 
-17. [ ] Modify `skills/ship/SKILL.md` (version bump to 3.4.0):
+15. [ ] Modify `skills/ship/SKILL.md` (version bump to 3.4.0):
     - **Step 0 addition:** After existing pre-flight checks, add secrets scan gate:
       - Glob for `~/.claude/skills/secrets-scan/SKILL.md`
       - If found: dispatch Task subagent to execute /secrets-scan (NO inline pattern duplication)
@@ -871,62 +770,59 @@ Registry updates. Implement last, after all skills and templates are finalized.
       - At L3 maturity: override usage flagged in audit trail
     - Update result evaluation matrix in Step 4 to include 4d
     - Update version in frontmatter to 3.4.0
-18. [ ] Validate: `python3 generators/validate_skill.py skills/ship/SKILL.md`
-19. [ ] Modify `skills/dream/SKILL.md` (version bump to 3.1.0):
+16. [ ] Validate: `python3 generators/validate_skill.py skills/ship/SKILL.md`
+17. [ ] Modify `skills/dream/SKILL.md` (version bump to 3.1.0):
     - **Step 0 addition:** Add Glob for `~/.claude/skills/threat-model-gate/SKILL.md`
       - If found: log "Threat model gate active. Security-related plans will include threat modeling requirements."
     - **Step 2 modification:** When threat-model-gate is deployed AND plan subject appears security-related:
       - Append to architect prompt: "This plan involves security-sensitive functionality. Include a ## Threat Model section addressing: assets at risk, trust boundaries, STRIDE analysis (Spoofing, Tampering, Repudiation, Information Disclosure, DoS, Elevation of Privilege), and proposed mitigations."
     - **Step 3a modification:** Change security-analyst invocation from "Optional (security-specific plans only)" to "Recommended when threat-model-gate is deployed and plan subject is security-related"
     - Update version in frontmatter to 3.1.0
-20. [ ] Validate: `python3 generators/validate_skill.py skills/dream/SKILL.md`
-21. [ ] Modify `skills/audit/SKILL.md` (version bump to 3.1.0):
+18. [ ] Validate: `python3 generators/validate_skill.py skills/dream/SKILL.md`
+19. [ ] Modify `skills/audit/SKILL.md` (version bump to 3.1.0):
     - **Step 2 modification:** Add /secure-review composability:
       - Glob for `~/.claude/skills/secure-review/SKILL.md`
       - If found: dispatch /secure-review as security scan (deeper analysis)
       - If not found: use existing built-in security scan (current behavior preserved)
     - Update version in frontmatter to 3.1.0
-22. [ ] Validate: `python3 generators/validate_skill.py skills/audit/SKILL.md`
+20. [ ] Validate: `python3 generators/validate_skill.py skills/audit/SKILL.md`
 
 #### Step B2: Phase B Verification
 
-23. [ ] Deploy updated skills: `cd /Users/imurphy/projects/claude-devkit && ./scripts/deploy.sh`
-24. [ ] Run manual tests 8-14 from Test Plan
-25. [ ] Commit Phase B
+21. [ ] Deploy updated skills: `cd /Users/imurphy/projects/claude-devkit && ./scripts/deploy.sh`
+22. [ ] Run manual tests 8-14 from Test Plan
+23. [ ] Commit Phase B
 
 ### Phase C: Documentation and Templates (depends on Phase A + B)
 
 #### Step C1: Agent Template Updates (Work Group C1)
 
-26. [ ] Add "Security Awareness" section to `templates/agents/coder-specialist.md.template` (insert after `# Specialist Context Injection` and before `# Conflict Resolution`)
+24. [ ] Add "Security Awareness" section to `templates/agents/coder-specialist.md.template` (insert after `# Specialist Context Injection` and before `# Conflict Resolution`)
     - Secure coding standards (input validation, parameterized queries, output encoding, CSRF, secret logging prohibition)
-    - Red Hat specific subsection (FIPS algorithms, SELinux contexts, UBI images, OpenShift SCC)
-27. [ ] Add "Security Testing" section to `templates/agents/qa-engineer-specialist.md.template` (insert after `# Specialist Context Injection` and before `# Conflict Resolution`)
+25. [ ] Add "Security Testing" section to `templates/agents/qa-engineer-specialist.md.template` (insert after `# Specialist Context Injection` and before `# Conflict Resolution`)
     - Required security test types (injection, auth bypass, XSS, CSRF)
     - Test data security guidelines
-28. [ ] Create `templates/claude-md-security-section.md.template`
+26. [ ] Create `templates/claude-md-security-section.md.template`
     - Threat model section
     - Security requirements section
     - Secure development practices section
-    - Red Hat specific section
-29. [ ] Update `configs/agent-patterns.json` to add `redhat-security` variant to coder and qa-engineer types
-30. [ ] Validate JSON: `python3 -c "import json; json.load(open('configs/agent-patterns.json'))"`
+27. [ ] Update `configs/agent-patterns.json` to add `security` variant to coder and qa-engineer types
+28. [ ] Validate JSON: `python3 -c "import json; json.load(open('configs/agent-patterns.json'))"`
 
 #### Step C2: Documentation (Work Group C2)
 
-31. [ ] Update `CLAUDE.md`:
+29. [ ] Update `CLAUDE.md`:
     - Add 5 new skills to the Skill Registry table with version, purpose, model, **steps** (including Steps column)
     - Update `/ship` version to 3.4.0 with updated step description
     - Update `/dream` version to 3.1.0 with updated step description
     - Update `/audit` version to 3.1.0 with composability note
-    - Add `redhat-security.json` to the configs section
     - Add `claude-md-security-section.md.template` to the Template Registry table
-    - Add `redhat-security` variant to agent patterns documentation
+    - Add `security` variant to agent patterns documentation
     - Add Security Maturity Levels documentation
     - Add workflow example: "Workflow 6: Security-First Development"
-32. [ ] Run full test suite: `cd /Users/imurphy/projects/claude-devkit && bash generators/test_skill_generator.sh`
-33. [ ] Deploy all skills: `cd /Users/imurphy/projects/claude-devkit && ./scripts/deploy.sh`
-34. [ ] Verify deployment: `ls ~/.claude/skills/ | sort`
+30. [ ] Run full test suite: `cd /Users/imurphy/projects/claude-devkit && bash generators/test_skill_generator.sh`
+31. [ ] Deploy all skills: `cd /Users/imurphy/projects/claude-devkit && ./scripts/deploy.sh`
+32. [ ] Verify deployment: `ls ~/.claude/skills/ | sort`
 
 ## Context Alignment
 
@@ -955,18 +851,16 @@ Registry updates. Implement last, after all skills and templates are finalized.
 
 1. **`/ship` v3.4.0 conditional security gates:** The existing `/ship` has hard requirements (coder, code-reviewer, qa-engineer agents). Security gates are configurable via Security Maturity Levels -- L1 (advisory, log notes when missing), L2 (enforced, abort when missing), L3 (audited, enforced + audit trail). **Justification:** Security skills are new and adoption must be gradual. Hard-blocking at default maturity level would break every existing `/ship` invocation until all teams deploy security skills. The maturity level system provides a graduation path to mandatory enforcement.
 
-2. **`redhat-security.json` `based_on` field:** The `based_on` field is documentation-only, not enforced by generators. **Justification:** The generators do not currently support config inheritance. The field is named `based_on` (not `extends`) to avoid implying runtime inheritance behavior. Generator support can be added in a future enhancement.
+2. **`/ship` delegates to `/secrets-scan` via Task subagent (not inline patterns):** Rather than duplicating secret detection patterns inline, `/ship` Step 0 dispatches a Task subagent that reads and executes the `/secrets-scan` skill definition. If `/secrets-scan` is not deployed, the check is skipped entirely. **Justification:** Eliminates dual-maintenance burden. Pattern definitions live in exactly one place (`/secrets-scan`). The trade-off is that secrets checking requires `/secrets-scan` to be deployed, which is enforced at L2+ maturity.
 
-3. **`/ship` delegates to `/secrets-scan` via Task subagent (not inline patterns):** Rather than duplicating secret detection patterns inline, `/ship` Step 0 dispatches a Task subagent that reads and executes the `/secrets-scan` skill definition. If `/secrets-scan` is not deployed, the check is skipped entirely. **Justification:** Eliminates dual-maintenance burden. Pattern definitions live in exactly one place (`/secrets-scan`). The trade-off is that secrets checking requires `/secrets-scan` to be deployed, which is enforced at L2+ maturity.
-
-4. **`/audit` v3.1.0 composability with `/secure-review`:** When `/secure-review` is deployed, `/audit` delegates its security scan to `/secure-review` instead of using its built-in scanner. **Justification:** Eliminates overlap between `/audit` and `/secure-review`. Makes `/secure-review` a composable building block rather than a competing tool. When `/secure-review` is not deployed, `/audit` behavior is unchanged (backward compatible).
+3. **`/audit` v3.1.0 composability with `/secure-review`:** When `/secure-review` is deployed, `/audit` delegates its security scan to `/secure-review` instead of using its built-in scanner. **Justification:** Eliminates overlap between `/audit` and `/secure-review`. Makes `/secure-review` a composable building block rather than a competing tool. When `/secure-review` is not deployed, `/audit` behavior is unchanged (backward compatible).
 
 ## Status: APPROVED
 
 <!-- Context Metadata
 discovered_at: 2026-03-23T10:00:00Z
-revised_at: 2026-03-23
-revision: 2
+revised_at: 2026-03-25
+revision: 3
 claude_md_exists: true
 recent_plans_consulted: superpowers-adoption-roadmap.md, zerg-adoption-priorities.md, dream-auto-commit.md
 archived_plans_consulted: receiving-code-review, phase0-reference-validator
