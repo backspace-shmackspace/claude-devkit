@@ -89,6 +89,7 @@ Deploy and use in Claude Code
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-5 | 6 |
 | **test-idempotent** | 1.0.1 | Test skill idempotency and determinism. Runs skill multiple times, validates consistent outputs, reports variances. | opus-4-6 | 7 |
 | **receiving-code-review** | 1.0.0 | Code review reception discipline: 6-step response pattern (READ through IMPLEMENT), anti-performative-agreement, YAGNI enforcement, source-specific handling, pushback guidelines. Reference archetype. | claude-sonnet-4-5 | Reference |
+| **verification-before-completion** | 1.0.0 | Evidence-before-claims gate: 5-step verification (IDENTIFY, RUN, READ, VERIFY, CLAIM). Requires fresh test/build output before any completion claim. Red flags, rationalization table, key patterns for TDD and bug fixes. Reference archetype. | claude-sonnet-4-5 | Reference |
 
 ### Contrib Skills (contrib/)
 
