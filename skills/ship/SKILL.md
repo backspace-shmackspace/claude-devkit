@@ -64,9 +64,9 @@ rm -f .ship-violations-*.tmp
 
 **Fail fast if any check fails:**
 - If git status is not empty: "❌ Working directory is not clean. Commit or stash changes before running /ship."
-- If no coder agent found: "❌ No coder agent found. Generate one using:\n  `python3 $CLAUDE_DEVKIT/generators/generate_agents.py . --type coder`"
-- If no code-reviewer agent found: "❌ No code-reviewer agent found. Generate one using:\n  `python3 $CLAUDE_DEVKIT/generators/generate_agents.py . --type code-reviewer`"
-- If no qa-engineer agent found: "❌ No qa-engineer agent found. Generate one using:\n  `python3 $CLAUDE_DEVKIT/generators/generate_agents.py . --type qa-engineer`"
+- If no coder agent found: "❌ No coder agent found. Generate one using:\n  `python3 ~/workspaces/claude-devkit/generators/generate_agents.py . --type coder`"
+- If no code-reviewer agent found: "❌ No code-reviewer agent found. Generate one using:\n  `python3 ~/workspaces/claude-devkit/generators/generate_agents.py . --type code-reviewer`"
+- If no qa-engineer agent found: "❌ No qa-engineer agent found. Generate one using:\n  `python3 ~/workspaces/claude-devkit/generators/generate_agents.py . --type qa-engineer`"
 
 If **any** check fails, stop immediately and list all failures.
 

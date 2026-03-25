@@ -34,7 +34,7 @@ base-definitions/
 
 ```bash
 # Add to project CLAUDE.md
-cat $CLAUDE_DEVKIT/configs/base-definitions/tech-stacks/nextjs.md >> CLAUDE.md
+cat ~/workspaces/claude-tools/configs/base-definitions/tech-stacks/nextjs.md >> CLAUDE.md
 ```
 
 ### Extract Sections
@@ -42,7 +42,7 @@ cat $CLAUDE_DEVKIT/configs/base-definitions/tech-stacks/nextjs.md >> CLAUDE.md
 ```bash
 # Get just the development rules
 sed -n '/## Development Rules/,/## Next Section/p' \
-  $CLAUDE_DEVKIT/configs/base-definitions/development-rules.md \
+  ~/workspaces/claude-tools/configs/base-definitions/development-rules.md \
   >> CLAUDE.md
 ```
 
@@ -50,7 +50,7 @@ sed -n '/## Development Rules/,/## Next Section/p' \
 
 ```python
 # In generator script
-with open('$CLAUDE_DEVKIT/configs/base-definitions/tech-stacks/nextjs.md') as f:
+with open('~/workspaces/claude-tools/configs/base-definitions/tech-stacks/nextjs.md') as f:
     stack_rules = f.read()
 ```
 
@@ -104,7 +104,7 @@ When adding new base definitions:
 ## Example: Creating a New Definition
 
 ```bash
-cd $CLAUDE_DEVKIT/configs/base-definitions/tech-stacks
+cd ~/workspaces/claude-tools/configs/base-definitions/tech-stacks
 
 cat > golang-api.md << 'EOF'
 # Go API Development Patterns
@@ -143,7 +143,7 @@ Generators can reference these definitions:
 # In generate_senior_architect.py
 def load_stack_patterns(stack_type):
     """Load relevant stack patterns from base definitions."""
-    patterns_dir = Path(os.environ.get('CLAUDE_DEVKIT', '')) / 'configs/base-definitions/tech-stacks'
+    patterns_dir = Path.home() / 'workspaces/claude-tools/configs/base-definitions/tech-stacks'
 
     # Map stack types to definition files
     stack_map = {

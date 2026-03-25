@@ -63,8 +63,5 @@ temp/
 .claude/cache/
 .claude/temp/
 
-# Plan artifacts (generated at runtime)
-plans/
-
 # Generated files (keep source templates)
 # Note: skills/ and templates/ are source of truth, keep in git

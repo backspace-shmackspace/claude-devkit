@@ -29,7 +29,7 @@ description: Write entries to the Obsidian work journal. Creates daily logs, mee
 3. **project**: User mentions "project update", references a specific project name, or provides progress on a named initiative
 4. **learning**: User mentions "learned", "discovered", "figured out", "TIL", "gotcha", or describes technical insight
 5. **decision**: User mentions "decision", "ADR", "decided to", "chose", "picked", describes options/tradeoffs
-6. **biweekly-update**: User mentions "biweekly", "bi-weekly", "leadership update", "14-day update", "fortnightly", or "status update for leadership"
+6. **biweekly-update**: User mentions "biweekly", "bi-weekly", "PSLT update", "leadership update", "14-day update", "fortnightly", or "status update for leadership"
 
 **Disambiguation heuristic:**
 - If input matches multiple types, default to broader type: daily > project, meeting > decision
@@ -98,9 +98,12 @@ When creating a biweekly-update entry, automatically gather context to draft con
 1. **Mine journal data**: Read daily entries from the last 14 days (`daily/*.md`) to extract wins, blockers, decisions, and project progress
 2. **Mine project entries**: Read `projects/*.md` for recent activity sections
 3. **Mine decision records**: Read `decisions/*.md` from the last 14 days for strategic context
-4. **Draft all 6 sections** with concrete content from the mined data, leaving `<!-- VERIFY -->` comments on any claims the user should double-check
+4. **Cross-reference PRODSECRM**: Check `~/projects/prodsecrm/risk-docs/working/*.md` for recently updated risk assessments (by `updated` frontmatter field)
+5. **Apply voice register**: Use Register 2 ("The Analysis") from `~/bksp.ca/persona/master-persona.md` for the drafting voice: structured, evidence-first, directly decisive, data-backed, authority voice
+6. **Sensitivity filter**: Do NOT include specific JIRA keys, internal tool names, or colleague names in the draft without user confirmation. Frame wins in terms of outcomes and metrics, not implementation details.
+7. **Draft all 6 sections** with concrete content from the mined data, leaving `<!-- VERIFY -->` comments on any claims the user should double-check
 
-**Audience context:** Leadership team. They want signal, not noise: specific metrics, clear blockers with named owners, and forward-looking risks.
+**Audience context:** Product Security Leadership Team (PSLT). Boss and peer leadership. They want signal, not noise: specific metrics, clear blockers with named owners, and forward-looking risks.
 
 **Meeting, learning, decision entries:**
 - These are always new files (timestamped or uniquely named)
@@ -165,7 +168,6 @@ When creating a biweekly-update entry, automatically gather context to draft con
 - **Project entries**: Link to today's daily entry (`[[daily/YYYY-MM-DD]]`)
 - **Biweekly update entries**: Link to today's daily entry, mentioned projects, and previous biweekly update (Glob `deliverables/*-biweekly-update.md`, most recent before today)
 
-
 **Implementation:**
 - Cross-links are inserted in the appropriate section (e.g., `**Links:**` for daily, `## Related Projects` for project)
 - Only modify current entry; do NOT modify linked-to files (one-directional)
@@ -202,7 +204,7 @@ The following templates are embedded as defaults. On-disk templates at `~/journa
 ---
 date: YYYY-MM-DD
 day_of_week: Monday
-tags: [daily, work]
+tags: [daily, work, redhat]
 projects: []
 mood: 😐
 energy: medium
@@ -294,7 +296,7 @@ tags: [meeting]
 ```markdown
 ---
 title: Project Name
-repo: github.com/your-org/project-name
+repo: gitlab.cee.redhat.com/imurphy/project-name
 status: active
 started: YYYY-MM-DD
 tags: [project, python]
@@ -400,7 +402,7 @@ projects: []
 ## Status
 **Status:** Accepted
 **Date:** YYYY-MM-DD
-**Deciders:** {Your Name}
+**Deciders:** Ian Murphy
 **Project:** [[project-name]]
 
 ## Context
@@ -446,21 +448,23 @@ projects: []
 
 ```markdown
 ---
-title: Bi-Weekly Leadership Update
+title: Bi-Weekly PSLT Update
 date: YYYY-MM-DD
 period_start: YYYY-MM-DD
 period_end: YYYY-MM-DD
-tags: [deliverable, biweekly, leadership]
+tags: [deliverable, biweekly, pslt, leadership]
 projects: []
-audience: Leadership Team
+audience: Product Security Leadership Team
 ---
 
 # Bi-Weekly Update - YYYY-MM-DD
 
 **Period:** YYYY-MM-DD to YYYY-MM-DD
-**Author:** {Your Name}
+**Author:** Ian Murphy
 
-## 1. Key Wins
+---
+
+## 1. The Big Wins & Shout-outs
 
 **Impactful Wins over the last 14 days:**
 <!-- Evidence-first: specific metrics, deliverables shipped, risks resolved. No vague "good progress." -->
@@ -488,11 +492,11 @@ audience: Leadership Team
 - **[BLOCKER]:** <!-- Stop-work issue. I need immediate help from: Name -->
 - **[RISK]:** <!-- Potential delay. Watching: Factor. (Awareness only) -->
 
-## 4. Leadership Support & Influence
+## 4. PSLT Support & Influence
 
 **Decision Support:** <!-- e.g., "I am leaning toward A despite B; do you see a different trade-off?" -->
 
-**Barrier Removal:** <!-- e.g., "Need alignment with Team X; need perspective on their constraints." -->
+**Barrier Removal:** <!-- e.g., "Need alignment with Dept X; need perspective on their pressures." -->
 
 **The Early Warning:** <!-- What decision is coming up that we need to anticipate now? -->
 
@@ -512,7 +516,7 @@ audience: Leadership Team
 
 **Links:**
 - Previous: [[deliverables/YYYY-MM-DD-biweekly-update]]
-- Related:
+- Related: [[projects/prodsecrm]]
 ```
 
 ## Timestamped Artifacts

@@ -114,7 +114,7 @@ description: Search, retrieve, and summarize past journal entries. Use when the 
   Date: 2026-02-23
   Context:
   ...
-  - **Project work:** Refactored authentication module — extracted shared validation logic into middleware, added rate limiting, updated all 8 endpoint handlers to use the new pattern.
+  - **Claude-devkit work:** Fixed Vertex AI model resolution issue — all Task tool calls used short aliases (`model=opus`, `model=sonnet`) that fail on Vertex. Standardized all 15 instances across 5 skills to use full IDs (`claude-opus-4-6`, `claude-sonnet-4-5`).
   ...
   ```
 

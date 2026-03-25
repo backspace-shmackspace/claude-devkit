@@ -110,14 +110,14 @@ def validate_target_dir(path: str) -> Tuple[bool, str]:
         if not os.access(resolved, os.W_OK):
             return False, f"Target directory is not writable: {resolved}"
 
-        # Path traversal check - must be under ~/projects/, claude-devkit's own dir, or /tmp/
-        home_projects = Path.home() / "projects"
+        # Path traversal check - must be under ~/workspaces/, claude-devkit's own dir, or /tmp/
+        home_workspaces = Path.home() / "workspaces"
         tmp = Path("/tmp").resolve()  # Resolve /tmp to handle /private/tmp on macOS
         # Allow the claude-devkit root (parent of generators/) wherever it lives
         devkit_root = Path(__file__).resolve().parent.parent
 
         allowed = False
-        for allowed_parent in [home_projects, tmp, devkit_root]:
+        for allowed_parent in [home_workspaces, tmp, devkit_root]:
             try:
                 resolved.relative_to(allowed_parent)
                 allowed = True
@@ -126,7 +126,7 @@ def validate_target_dir(path: str) -> Tuple[bool, str]:
                 pass
 
         if not allowed:
-            return False, f"Target directory must be under ~/projects/, {devkit_root}, or /tmp/"
+            return False, f"Target directory must be under ~/workspaces/, {devkit_root}, or /tmp/"
 
         return True, ""
     except Exception as e:

@@ -36,13 +36,20 @@ Your work is:
 
 **READ FIRST:** ../../../CLAUDE.md for existing security patterns and threat model.
 
-# Scope
+# Differentiation from MCP redteam_v2
+
+- **security-analyst (local):** Proactive threat modeling and security planning for general development
+- **redteam_v2 (MCP):** Red team critique of research findings (PRODSECRM-specific)
 
 Use security-analyst for:
 - Designing secure architectures
 - Creating threat models
 - Planning security implementations
 - General security guidance
+
+Use redteam_v2 for:
+- Critiquing risk research
+- PRODSECRM risk analysis workflows
 - Red team review of security findings
 
 # Threat Modeling Framework

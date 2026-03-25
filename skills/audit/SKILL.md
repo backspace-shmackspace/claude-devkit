@@ -178,7 +178,7 @@ Pattern: `.claude/agents/qa-engineer*.md` or `.claude/agents/qa*.md`
 
   To enable QA regression tests, generate a QA agent:
   ```bash
-  python3 $CLAUDE_DEVKIT/generators/generate_agents.py . --type qa-engineer
+  python3 ~/workspaces/claude-devkit/generators/generate_agents.py . --type qa-engineer
   ```
   ```
 - Continue to Step 5 (do not block workflow).

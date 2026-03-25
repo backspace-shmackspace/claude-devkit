@@ -18,7 +18,7 @@ Claude Devkit is the complete toolkit for building with Claude Code. It provides
 ### Required
 
 - **Python 3.8 or higher**
-- **[Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)** CLI installed and configured
+- **Claude Code CLI** installed and configured
 - **git**
 
 ### Recommended
@@ -30,7 +30,7 @@ Claude Devkit is the complete toolkit for building with Claude Code. It provides
 
 ```bash
 python3 --version  # Should be 3.8+
-claude --version
+claude-code --version
 git --version
 ```
 
@@ -39,7 +39,8 @@ git --version
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/backspace-shmackspace/claude-devkit.git
+cd ~/workspaces
+git clone <your-repo-url> claude-devkit
 cd claude-devkit
 ```
 
@@ -62,7 +63,7 @@ cd claude-devkit
 source ~/.zshrc  # or source ~/.bashrc
 ```
 
-### Step 3.5: Configure Model Aliases (Optional)
+### Step 3.5: Configure Model Aliases (Optional, Recommended for Vertex AI)
 
 Claude Code's Task tool uses short aliases (`opus`, `sonnet`, `haiku`) when spawning subagents. You can control which model IDs these aliases resolve to via environment variables:
 
@@ -96,7 +97,7 @@ which gen-agent
 which validate-skill
 
 # Should all return paths like:
-# /home/yourname/projects/claude-devkit/generators/generate_skill.py
+# /Users/yourname/workspaces/claude-devkit/generators/generate_skill.py
 ```
 
 ## Quick Start: Your First Skill (10 minutes)
@@ -104,7 +105,7 @@ which validate-skill
 ### Step 1: Deploy Built-in Skills
 
 ```bash
-cd ~/projects/claude-devkit
+cd ~/workspaces/claude-devkit
 ./scripts/deploy.sh
 ```
 
@@ -125,7 +126,7 @@ ls ~/.claude/skills/
 cd ~/projects/my-app
 
 # Start Claude Code
-claude
+claude-code
 
 # Use /dream skill
 /dream add user authentication
@@ -151,7 +152,7 @@ gen-skill hello-world \
 ```
 
 **What it creates:**
-- `~/projects/claude-devkit/skills/hello-world/SKILL.md`
+- `~/workspaces/claude-devkit/skills/hello-world/SKILL.md`
 - Validated against v2.0.0 patterns
 - Ready for customization
 
@@ -159,7 +160,7 @@ gen-skill hello-world \
 
 ```bash
 # Open in your editor
-code ~/projects/claude-devkit/skills/hello-world/SKILL.md
+code ~/workspaces/claude-devkit/skills/hello-world/SKILL.md
 ```
 
 **What to customize:**
@@ -196,11 +197,11 @@ Tool: `Bash`
 
 ```bash
 # Deploy your skill
-cd ~/projects/claude-devkit
+cd ~/workspaces/claude-devkit
 ./scripts/deploy.sh hello-world
 
 # Test it
-claude
+claude-code
 /hello-world Claude
 ```
 
@@ -245,7 +246,7 @@ ls .claude/agents/
 
 ```bash
 # Start Claude Code
-claude
+claude-code
 
 # Use /ship skill (requires coder, code-reviewer, qa-engineer agents)
 /dream add README file
@@ -358,7 +359,7 @@ If you encounter issues, check these resources:
 
 **Solution:**
 1. Verify deployment: `ls ~/.claude/skills/<skill-name>/SKILL.md`
-2. Restart Claude Code: `/exit` then `claude`
+2. Restart Claude Code: `/exit` then `claude-code`
 3. Check frontmatter has correct `name:` field
 
 #### Generator commands not found
@@ -368,7 +369,7 @@ If you encounter issues, check these resources:
 **Solution:**
 ```bash
 # Re-run installation
-cd ~/projects/claude-devkit
+cd ~/workspaces/claude-devkit
 ./scripts/install.sh
 
 # Reload shell
@@ -382,7 +383,7 @@ source ~/.zshrc
 **Solution:**
 1. Verify file exists: `ls .claude/agents/`
 2. Check filename matches pattern: `coder*.md`, `qa-engineer*.md`, `code-reviewer*.md`
-3. Restart Claude Code: `/exit` then `claude`
+3. Restart Claude Code: `/exit` then `claude-code`
 
 #### Permission denied on scripts
 
@@ -390,8 +391,8 @@ source ~/.zshrc
 
 **Solution:**
 ```bash
-chmod +x ~/projects/claude-devkit/scripts/*.sh
-chmod +x ~/projects/claude-devkit/generators/*.py
+chmod +x ~/workspaces/claude-devkit/scripts/*.sh
+chmod +x ~/workspaces/claude-devkit/generators/*.py
 ```
 
 ## Uninstallation
@@ -399,7 +400,7 @@ chmod +x ~/projects/claude-devkit/generators/*.py
 If you need to remove claude-devkit:
 
 ```bash
-cd ~/projects/claude-devkit
+cd ~/workspaces/claude-devkit
 ./scripts/uninstall.sh
 ```
 
@@ -433,3 +434,4 @@ You now have:
 
 **Version:** 1.0.0
 **Last Updated:** 2026-02-18
+**Maintained by:** Ian Murphy

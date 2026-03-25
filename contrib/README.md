@@ -73,7 +73,7 @@ cd ~/projects/claude-devkit
 - "what did I work on last week?"
 - "summarize this week"
 - "find entries about Docker"
-- "what's the status of my-project?"
+- "what's the status of prodsecrm?"
 - "what meetings did I have yesterday?"
 
 ---

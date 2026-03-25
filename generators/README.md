@@ -4,11 +4,18 @@ Tools for generating Claude Code resources: local agents and skill definitions.
 
 ## Overview
 
-These scripts create local agents that:
-- Use Claude Opus 4.6 model for high-capability tasks
-- Provide high-level design and implementation planning
-- Generate detailed blueprints saved to `./plans/`
+These scripts create a local `senior-architect` agent that:
+- Uses Claude Opus 4.6 model (via Anthropic API, bypassing Vertex AI restrictions)
+- Provides high-level design and implementation planning
+- Generates detailed blueprints saved to `./plans/`
 - Can be customized per-project for domain-specific expertise
+
+## Why Local Agents?
+
+**MCP Agents** require Vertex AI access and are subject to model restrictions.
+**Local Agents** use Claude Code's Anthropic API access, giving you full model catalog availability.
+
+For projects that need Opus 4.6 (or any model restricted on Vertex AI), local agents are the solution.
 
 ## Scripts
 
@@ -109,9 +116,9 @@ color: purple
 
 3. **Restart Claude Code session** to register the agent:
    ```bash
-   # Exit and restart Claude Code CLI
+   # Exit and restart claude-code CLI
    /exit
-   claude
+   claude-code
    ```
 
 4. **Test the agent:**
@@ -155,13 +162,13 @@ chmod +x ~/bin/generate_senior_architect.py
 
 Add to your `~/.bashrc` or `~/.zshrc`:
 ```bash
-alias gen-agent='python ~/projects/claude-devkit/generators/generate_agents.py'
-alias gen-architect='python ~/projects/claude-devkit/generators/generate_senior_architect.py'
+alias gen-agent='python ~/workspaces/claude-devkit/generators/generate_agents.py'
+alias gen-architect='python ~/workspaces/claude-devkit/generators/generate_senior_architect.py'
 ```
 
 Or use the automated installer:
 ```bash
-cd ~/projects/claude-devkit
+cd ~/workspaces/claude-devkit
 ./scripts/install.sh
 ```
 
@@ -278,7 +285,7 @@ chmod +x scripts/generate_senior_architect.py
 
 - [Senior Architect Deactivation Summary](../docs/SENIOR_ARCHITECT_DEACTIVATION.md)
 - [Local Agents README](../.claude/agents/README.md)
-- [Claude Code Documentation](https://claude.ai/code)
+- [Vertex AI Model Documentation](../docs/VERTEX_AI_MODELS.md)
 
 ---
 
@@ -369,7 +376,7 @@ python generate_skill.py <skill-name> [options]
 --model, -m         Claude model: claude-opus-4-6, claude-sonnet-4-5 (default: claude-opus-4-6)
 --version, -v       Skill version (default: 1.0.0)
 --steps, -s         Number of workflow steps (default: 4)
---target-dir, -t    Target directory containing skills/ (default: ~/projects/claude-devkit)
+--target-dir, -t    Target directory containing skills/ (default: ~/workspaces/claude-devkit)
 --deploy            Run deploy.sh after generation
 --force, -f         Overwrite existing skill without prompting
 ```
@@ -451,7 +458,7 @@ python validate_skill.py <path-to-SKILL.md> [--strict] [--json]
 **Output Formats:**
 ```bash
 # Human-readable report (default)
-python validate_skill.py ~/projects/claude-devkit/skills/dream/SKILL.md
+python validate_skill.py ~/workspaces/claude-devkit/skills/dream/SKILL.md
 
 # JSON output for CI integration
 python validate_skill.py ./skills/ship/SKILL.md --json
@@ -528,7 +535,7 @@ All inputs are validated before any file operations:
 
 ### Target Directory Rules
 - Must exist and be writable
-- Must be under `~/projects/` or `/tmp/`
+- Must be under `~/workspaces/` or `/tmp/`
 - No path traversal allowed
 
 ## Error Handling
@@ -550,9 +557,9 @@ The generator uses atomic writes and rollback on failure:
 
 The generator is designed to work with the `claude-devkit` deployment workflow:
 
-1. Generate into `~/projects/claude-devkit/skills/<name>/SKILL.md`
+1. Generate into `~/workspaces/claude-devkit/skills/<name>/SKILL.md`
 2. Customize the skill (replace TODO placeholders)
-3. Run `cd ~/projects/claude-devkit && ./deploy.sh <name>`
+3. Run `cd ~/workspaces/claude-devkit && ./deploy.sh <name>`
 4. Skill is copied to `~/.claude/skills/<name>/SKILL.md`
 5. Restart Claude Code to register the skill
 6. Use with `/<skill-name> [arguments]`
@@ -601,7 +608,7 @@ Tool: `Bash`
 Run the test suite to verify generator functionality:
 
 ```bash
-cd ~/projects/claude-devkit
+cd ~/workspaces/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
@@ -632,7 +639,7 @@ Fail:   0
 Run the test suite to verify /ship v3.1.0 worktree isolation feature:
 
 ```bash
-cd ~/projects/claude-devkit
+cd ~/workspaces/claude-devkit
 bash generators/test_ship_worktree.sh
 ```
 
@@ -712,9 +719,9 @@ The worktree isolation feature is working correctly:
 
 ### Path Traversal Rejected
 
-**Issue:** `Target directory must be under ~/projects/ or /tmp/`
+**Issue:** `Target directory must be under ~/workspaces/ or /tmp/`
 
-**Solution:** For security, generator only writes to known safe locations. Use `~/projects/` for real projects or `/tmp/` for testing.
+**Solution:** For security, generator only writes to known safe locations. Use `~/workspaces/` for real projects or `/tmp/` for testing.
 
 ---
 
@@ -724,7 +731,7 @@ Comprehensive agent generation system supporting all Claude Code agent types.
 
 ## Overview
 
-The unified agent generator creates specialist agents that inherit from base agents (from `~/projects/.config/agents/base/`) and customize them for specific tech stacks.
+The unified agent generator creates specialist agents that inherit from base agents (from `~/workspaces/.config/agents/base/`) and customize them for specific tech stacks.
 
 **Supported Agent Types:**
 - `coder` - Code implementation specialist
@@ -754,7 +761,7 @@ python3 generate_agents.py . --type all --force
 ### Three-Tier Inheritance
 
 ```
-Tier 1: Base Agents (~/projects/.config/agents/base/)
+Tier 1: Base Agents (~/workspaces/.config/agents/base/)
   ↓ inherits
 Tier 2: Specialist Agents (.claude/agents/)
   ↓ reads at runtime
@@ -855,6 +862,10 @@ The standalone code-reviewer is fully self-contained and doesn't inherit from a 
 - Security architecture design
 - Compliance planning (OWASP, GDPR, SOC 2)
 - Outputs to `./plans/security-*`
+
+**Differentiation from MCP redteam_v2:**
+- **security-analyst (local):** Proactive threat modeling for general development
+- **redteam_v2 (MCP):** Red team critique for PRODSECRM risk analysis
 
 ### senior-architect (High-Level Design)
 
@@ -968,7 +979,7 @@ The generated agents are used by skills:
 If agents missing, /ship stops with helpful error messages:
 ```
 ❌ No coder agent found. Generate one using:
-  python3 ~/projects/claude-devkit/generators/generate_agents.py . --type coder
+  python3 ~/workspaces/claude-devkit/generators/generate_agents.py . --type coder
 ```
 
 ### /audit Skill
@@ -998,7 +1009,7 @@ cat pyproject.toml
 # dependencies = ["fastapi", "uvicorn", "pytest"]
 
 # Generate all agents
-python3 ~/projects/claude-devkit/generators/generate_agents.py . --type all
+python3 ~/workspaces/claude-devkit/generators/generate_agents.py . --type all
 
 # Generated agents:
 # .claude/agents/coder-python.md
@@ -1008,7 +1019,7 @@ python3 ~/projects/claude-devkit/generators/generate_agents.py . --type all
 # .claude/agents/senior-architect.md
 
 # Validate
-python3 ~/projects/claude-devkit/generators/validate_agent.py .claude/agents/*.md
+python3 ~/workspaces/claude-devkit/generators/validate_agent.py .claude/agents/*.md
 
 # Use with skills
 /dream add JWT authentication
@@ -1027,7 +1038,7 @@ cat pyproject.toml
 # dev = ["bandit", "safety", "pytest"]
 
 # Generate all agents (auto-detects security focus)
-python3 ~/projects/claude-devkit/generators/generate_agents.py . --type all
+python3 ~/workspaces/claude-devkit/generators/generate_agents.py . --type all
 
 # Generated agents:
 # .claude/agents/coder-security.md    # Security variant
@@ -1052,7 +1063,7 @@ cat package.json
 # }
 
 # Generate all agents
-python3 ~/projects/claude-devkit/generators/generate_agents.py . --type all
+python3 ~/workspaces/claude-devkit/generators/generate_agents.py . --type all
 
 # Generated agents:
 # .claude/agents/coder-frontend.md    # Frontend variant
@@ -1071,7 +1082,7 @@ python3 ~/projects/claude-devkit/generators/generate_agents.py . --type all
 **Solution:**
 1. Verify file exists: `ls .claude/agents/`
 2. Check filename matches expected pattern: `coder*.md`, `qa-engineer*.md`, `code-reviewer*.md`
-3. Restart Claude Code session: `/exit` then `claude`
+3. Restart Claude Code session: `/exit` then `claude-code`
 
 ### Validation Fails
 

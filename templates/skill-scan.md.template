@@ -37,7 +37,7 @@ Derive timestamp: `[timestamp]` = current ISO datetime (e.g., `2026-02-08T14-30-
 
 Run the first type of analysis in parallel with other scans.
 
-Tool: `Task` (subagent_type=general-purpose, model=opus) or local agent
+Tool: MCP agent (e.g., `mcp__agent-factory__agent_hardener`) or `Task`
 
 **Prompt varies by scope:**
 

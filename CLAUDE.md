@@ -1,7 +1,7 @@
 # Claude Devkit
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-12
+**Last Updated:** 2026-03-09
 **Purpose:** Unified development toolkit for Claude Code - skills, agents, generators, and templates
 
 **New to Claude Devkit?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a 15-minute tutorial.
@@ -11,7 +11,7 @@
 Claude Devkit is the complete toolkit for building with Claude Code. It combines skill definitions, agent generators, templates, and reusable configurations into a single, version-controlled repository.
 
 **What's Inside:**
-- **Skills** — Reusable Claude Code workflows (`/dream`, `/ship`, `/retro`, `/audit`, `/sync`)
+- **Skills** — Reusable Claude Code workflows (`/dream`, `/ship`, `/audit`, `/sync`)
 - **Generators** — Scripts to create agents, skills, and project structures
 - **Templates** — Reusable templates for agents and skills
 - **Configs** — Shared configurations and patterns
@@ -26,7 +26,6 @@ claude-devkit/
 ├── skills/              # Tier 1: Core skill definitions (source of truth)
 │   ├── dream/           # Planning with approval gates
 │   ├── ship/            # Implementation pipeline
-│   ├── retro/           # Retrospective and learnings capture
 │   ├── audit/           # Security and performance scanning
 │   └── sync/            # Documentation synchronization
 │
@@ -102,6 +101,26 @@ Deploy and use in Claude Code
 - Core skills: `./scripts/deploy.sh` (default)
 - Contrib skills: `./scripts/deploy.sh --contrib [name]`
 - See `contrib/README.md` for prerequisites and usage
+
+## MCP Servers (Migrated)
+
+**MIGRATION NOTICE:** As of 2026-02-24, all MCP servers have been migrated to the `helper-mcps` monorepo at `~/projects/workspaces/helper-mcps/`. The `mcp-servers/` directory in `claude-devkit` has been removed.
+
+**Reason for migration:** MCP servers are containerized services with different deployment, testing, and lifecycle patterns than Claude Code skills. The `helper-mcps` monorepo provides:
+- Shared library patterns (`BaseMCPServer`, `CredentialProvider`, lifecycle state machines)
+- Consistent Docker multi-stage builds
+- Unified testing infrastructure with 90% coverage enforcement
+- Structured logging to stderr (avoiding stdio pollution)
+
+**Migrated servers:**
+- `redhat-browser-mcp` — Authenticated access to Red Hat internal documentation via Playwright browser automation with SSO. Includes URL validation with SSRF protection, content extraction pipeline, audit logging, and rate limiting.
+
+**New location:**
+```bash
+cd ~/projects/workspaces/helper-mcps/redhat-browser-mcp/
+```
+
+**See:** `~/projects/workspaces/helper-mcps/CLAUDE.md` for complete MCP server documentation.
 
 ## Generator Registry
 
@@ -324,7 +343,7 @@ code .claude/agents/senior-architect.md
 
 # 4. Test
 /exit
-claude
+claude-code
 > Use senior-architect to plan a checkout flow
 ```
 
@@ -586,7 +605,6 @@ Source of truth for **core skill definitions** (deployed to all users). Each ski
 skills/
 ├── dream/SKILL.md
 ├── ship/SKILL.md
-├── retro/SKILL.md
 ├── audit/SKILL.md
 ├── sync/SKILL.md
 ├── test-idempotent/SKILL.md
@@ -696,6 +714,23 @@ Deployment and utility scripts.
 ```
 
 ## Integration Patterns
+
+### With Workspaces Architecture
+
+Claude Devkit is a standalone tools repository within the workspaces ecosystem:
+
+```
+~/workspaces/
+├── .config/agents/base/        # Base agents (universal)
+├── claude-devkit/              # This repo (tools)
+├── my-project/                 # Project (specialist agents)
+└── CLAUDE.md                   # Workspaces docs
+```
+
+**Integration Points:**
+- Skills invoke local `.claude/agents/` project agents via Glob, with Task subagent fallback
+- Generators create specialist agents that inherit from base
+- Projects reference skill patterns in their CLAUDE.md
 
 ### With Claude Code
 
@@ -823,7 +858,7 @@ bash generators/test_skill_generator.sh
 
 **Solution:**
 1. Verify deployment: `ls ~/.claude/skills/<skill-name>/SKILL.md`
-2. Restart Claude Code session: `/exit` then `claude`
+2. Restart Claude Code session: `/exit` then `claude-code`
 3. Check frontmatter has correct `name:` field
 
 ### Generator command not found
@@ -870,13 +905,33 @@ model: claude-opus-4-6  # Must be exactly this
 
 **Solution:** Never edit skills in `~/.claude/skills/`. Always edit in `~/projects/claude-devkit/skills/` and redeploy.
 
-## Setting Up on Another Machine
+## Syncing Across Machines
+
+If you work on multiple machines:
+
+### Machine 1 (Initial Setup)
 
 ```bash
-git clone https://github.com/backspace-shmackspace/claude-devkit.git
-cd claude-devkit
-./scripts/install.sh
+cd ~/projects/claude-devkit
+git init
+git add .
+git commit -m "Initial commit: Claude Devkit"
+git remote add origin <your-repo-url>
+git push -u origin main
+```
+
+### Machine 2+ (Clone)
+
+```bash
+cd ~/projects
+git clone <your-repo-url> claude-devkit
+
+# Add to shell config (same as installation)
+echo 'export PATH="$PATH:$HOME/projects/claude-devkit/generators"' >> ~/.zshrc
 source ~/.zshrc
+
+# Deploy skills
+cd claude-devkit
 ./scripts/deploy.sh
 ```
 
@@ -970,8 +1025,12 @@ MIT - Use freely in your projects
 ## Related Resources
 
 - **Claude Code Documentation:** https://claude.ai/code
+- **Workspaces Architecture:** `~/workspaces/CLAUDE.md`
+- **Base Agents:** `~/workspaces/.config/agents/base/README.md`
 - **Multi-LLM Support:** [GEMINI.md](GEMINI.md) - Framework overview for Gemini users
 
 ---
 
+**Maintained by:** Ian Murphy
+**Repository:** `~/projects/claude-devkit`
 **Deployment:** `~/.claude/skills/`
