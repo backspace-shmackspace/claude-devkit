@@ -1,6 +1,6 @@
 # Project Learnings
 
-Last updated: 2026-03-12
+Last updated: 2026-03-26
 
 Source: `/retro` skill — mines archived code review and QA artifacts for recurring patterns.
 Consumed by: `/ship` Step 2 (pattern validation) and coder/reviewer agents.
@@ -37,6 +37,8 @@ Consumed by: `/ship` Step 2 (pattern validation) and coder/reviewer agents.
 
 - **Strict mode not tested for new skill types** [Low] — `--strict` mode validation not explicitly tested for new archetypes (Reference skills). If strict-mode behavior diverges, it would go undetected. Seen in: receiving-code-review, phase0-reference-validator. #qa #coverage #strict-mode (2026-03-12)
 
+- **[2026-03-26] New skills not added to test suite** [Medium] — When security skills were added in Phase A (`secrets-scan`, `compliance-check`, etc.), none were added to `test_skill_generator.sh`. The test suite validated only `dream`, `ship`, `audit`, and `sync`. New skills that are later modified have reduced structural safety net. Recommended action: add `validate_skill.py` invocation for each new skill to the test suite at skill creation time. Seen in: secure-review-remediation. #qa #coverage #test-suite (2026-03-26)
+
 ---
 
 ## Test Patterns
@@ -55,4 +57,8 @@ No recurring test failures identified (0 test failure logs found across 3 featur
 
 ### Missed by coders, caught by reviewers
 
-No recurring coder mistakes identified. Both code reviews returned PASS with zero critical or major issues. One-off Low-severity items only (test numbering gap, hardcoded fallback patterns).
+No recurring coder mistakes identified in early features. Both initial code reviews returned PASS with zero critical or major issues. One-off Low-severity items only (test numbering gap, hardcoded fallback patterns).
+
+- **[2026-03-26] Stale internal step cross-references in skill documentation** [Low] — When step numbers are renumbered during development, prose and bash comments that reference other steps by number become stale. Example: Step 5a referred to "Step 2a" but the shared dependency work was in Step 3a. These label-only errors do not affect behavior but create confusion for future editors. Seen in: secure-review-remediation (ship SKILL.md Step 5a). #coder #documentation #maintenance (2026-03-26)
+
+- **[2026-03-26] Generator continues-on-write-error but exits 0** [Low] — `generate_agents.py` continues to the next agent after a write failure (`continue` in loop) but returns exit code 0 even if one or more agents failed to write. A partial generation leaves the project in an inconsistent state with no clear failure signal to callers. Pattern: track write failures in a flag and return exit code 1 if any write failed. Seen in: secure-review-remediation (generate_agents.py). #coder #error-handling #generators (2026-03-26)
