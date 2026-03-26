@@ -137,11 +137,11 @@ Options:
 
 Examples:
   ./scripts/deploy.sh              # deploy all core skills
-  ./scripts/deploy.sh architect        # deploy dream skill
+  ./scripts/deploy.sh architect        # deploy architect skill
   ./scripts/deploy.sh --contrib    # deploy all contrib skills
   ./scripts/deploy.sh --contrib journal  # deploy journal skill
   ./scripts/deploy.sh --all        # deploy everything
-  ./scripts/deploy.sh --undeploy dream   # remove deployed dream skill
+  ./scripts/deploy.sh --undeploy architect   # remove deployed architect skill
 EOF
 }
 

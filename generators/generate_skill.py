@@ -24,7 +24,7 @@ from typing import Tuple
 GENERATOR_VERSION = "1.0.0"
 
 # Reserved skill names (existing production skills)
-RESERVED_NAMES = {"dream", "ship", "audit", "sync"}
+RESERVED_NAMES = {"architect", "ship", "audit", "sync"}
 
 # Valid archetypes
 ARCHETYPES = {"coordinator", "pipeline", "scan"}

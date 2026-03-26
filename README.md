@@ -524,7 +524,7 @@ bash generators/test_skill_generator.sh
 **Test Coverage:**
 - **Skill Generator:** 26 tests
   - Generator and validator help text
-  - All 5 production skills (dream, ship, audit, sync, test-idempotent)
+  - All 5 production skills (architect, ship, audit, sync, test-idempotent)
   - All 3 archetypes (coordinator, pipeline, scan)
   - Input validation, JSON output, negative tests
 - **Agent Generator:** 30 tests
@@ -745,5 +745,5 @@ MIT - Use freely in your projects
 ---
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-12
+**Last Updated:** 2026-03-26
 **Maintained by:** @backspace-shmackspace

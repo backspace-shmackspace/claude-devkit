@@ -211,7 +211,7 @@ source ~/.zshrc
 ```bash
 cd ~/projects/claude-devkit
 ./scripts/deploy.sh           # Deploy all skills
-./scripts/deploy.sh dream     # Deploy one skill
+./scripts/deploy.sh architect     # Deploy one skill
 ```
 
 ### 3. Generate Your First Agent
@@ -721,7 +721,7 @@ Deployment and utility scripts.
 ```bash
 # Deploy skills
 ./scripts/deploy.sh                    # Deploy all core skills (default)
-./scripts/deploy.sh dream              # Deploy one core skill
+./scripts/deploy.sh architect              # Deploy one core skill
 ./scripts/deploy.sh --contrib journal  # Deploy one contrib skill
 ./scripts/deploy.sh --contrib          # Deploy all contrib skills
 ./scripts/deploy.sh --all              # Deploy core + contrib
@@ -861,7 +861,7 @@ bash generators/test_skill_generator.sh
 
 **Coverage (26 tests):**
 - Generator and validator help text
-- All production skills (dream, ship, audit, sync)
+- All production skills (architect, ship, audit, sync)
 - All archetypes (coordinator, pipeline, scan)
 - Input validation (names, descriptions, paths)
 - JSON output
@@ -999,7 +999,7 @@ test(generators): add validation tests for scan archetype
 
 ### v1.0 (Current)
 
-- ✅ Core skills (dream, ship, audit, sync)
+- ✅ Core skills (architect, ship, audit, sync)
 - ✅ Skill generator with 3 archetypes
 - ✅ Senior architect generator
 - ✅ Skill validator

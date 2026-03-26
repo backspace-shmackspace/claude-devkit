@@ -74,13 +74,13 @@ run_test 2 "Generator help text" \
     "python3 '$GENERATE_PY' --help" \
     0
 
-# Test 3: Validate dream skill
+# Test 3: Validate architect skill
 if [[ -f "$SKILLS_DIR/skills/architect/SKILL.md" ]]; then
-    run_test 3 "Validate dream skill" \
+    run_test 3 "Validate architect skill" \
         "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/architect/SKILL.md'" \
         0
 else
-    echo -e "${YELLOW}⏭️  Test 3: SKIP (dream skill not found)${RESET}"
+    echo -e "${YELLOW}⏭️  Test 3: SKIP (architect skill not found)${RESET}"
 fi
 
 # Test 4: Validate ship skill
@@ -165,7 +165,7 @@ run_test 13 "Reject invalid name (uppercase)" \
 
 # Test 14: Reject invalid name (reserved)
 run_test 14 "Reject invalid name (reserved)" \
-    "python3 '$GENERATE_PY' 'dream' -d 'Test.' -t '$TEST_DIR'" \
+    "python3 '$GENERATE_PY' 'architect' -d 'Test.' -t '$TEST_DIR'" \
     non-zero
 
 # Test 15: Reject invalid name (too long)
@@ -186,7 +186,7 @@ if [[ -f "$SKILLS_DIR/skills/architect/SKILL.md" ]]; then
         "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/architect/SKILL.md' --json | jq . > /dev/null" \
         0
 else
-    echo -e "${YELLOW}⏭️  Test 17: SKIP (dream skill not found)${RESET}"
+    echo -e "${YELLOW}⏭️  Test 17: SKIP (architect skill not found)${RESET}"
 fi
 
 # Test 18: Validator detects missing frontmatter

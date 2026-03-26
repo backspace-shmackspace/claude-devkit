@@ -521,7 +521,7 @@ All inputs are validated before any file operations:
 - Lowercase alphanumeric + hyphen only
 - 2-30 characters
 - No leading/trailing hyphens
-- Not a reserved name (dream, ship, audit, sync)
+- Not a reserved name (architect, ship, audit, sync)
 
 ### Description Rules
 - Max 200 characters
@@ -610,7 +610,7 @@ bash generators/test_skill_generator.sh
 
 **Test Coverage (26 tests):**
 - Generator and validator help text
-- Validation of all 4 production skills (dream, ship, audit, sync)
+- Validation of all 4 production skills (architect, ship, audit, sync)
 - Generation of all 3 archetypes (coordinator, pipeline, scan)
 - Validation of generated skills
 - Input validation (reject invalid names, descriptions, paths)

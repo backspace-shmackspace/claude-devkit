@@ -116,7 +116,7 @@ cd ~/workspaces/claude-devkit
 **Verify deployment:**
 ```bash
 ls ~/.claude/skills/
-# Should show: audit  dream  ship  sync  test-idempotent
+# Should show: architect  audit  ship  sync  test-idempotent
 ```
 
 ### Step 2: Test a Built-in Skill
