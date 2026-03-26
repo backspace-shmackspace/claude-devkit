@@ -1,7 +1,7 @@
 # Claude Devkit
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-12
+**Last Updated:** 2026-03-26
 **Purpose:** Unified development toolkit for Claude Code - skills, agents, generators, and templates
 
 **New to Claude Devkit?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a 15-minute tutorial.
@@ -11,7 +11,7 @@
 Claude Devkit is the complete toolkit for building with Claude Code. It combines skill definitions, agent generators, templates, and reusable configurations into a single, version-controlled repository.
 
 **What's Inside:**
-- **Skills** — Reusable Claude Code workflows (`/dream`, `/ship`, `/retro`, `/audit`, `/sync`)
+- **Skills** — 13 core reusable Claude Code workflows including `/dream`, `/ship`, `/retro`, `/audit`, `/sync`, and security skills
 - **Generators** — Scripts to create agents, skills, and project structures
 - **Templates** — Reusable templates for agents and skills
 - **Configs** — Shared configurations and patterns
@@ -28,7 +28,12 @@ claude-devkit/
 │   ├── ship/            # Implementation pipeline
 │   ├── retro/           # Retrospective and learnings capture
 │   ├── audit/           # Security and performance scanning
-│   └── sync/            # Documentation synchronization
+│   ├── sync/            # Documentation synchronization
+│   ├── compliance-check/      # Regulatory framework validation
+│   ├── dependency-audit/      # Supply chain security
+│   ├── secrets-scan/          # Pre-commit secrets detection
+│   ├── secure-review/         # Deep semantic security review
+│   └── threat-model-gate/     # Security planning reference
 │
 ├── contrib/             # Tier 1b: Optional/personal skills (opt-in)
 │   ├── journal/         # Obsidian journal writing
@@ -90,6 +95,11 @@ Deploy and use in Claude Code
 | **test-idempotent** | 1.0.1 | Test skill idempotency and determinism. Runs skill multiple times, validates consistent outputs, reports variances. | opus-4-6 | 7 |
 | **receiving-code-review** | 1.0.0 | Code review reception discipline: 6-step response pattern (READ through IMPLEMENT), anti-performative-agreement, YAGNI enforcement, source-specific handling, pushback guidelines. Reference archetype. | claude-sonnet-4-5 | Reference |
 | **verification-before-completion** | 1.0.0 | Evidence-before-claims gate: 5-step verification (IDENTIFY, RUN, READ, VERIFY, CLAIM). Requires fresh test/build output before any completion claim. Red flags, rationalization table, key patterns for TDD and bug fixes. Reference archetype. | claude-sonnet-4-5 | Reference |
+| **compliance-check** | 1.0.0 | Validate codebase against code-level compliance signals for regulatory frameworks (FedRAMP, FIPS, OWASP, SOC 2). Scoped to source code analysis only — not a compliance certification. | opus-4-6 | 5 |
+| **dependency-audit** | 1.0.0 | Supply chain security audit — coordinates real CLI vulnerability scanners (npm audit, pip-audit, govulncheck, cargo audit, etc.) and synthesizes findings with license compliance and risk assessment. | claude-sonnet-4-5 | 8 |
+| **secrets-scan** | 1.0.0 | Pre-commit secrets detection with pattern-based scanning for API keys, tokens, passwords, private keys, and connection strings. Self-contained — no external tools required. | claude-sonnet-4-5 | 6 |
+| **secure-review** | 1.0.0 | Deep semantic security review of code changes with data flow tracing, taint analysis, and trust boundary validation. Composable building block invoked by /audit when deployed. | opus-4-6 | 5 |
+| **threat-model-gate** | 1.0.0 | Use when planning security-sensitive features — authentication, authorization, data handling, API design, cryptography, or network configuration — requires explicit threat modeling before implementation decisions are made. Reference archetype. | claude-sonnet-4-5 | Reference |
 
 ### Contrib Skills (contrib/)
 
@@ -611,7 +621,13 @@ skills/
 ├── audit/SKILL.md
 ├── sync/SKILL.md
 ├── test-idempotent/SKILL.md
-└── receiving-code-review/SKILL.md
+├── receiving-code-review/SKILL.md
+├── verification-before-completion/SKILL.md
+├── compliance-check/SKILL.md
+├── dependency-audit/SKILL.md
+├── secrets-scan/SKILL.md
+├── secure-review/SKILL.md
+└── threat-model-gate/SKILL.md
 ```
 
 **Frontmatter Format:**

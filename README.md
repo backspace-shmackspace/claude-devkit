@@ -43,7 +43,7 @@ cd ~/projects/claude-devkit
 
 ## What's Included
 
-### Skills (7)
+### Skills (13)
 
 Pre-built workflows for common development tasks:
 
@@ -56,6 +56,12 @@ Pre-built workflows for common development tasks:
 | `/sync` | Update documentation and CLAUDE.md | `/sync` or `/sync full` |
 | `/test-idempotent` | Test skill idempotency and determinism | `/test-idempotent my-skill` |
 | `/receiving-code-review` | Code review reception discipline | `/receiving-code-review` |
+| `/verification-before-completion` | Evidence-before-claims gate — requires fresh test/build output before completion claims | `/verification-before-completion` |
+| `/compliance-check` | Validate against regulatory frameworks (FedRAMP, FIPS, OWASP, SOC 2) | `/compliance-check fedramp fips` |
+| `/dependency-audit` | Supply chain security with vulnerability scanning and license compliance | `/dependency-audit` |
+| `/secrets-scan` | Pre-commit secrets detection for API keys, tokens, credentials | `/secrets-scan staged` |
+| `/secure-review` | Deep semantic security review with data flow tracing | `/secure-review changes` |
+| `/threat-model-gate` | Security planning reference for authentication, authorization, data handling | `/threat-model-gate` |
 
 ### Generators (5)
 
