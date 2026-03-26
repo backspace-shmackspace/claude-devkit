@@ -2,7 +2,7 @@
 # Deploy skills from claude-devkit to ~/.claude/skills/
 # Usage: ./scripts/deploy.sh [OPTIONS] [SKILL_NAME]
 #   ./scripts/deploy.sh              # deploy all core skills
-#   ./scripts/deploy.sh dream        # deploy one core skill
+#   ./scripts/deploy.sh architect        # deploy one core skill
 #   ./scripts/deploy.sh --contrib    # deploy all contrib skills
 #   ./scripts/deploy.sh --contrib journal  # deploy one contrib skill
 #   ./scripts/deploy.sh --all        # deploy core + contrib skills
@@ -137,7 +137,7 @@ Options:
 
 Examples:
   ./scripts/deploy.sh              # deploy all core skills
-  ./scripts/deploy.sh dream        # deploy dream skill
+  ./scripts/deploy.sh architect        # deploy dream skill
   ./scripts/deploy.sh --contrib    # deploy all contrib skills
   ./scripts/deploy.sh --contrib journal  # deploy journal skill
   ./scripts/deploy.sh --all        # deploy everything

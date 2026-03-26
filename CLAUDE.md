@@ -11,7 +11,7 @@
 Claude Devkit is the complete toolkit for building with Claude Code. It combines skill definitions, agent generators, templates, and reusable configurations into a single, version-controlled repository.
 
 **What's Inside:**
-- **Skills** — 13 core reusable Claude Code workflows including `/dream`, `/ship`, `/retro`, `/audit`, `/sync`, and security skills
+- **Skills** — 13 core reusable Claude Code workflows including `/architect`, `/ship`, `/retro`, `/audit`, `/sync`, and security skills
 - **Generators** — Scripts to create agents, skills, and project structures
 - **Templates** — Reusable templates for agents and skills
 - **Configs** — Shared configurations and patterns
@@ -24,7 +24,7 @@ Claude Devkit is the complete toolkit for building with Claude Code. It combines
 ```
 claude-devkit/
 ├── skills/              # Tier 1: Core skill definitions (source of truth)
-│   ├── dream/           # Planning with approval gates
+│   ├── architect/           # Planning with approval gates
 │   ├── ship/            # Implementation pipeline
 │   ├── retro/           # Retrospective and learnings capture
 │   ├── audit/           # Security and performance scanning
@@ -87,7 +87,7 @@ Deploy and use in Claude Code
 
 | Skill | Version | Purpose | Model | Steps |
 |-------|---------|---------|-------|-------|
-| **dream** | 3.0.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Context alignment and metadata in output. Auto-commits artifacts on verdict. | opus-4-6 | 6 |
+| **architect** | 3.0.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Context alignment and metadata in output. Auto-commits artifacts on verdict. | opus-4-6 | 6 |
 | **ship** | 3.4.0 | Pre-flight check → Read plan → Pattern validation (warnings) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate → Retro capture. Structural conflict prevention. Learnings consumption. | opus-4-6 | 8 |
 | **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
 | **audit** | 3.0.0 | Scope detection (plan/code/full) → Security scan (security-analyst agent or Task subagent) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. | opus-4-6 | 6 |
@@ -226,7 +226,7 @@ gen-agent . --type all  # Generate all agents (auto-detects stack)
 
 ```bash
 # In any Claude Code session
-/dream add user authentication
+/architect add user authentication
 /ship plans/add-user-authentication.md
 /audit
 /sync
@@ -238,7 +238,7 @@ gen-agent . --type all  # Generate all agents (auto-detects stack)
 
 ```bash
 # 1. Plan the feature
-/dream add shopping cart functionality
+/architect add shopping cart functionality
 
 # 2. Optional: Audit the plan before implementation
 /audit plan plans/add-shopping-cart.md
@@ -382,7 +382,7 @@ All skills follow these 10 patterns:
 
 ### Archetype Patterns
 
-#### Coordinator Pattern (like `/dream`)
+#### Coordinator Pattern (like `/architect`)
 
 **Characteristics:**
 - Delegates core work to specialist agents
@@ -397,7 +397,7 @@ All skills follow these 10 patterns:
 - Multi-agent workflows
 - Document review and approval
 
-**Note:** Coordinators may perform non-blocking git commits for artifact durability (e.g., /dream auto-commits plan artifacts after verdict). Commit failures must never alter the verdict outcome.
+**Note:** Coordinators may perform non-blocking git commits for artifact durability (e.g., /architect auto-commits plan artifacts after verdict). Commit failures must never alter the verdict outcome.
 
 **Example Structure:**
 ```markdown
@@ -552,7 +552,7 @@ Tool: Bash (git worktree remove, delete temp files)
 
 ```
 ./plans/
-├── [feature].md                           # Plans from /dream
+├── [feature].md                           # Plans from /architect
 ├── [feature].redteam.md                   # Red team reviews
 ├── [feature].feasibility.md               # Feasibility reviews
 ├── [feature].review.md                    # Librarian reviews
@@ -615,7 +615,7 @@ Source of truth for **core skill definitions** (deployed to all users). Each ski
 **Structure:**
 ```
 skills/
-├── dream/SKILL.md
+├── architect/SKILL.md
 ├── ship/SKILL.md
 ├── retro/SKILL.md
 ├── audit/SKILL.md
@@ -758,7 +758,7 @@ Claude Devkit deploys skills to Claude Code's skill directory:
 ```
 ~/.claude/
 └── skills/
-    ├── dream/SKILL.md
+    ├── architect/SKILL.md
     ├── ship/SKILL.md
     ├── audit/SKILL.md
     └── sync/SKILL.md
@@ -814,7 +814,7 @@ Generated senior-architect agents live in project directories:
 ```
 
 **Integration:**
-- `/dream` skill checks for `.claude/agents/senior-architect.md`
+- `/architect` skill checks for `.claude/agents/senior-architect.md`
 - If not found, prompts to generate using `gen-architect`
 - Agent reads project `CLAUDE.md` for context
 
@@ -825,7 +825,7 @@ Generated senior-architect agents live in project directories:
 Run validation before committing:
 
 ```bash
-validate-skill skills/dream/SKILL.md
+validate-skill skills/architect/SKILL.md
 ```
 
 **Checks:**

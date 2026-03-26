@@ -239,8 +239,8 @@ When drafting or reviewing a plan for a security-sensitive feature:
 
 ## Relationship to Other Skills
 
-- **Before `/dream` approval:** The threat model gate runs during planning. Plans without a `## Security Requirements` section for security-sensitive features should not receive architect approval.
-- **Before `/ship` implementation:** If a plan passed `/dream` but the Security Requirements section is missing or shallow, raise it before implementation begins. It is cheaper to fix the design than the code.
+- **Before `/architect` approval:** The threat model gate runs during planning. Plans without a `## Security Requirements` section for security-sensitive features should not receive architect approval.
+- **Before `/ship` implementation:** If a plan passed `/architect` but the Security Requirements section is missing or shallow, raise it before implementation begins. It is cheaper to fix the design than the code.
 - **After `/secure-review`:** If `/secure-review` finds issues that the threat model should have caught, update the threat model section of the plan and the `.claude/learnings.md` file. Threat model gaps are learning opportunities.
 - **In conjunction with `receiving-code-review`:** When reviewing security-related code, apply both skills. `receiving-code-review` governs how you evaluate the reviewer's feedback; `threat-model-gate` governs whether the implementation addresses the correct threats.
 

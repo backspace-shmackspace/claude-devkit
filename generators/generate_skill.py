@@ -299,7 +299,7 @@ def interactive_prompt(target_dir: Path) -> dict:
     # Archetype
     print()
     print("Archetype options:")
-    print("  coordinator — Delegates to agents, parallel reviews, revision loops (like /dream)")
+    print("  coordinator — Delegates to agents, parallel reviews, revision loops (like /architect)")
     print("  pipeline    — Sequential workflow with checkpoints (like /ship)")
     print("  scan        — Parallel scans, severity ratings, synthesis (like /audit)")
     archetype = input("Archetype [coordinator]: ").strip() or "coordinator"

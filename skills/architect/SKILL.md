@@ -1,10 +1,10 @@
 ---
-name: dream
+name: architect
 description: Research and create a technical blueprint for a new feature.
 model: claude-opus-4-6
 version: 3.0.0
 ---
-# /dream Workflow
+# /architect Workflow
 
 ## Inputs
 - Feature request: $ARGUMENTS
@@ -267,7 +267,7 @@ If APPROVED:
 [ -n "$PLAN_FILES" ] && git commit -m "$(cat <<'EOF'
 feat(plans): approve [feature-name] blueprint
 
-Plan approved by /dream v3.0.0 with all review gates passed.
+Plan approved by /architect v3.0.0 with all review gates passed.
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
@@ -279,7 +279,7 @@ If FAIL:
 [ -n "$PLAN_FILES" ] && git commit -m "$(cat <<'EOF'
 chore(plans): save failed [feature-name] blueprint
 
-Plan did not pass /dream v3.0.0 review gates. Committing artifacts for reference.
+Plan did not pass /architect v3.0.0 review gates. Committing artifacts for reference.
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF

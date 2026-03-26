@@ -86,7 +86,7 @@ Read the plan file at `$ARGUMENTS`. Extract:
 - `## Status: APPROVED` marker (required)
 
 If any section is missing or plan is not approved, stop with:
-"Plan at `$ARGUMENTS` is incomplete or not approved. Required: Task Breakdown, Test Plan, Acceptance Criteria, and ## Status: APPROVED marker. Run `/dream` first."
+"Plan at `$ARGUMENTS` is incomplete or not approved. Required: Task Breakdown, Test Plan, Acceptance Criteria, and ## Status: APPROVED marker. Run `/architect` first."
 
 Derive `[name]` from the plan filename (e.g. `./plans/feature-x.md` → `feature-x`).
 

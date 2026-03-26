@@ -9,7 +9,7 @@ Claude Devkit is the complete toolkit for building with Claude Code. It provides
 
 **What you'll learn:**
 - How to install and verify claude-devkit
-- How to deploy and use built-in skills (/dream, /ship, /audit, /sync)
+- How to deploy and use built-in skills (/architect, /ship, /audit, /sync)
 - How to generate project agents
 - How to create your first custom skill
 
@@ -128,8 +128,8 @@ cd ~/projects/my-app
 # Start Claude Code
 claude-code
 
-# Use /dream skill
-/dream add user authentication
+# Use /architect skill
+/architect add user authentication
 ```
 
 **What you should see:**
@@ -249,7 +249,7 @@ ls .claude/agents/
 claude-code
 
 # Use /ship skill (requires coder, code-reviewer, qa-engineer agents)
-/dream add README file
+/architect add README file
 /ship plans/add-readme-file.md
 ```
 
@@ -287,7 +287,7 @@ code .claude/agents/coder-python.md
 Try these complete workflows:
 
 1. **[Feature Development Lifecycle](CLAUDE.md#workflow-1-feature-development-full-lifecycle)**
-   - Plan with /dream
+   - Plan with /architect
    - Implement with /ship
    - Update docs with /sync
    - Audit with /audit
@@ -307,7 +307,7 @@ Try these complete workflows:
 
 ### Explore Built-in Skills
 
-- **`/dream`** - Implementation planning with approval gates
+- **`/architect`** - Implementation planning with approval gates
 - **`/ship`** - Code implementation with testing pipeline
 - **`/audit`** - Security and performance scanning
 - **`/sync`** - Documentation synchronization

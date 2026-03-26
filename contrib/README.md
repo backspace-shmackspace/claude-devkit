@@ -142,7 +142,7 @@ Contrib skills follow the same structure as core skills:
 ## Why Contrib vs Core?
 
 **Core skills** (`skills/`) are universal and deploy to all users:
-- `/dream`, `/ship`, `/audit`, `/sync`
+- `/architect`, `/ship`, `/audit`, `/sync`
 - No user-specific paths or configuration
 - Work out-of-the-box after install
 

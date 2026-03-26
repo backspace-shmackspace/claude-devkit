@@ -43,7 +43,7 @@ Updated 3 skills with agent existence checks:
 
 1. **/ship** - Checks for coder, code-reviewer, qa-engineer (blocking)
 2. **/audit** - Checks for qa-engineer (non-blocking)
-3. **/dream** - Checks for senior-architect (suggestion only)
+3. **/architect** - Checks for senior-architect (suggestion only)
 
 All provide exact generation commands when agents missing.
 
@@ -79,7 +79,7 @@ All provide exact generation commands when agents missing.
 
 - skills/ship/SKILL.md
 - skills/audit/SKILL.md
-- skills/dream/SKILL.md
+- skills/architect/SKILL.md
 - generators/README.md
 
 ---

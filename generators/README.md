@@ -122,9 +122,9 @@ color: purple
    Use the senior-architect agent to create a plan for adding user authentication
    ```
 
-## Using with /dream Skill
+## Using with /architect Skill
 
-The updated `/dream` skill automatically discovers senior-architect agents:
+The updated `/architect` skill automatically discovers senior-architect agents:
 
 1. Checks local `.claude/agents/senior-architect.md`
 2. If not found, recurses up directory tree
@@ -133,7 +133,7 @@ The updated `/dream` skill automatically discovers senior-architect agents:
 **Workflow:**
 ```bash
 # In a new project without an architect
-/dream add OAuth authentication
+/architect add OAuth authentication
 
 # Claude prompts:
 "No senior-architect agent found. Create one? (y/N)"
@@ -320,7 +320,7 @@ python generate_skill.py my-skill --description "My new skill" --deploy
 
 | Archetype | Description | Based On | Steps | Use Cases |
 |-----------|-------------|----------|-------|-----------|
-| **coordinator** | Delegates work to agents, parallel reviews, revision loops | `/dream` | 4-6 | Planning, research, multi-agent workflows |
+| **coordinator** | Delegates work to agents, parallel reviews, revision loops | `/architect` | 4-6 | Planning, research, multi-agent workflows |
 | **pipeline** | Sequential workflow with validation checkpoints | `/ship` | 6-8 | Implementation, testing, deployment |
 | **scan** | Parallel analysis, severity ratings, synthesis | `/audit` | 4-6 | Security scans, code quality, audits |
 
@@ -332,7 +332,7 @@ python generate_skill.py my-skill --description "My new skill" --deploy
 - Verdict gates block progression on failures
 - Archives approved artifacts
 
-**Example:** `/dream` — delegates to architect, runs red team + librarian reviews, revises plan up to 2 times.
+**Example:** `/architect` — delegates to architect, runs red team + librarian reviews, revises plan up to 2 times.
 
 ### Pipeline Pattern
 
@@ -454,7 +454,7 @@ python validate_skill.py <path-to-SKILL.md> [--strict] [--json]
 **Output Formats:**
 ```bash
 # Human-readable report (default)
-python validate_skill.py ~/workspaces/claude-devkit/skills/dream/SKILL.md
+python validate_skill.py ~/workspaces/claude-devkit/skills/architect/SKILL.md
 
 # JSON output for CI integration
 python validate_skill.py ./skills/ship/SKILL.md --json
@@ -985,7 +985,7 @@ If agents missing, /ship stops with helpful error messages:
 **Graceful Degradation:**
 If qa-engineer missing, /audit skips regression tests and writes a note to the report (non-blocking).
 
-### /dream Skill
+### /architect Skill
 **Optionally Uses:**
 - `.claude/agents/senior-architect.md` (Step 1: Plan drafting)
 
@@ -1018,7 +1018,7 @@ python3 ~/workspaces/claude-devkit/generators/generate_agents.py . --type all
 python3 ~/workspaces/claude-devkit/generators/validate_agent.py .claude/agents/*.md
 
 # Use with skills
-/dream add JWT authentication
+/architect add JWT authentication
 /ship plans/add-jwt-authentication.md
 /audit
 ```
@@ -1117,7 +1117,7 @@ python3 generate_agents.py . --type coder --tech-stack "Python FastAPI"
   - 7 tech stack configurations
   - Comprehensive validator with strict mode
   - Test suite with 15 tests
-  - Integration with /ship, /audit, /dream skills
+  - Integration with /ship, /audit, /architect skills
 
 ### Skill Generator
 
@@ -1133,6 +1133,6 @@ python3 generate_agents.py . --type coder --tech-stack "Python FastAPI"
 - **2026-02-08**: Initial release
   - Bash and Python generator scripts
   - Auto-detection of project type
-  - Integration with /dream skill
+  - Integration with /architect skill
   - **Note:** Now superseded by unified agent generator (generate_agents.py)
   - **Recommendation:** Use `gen-agent . --type senior-architect` instead

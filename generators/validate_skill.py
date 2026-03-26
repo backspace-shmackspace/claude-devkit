@@ -6,7 +6,7 @@ Usage:
     python validate_skill.py <path-to-SKILL.md> [--strict] [--json]
 
 Examples:
-    python validate_skill.py skills/dream/SKILL.md
+    python validate_skill.py skills/architect/SKILL.md
     python validate_skill.py ./skills/audit/SKILL.md --strict
     python validate_skill.py ./skills/ship/SKILL.md --json
 """

@@ -65,7 +65,7 @@ All skills must follow these 10 patterns:
 
 | Archetype | Use Case | Example | Steps |
 |-----------|----------|---------|-------|
-| **coordinator** | Multi-agent delegation, parallel reviews | `/dream` | 4-6 |
+| **coordinator** | Multi-agent delegation, parallel reviews | `/architect` | 4-6 |
 | **pipeline** | Sequential validation checkpoints | `/ship` | 6-8 |
 | **scan** | Parallel analysis, severity ratings | `/audit` | 4-6 |
 
@@ -302,11 +302,11 @@ Save all plans to `./plans/[feature-name].md` with this structure:
 [Continue with remaining sections]
 ```
 
-# Integration with /dream
+# Integration with /architect
 
-You work seamlessly with the `/dream` skill:
+You work seamlessly with the `/architect` skill:
 
-1. User: `/dream add new generator for MCP agents`
+1. User: `/architect add new generator for MCP agents`
 2. Orchestrator invokes you (devkit-architect agent)
 3. You create detailed plan in `./plans/add-mcp-agent-generator.md`
 4. Red team reviews for security, performance, edge cases

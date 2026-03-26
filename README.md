@@ -35,7 +35,7 @@ cd ~/projects/claude-devkit
 
 ```bash
 # In any Claude Code session
-/dream add user authentication
+/architect add user authentication
 /ship plans/add-user-authentication.md
 /audit
 /sync
@@ -49,7 +49,7 @@ Pre-built workflows for common development tasks:
 
 | Skill | Purpose | Usage |
 |-------|---------|-------|
-| `/dream` | Create implementation plans with context alignment and approval gates | `/dream add shopping cart` |
+| `/architect` | Create implementation plans with context alignment and approval gates | `/architect add shopping cart` |
 | `/ship` | Execute plans with pattern validation, testing, QA, and retro capture | `/ship plans/feature.md` |
 | `/retro` | Mine review artifacts for recurring patterns and capture learnings | `/retro` or `/retro feature-name` |
 | `/audit` | Security and performance scanning | `/audit` or `/audit code` |
@@ -109,7 +109,7 @@ Reusable templates for skills and agents:
 
 ```bash
 # 1. Plan the feature
-/dream add shopping cart functionality
+/architect add shopping cart functionality
 
 # 2. Implement the plan
 /ship plans/add-shopping-cart.md
@@ -165,20 +165,20 @@ code .claude/agents/
 claude-code
 
 # Use with skills
-/dream add checkout flow
+/architect add checkout flow
 /ship plans/add-checkout-flow.md
 ```
 
 ## Available Skills
 
-### `/dream` - Implementation Planning
+### `/architect` - Implementation Planning
 
 Creates detailed implementation plans with red team review and approval gates.
 
 **Usage:**
 ```bash
-/dream add user authentication
-/dream --fast create API endpoints  # Skip red team review
+/architect add user authentication
+/architect --fast create API endpoints  # Skip red team review
 ```
 
 **Output:**
@@ -306,7 +306,7 @@ gen-skill deploy-check -d "Verify deployment" -a pipeline --deploy
 ```
 
 **Archetypes:**
-- **coordinator** — Multi-agent delegation, parallel reviews, revision loops (like `/dream`)
+- **coordinator** — Multi-agent delegation, parallel reviews, revision loops (like `/architect`)
 - **pipeline** — Sequential validation checkpoints (like `/ship`)
 - **scan** — Parallel analysis, severity ratings (like `/audit`)
 
@@ -378,7 +378,7 @@ validate-skill <path-to-SKILL.md> [options]
 **Examples:**
 ```bash
 # Human-readable report
-validate-skill skills/dream/SKILL.md
+validate-skill skills/architect/SKILL.md
 
 # JSON output (for CI)
 validate-skill skills/ship/SKILL.md --json
@@ -548,7 +548,7 @@ Fail:   0
 ```
 claude-devkit/
 ├── skills/                    # Skill definitions (source of truth)
-│   ├── dream/SKILL.md         # Planning with approval gates
+│   ├── architect/SKILL.md         # Planning with approval gates
 │   ├── ship/SKILL.md          # Implementation pipeline
 │   ├── retro/SKILL.md         # Retrospective and learnings capture
 │   ├── audit/SKILL.md         # Security and performance
@@ -601,7 +601,7 @@ Skills are deployed to Claude Code's skill directory:
 
 ```
 ~/.claude/skills/
-├── dream/SKILL.md
+├── architect/SKILL.md
 ├── ship/SKILL.md
 ├── audit/SKILL.md
 └── sync/SKILL.md
@@ -622,7 +622,7 @@ Generated architects live in project directories:
 ```
 
 **Integration:**
-- `/dream` skill checks for project architect
+- `/architect` skill checks for project architect
 - If not found, prompts to generate
 - Agent reads project CLAUDE.md for context
 

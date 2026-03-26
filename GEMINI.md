@@ -6,7 +6,7 @@ This project, `claude-devkit`, is a complete development toolkit for creating an
 
 The project provides:
 
-*   **Skills:** Pre-built workflows for common development tasks like planning (`/dream`), implementation (`/ship`), security audits (`/audit`), and documentation synchronization (`/sync`).
+*   **Skills:** Pre-built workflows for common development tasks like planning (`/architect`), implementation (`/ship`), security audits (`/audit`), and documentation synchronization (`/sync`).
 *   **Generators:** Python scripts to scaffold new skills and agents from templates.
 *   **Templates:** A set of standard templates for different types of skills and agents.
 *   **Configuration:** JSON files that define patterns for skills and tech stacks.

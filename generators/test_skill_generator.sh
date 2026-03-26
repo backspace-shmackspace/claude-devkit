@@ -75,9 +75,9 @@ run_test 2 "Generator help text" \
     0
 
 # Test 3: Validate dream skill
-if [[ -f "$SKILLS_DIR/skills/dream/SKILL.md" ]]; then
+if [[ -f "$SKILLS_DIR/skills/architect/SKILL.md" ]]; then
     run_test 3 "Validate dream skill" \
-        "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/dream/SKILL.md'" \
+        "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/architect/SKILL.md'" \
         0
 else
     echo -e "${YELLOW}⏭️  Test 3: SKIP (dream skill not found)${RESET}"
@@ -181,9 +181,9 @@ run_test 16 "Reject existing skill without --force" \
     non-zero
 
 # Test 17: Validator JSON output
-if [[ -f "$SKILLS_DIR/skills/dream/SKILL.md" ]]; then
+if [[ -f "$SKILLS_DIR/skills/architect/SKILL.md" ]]; then
     run_test 17 "Validator JSON output" \
-        "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/dream/SKILL.md' --json | jq . > /dev/null" \
+        "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/architect/SKILL.md' --json | jq . > /dev/null" \
         0
 else
     echo -e "${YELLOW}⏭️  Test 17: SKIP (dream skill not found)${RESET}"
