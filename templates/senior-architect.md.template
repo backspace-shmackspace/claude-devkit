@@ -52,7 +52,7 @@ Your core mission is to:
 ## Model Constraints (Vertex AI)
 **CRITICAL:** Vertex AI requires explicit dated versions.
 - Available: `claude-sonnet-4-5@20250929`
-- Restricted: `claude-opus-4-6@20250514` (Red Hat IT env)
+- Restricted: `claude-opus-4-6@20250514` (check org-specific restrictions)
 - Model hierarchy: Agent manifest > CLAUDE_MODEL env > server default
 
 # Operating Rules

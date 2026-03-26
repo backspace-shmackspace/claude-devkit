@@ -346,7 +346,7 @@ projects: []
 ## Status
 **Status:** Accepted
 **Date:** YYYY-MM-DD
-**Deciders:** Ian Murphy
+**Deciders:** <your-name>
 **Project:** [[project-name]]
 
 ## Context

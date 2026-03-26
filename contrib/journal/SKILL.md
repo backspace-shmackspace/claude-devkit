@@ -296,7 +296,7 @@ tags: [meeting]
 ```markdown
 ---
 title: Project Name
-repo: gitlab.cee.redhat.com/imurphy/project-name
+repo: <your-git-host>/username/project-name
 status: active
 started: YYYY-MM-DD
 tags: [project, python]
@@ -402,7 +402,7 @@ projects: []
 ## Status
 **Status:** Accepted
 **Date:** YYYY-MM-DD
-**Deciders:** Ian Murphy
+**Deciders:** <your-name>
 **Project:** [[project-name]]
 
 ## Context
@@ -460,7 +460,7 @@ audience: Product Security Leadership Team
 # Bi-Weekly Update - YYYY-MM-DD
 
 **Period:** YYYY-MM-DD to YYYY-MM-DD
-**Author:** Ian Murphy
+**Author:** <your-name>
 
 ---
 

@@ -529,9 +529,17 @@ worktrees created from HEAD contain the first-pass implementation code:
 
 Tool: `Bash`
 
+**IMPORTANT:** The coordinator MUST enumerate the specific files from the plan's task breakdown and shared dependencies. Build the file list by concatenating: (1) shared dependency files committed in Step 2a, and (2) each work group's "Files modified" list from the plan being shipped. Use `git add <file1> <file2> ...` with explicit paths. Never use `git add -A` or `git add .` as this risks staging secrets, `.env` files, or other sensitive content that may have been created during implementation. After staging, run `git status --porcelain` and verify that only expected files are staged.
+
 ```bash
-git add -A
-git commit -m "WIP: ship v3.3.0 first-pass implementation (pre-revision)"
+# Stage only files scoped by the plan's task breakdown.
+# The coordinator MUST construct this list from:
+#   1. Shared dependency files (from Step 2a)
+#   2. Each work group's "Files modified" list from the plan
+# Example: git add src/auth.ts src/auth.test.ts lib/helpers.ts
+# NEVER use git add -A or git add .
+git add $SHARED_DEP_FILES $WG1_FILES $WG2_FILES ...
+git commit -m "WIP: ship v3.4.0 first-pass implementation (pre-revision)"
 ```
 
 This ensures revision-loop worktrees are based on the first-pass code, not the
@@ -580,6 +588,18 @@ Read `./plans/[name].qa-report.md`. Check the verdict.
 1. **If WIP commits exist from Step 3a and/or Step 5a:** Soft reset to squash them with the final commit
    - Tool: `Bash`
    - Count the number of WIP commits to squash (0, 1, or 2 depending on whether Step 3a shared deps and Step 5a pre-revision commits were created)
+   - **Branch protection:** The coordinator MUST verify the current branch is not `main` or `master` before executing `git reset --soft`. If running on a protected branch, the workflow stops with an error. This prevents accidental history rewriting on the default branch.
+   - Run the branch protection check first:
+     ```bash
+     # Branch protection check: refuse to rewrite history on main/master
+     CURRENT_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "DETACHED")
+     if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
+         echo "ERROR: /ship is running on protected branch '$CURRENT_BRANCH'."
+         echo "Refusing to run 'git reset --soft' on a protected branch."
+         echo "Create a feature branch first: git checkout -b feature/<name>"
+         exit 1
+     fi
+     ```
    - Command: `git reset --soft HEAD~N` (where N is the number of WIP commits)
 
 2. Stage changed files:

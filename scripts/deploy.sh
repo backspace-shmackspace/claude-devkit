@@ -16,8 +16,18 @@ SKILLS_DIR="$REPO_DIR/skills"
 CONTRIB_DIR="$REPO_DIR/contrib"
 DEPLOY_DIR="$HOME/.claude/skills"
 
+validate_skill_name() {
+    local skill="$1"
+    if [[ "$skill" == */* ]] || [[ "$skill" == *..* ]] || [[ "$skill" == -* ]]; then
+        echo "ERROR: Invalid skill name: '$skill' (must not contain '/', '..', or start with '-')" >&2
+        return 1
+    fi
+    return 0
+}
+
 deploy_skill() {
     local skill="$1"
+    validate_skill_name "$skill" || return 1
     local src="$SKILLS_DIR/$skill"
     local dst="$DEPLOY_DIR/$skill"
 
@@ -33,6 +43,7 @@ deploy_skill() {
 
 deploy_contrib_skill() {
     local skill="$1"
+    validate_skill_name "$skill" || return 1
     local src="$CONTRIB_DIR/$skill"
     local dst="$DEPLOY_DIR/$skill"
 
@@ -48,12 +59,7 @@ deploy_contrib_skill() {
 
 undeploy_skill() {
     local skill="$1"
-
-    # Input sanitization: reject path traversal and flag-like names
-    if [[ "$skill" == */* ]] || [[ "$skill" == *..* ]] || [[ "$skill" == -* ]]; then
-        echo "ERROR: Invalid skill name: '$skill' (must not contain '/', '..', or start with '-')" >&2
-        return 1
-    fi
+    validate_skill_name "$skill" || return 1
 
     local target="$DEPLOY_DIR/$skill"
 

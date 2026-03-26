@@ -17,7 +17,6 @@ import re
 import subprocess
 import sys
 import tempfile
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Tuple
@@ -175,14 +174,11 @@ def load_template(archetype: str, script_dir: Path) -> Tuple[bool, str, str]:
 
 
 def substitute_placeholders(template: str, **kwargs) -> str:
-    """
-    Substitute placeholders in template using format_map with defaultdict.
-    This preserves unknown {tokens} in markdown code blocks.
-    """
-    # Use defaultdict to return empty string for unknown keys
-    # This prevents KeyError and preserves {unknown} tokens
-    defaults = defaultdict(str, **kwargs)
-    return template.format_map(defaults)
+    """Substitute placeholders in template using safe .replace() calls."""
+    result = template
+    for key, value in kwargs.items():
+        result = result.replace('{' + key + '}', str(value))
+    return result
 
 
 def atomic_write(target_path: Path, content: str) -> Tuple[bool, str]:
@@ -217,7 +213,7 @@ def atomic_write(target_path: Path, content: str) -> Tuple[bool, str]:
         if tmp_path and os.path.exists(tmp_path):
             try:
                 os.unlink(tmp_path)
-            except:
+            except OSError:
                 pass
         return False, f"Cannot write to {target_path}. {e}"
 
@@ -432,7 +428,7 @@ def generate_skill(
             skill_file.unlink()
             print(f"{Colors.RED}❌ {error}{Colors.RESET}", file=sys.stderr)
             print(f"{Colors.YELLOW}Generated file removed due to validation failure.{Colors.RESET}", file=sys.stderr)
-        except:
+        except OSError:
             print(f"{Colors.RED}❌ {error}{Colors.RESET}", file=sys.stderr)
         return 1
 

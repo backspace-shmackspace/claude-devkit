@@ -1050,6 +1050,6 @@ MIT - Use freely in your projects
 
 ---
 
-**Maintained by:** Ian Murphy
+**Maintained by:** @backspace-shmackspace
 **Repository:** `~/projects/claude-devkit`
 **Deployment:** `~/.claude/skills/`

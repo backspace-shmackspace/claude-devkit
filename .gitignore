@@ -65,3 +65,6 @@ temp/
 
 # Generated files (keep source templates)
 # Note: skills/ and templates/ are source of truth, keep in git
+
+# Machine-specific Claude Code permissions (not for version control)
+.claude/settings.local.json

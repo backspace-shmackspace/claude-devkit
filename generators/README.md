@@ -19,26 +19,22 @@ For projects that need Opus 4.6 (or any model restricted on Vertex AI), local ag
 
 ## Scripts
 
-### generate_senior_architect.sh (Bash)
+### generate_senior_architect.sh (Bash) — DEPRECATED
 
-Simple bash script for quick generation.
+**This script is deprecated and will print an error message and exit with code 1.**
 
-**Usage:**
+Use the Python equivalent or the unified agent generator instead:
 ```bash
-./scripts/generate_senior_architect.sh [target-directory] [project-type]
+# Recommended: unified agent generator
+python3 generators/generate_agents.py . --type senior-architect
+
+# Alternative: Python generator
+python3 generators/generate_senior_architect.py [target-directory] [--project-type TYPE]
 ```
 
-**Examples:**
-```bash
-# Generate in current directory
-./scripts/generate_senior_architect.sh . "Next.js TypeScript React"
+See `generate_senior_architect.py` and `generate_agents.py` sections below for usage.
 
-# Generate in another project
-./scripts/generate_senior_architect.sh ~/projects/my-app "Python FastAPI"
-
-# Generate in parent directory
-./scripts/generate_senior_architect.sh .. "Rust CLI"
-```
+The shell script is preserved in the repository so that existing references produce a clear deprecation error rather than "command not found".
 
 ### generate_senior_architect.py (Python)
 

@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -337,6 +338,52 @@ def generate_agent_content(
     return filename, content
 
 
+def validate_target_dir(path: str) -> tuple:
+    """Validate target directory is within allowed boundaries."""
+    try:
+        resolved = Path(path).resolve()
+        if not resolved.is_dir():
+            return False, f"Target directory does not exist: {resolved}"
+        if not os.access(resolved, os.W_OK):
+            return False, f"Target directory is not writable: {resolved}"
+        home_workspaces = Path.home() / "workspaces"
+        tmp = Path("/tmp").resolve()
+        devkit_root = Path(__file__).resolve().parent.parent
+        for allowed_parent in [home_workspaces, tmp, devkit_root]:
+            try:
+                resolved.relative_to(allowed_parent)
+                return True, ""
+            except ValueError:
+                pass
+        return False, f"Target directory must be under ~/workspaces/, {devkit_root}, or /tmp/"
+    except Exception as e:
+        return False, f"Invalid target directory: {e}"
+
+
+def atomic_write(target_path: Path, content: str) -> tuple:
+    """Write content to file atomically using temp file + rename."""
+    try:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        return False, f"Cannot create directory: {target_path.parent}. {e}"
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(
+            dir=target_path.parent, prefix=".agent-", suffix=".tmp"
+        )
+        with os.fdopen(fd, 'w') as f:
+            f.write(content)
+        os.replace(tmp_path, target_path)
+        return True, ""
+    except Exception as e:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        return False, f"Cannot write to {target_path}. {e}"
+
+
 def generate_agents(
     target_dir: Path,
     agent_types: List[str],
@@ -404,9 +451,11 @@ def generate_agents(
                 skipped.append(filename)
                 continue
 
-        # Write file
-        with open(agent_file, 'w') as f:
-            f.write(content)
+        # Write file atomically
+        success, error = atomic_write(agent_file, content)
+        if not success:
+            print(f"Error: {error}", file=sys.stderr)
+            continue
 
         generated.append(filename)
         print(f"✅ Generated: {filename}")
@@ -485,6 +534,11 @@ Available agent types:
 
     if not target_path.is_dir():
         print(f"❌ Error: Not a directory: {target_path}", file=sys.stderr)
+        return 1
+
+    valid, error = validate_target_dir(args.target_dir)
+    if not valid:
+        print(f"Error: {error}", file=sys.stderr)
         return 1
 
     # Parse agent types

@@ -70,7 +70,7 @@ Tool: `Bash` (direct — coordinator does this)
 Based on the scope from Step 0, collect the content to scan:
 
 ```bash
-SCAN_TARGET_FILE="./plans/secrets-scan-${TIMESTAMP}.scan-target.txt"
+SCAN_TARGET_FILE=$(mktemp /tmp/secrets-scan-XXXXXXXX.tmp)
 
 case "$SCOPE" in
   staged)
@@ -82,17 +82,19 @@ case "$SCOPE" in
   all)
     # Scan all tracked and untracked files in working directory
     # Exclude common binary and generated directories
-    git ls-files 2>/dev/null > /tmp/secrets-scan-filelist.tmp
-    git ls-files --others --exclude-standard 2>/dev/null >> /tmp/secrets-scan-filelist.tmp
+    FILELIST_TMP=$(mktemp /tmp/secrets-scan-filelist-XXXXXXXX.tmp)
+    FILELIST_FILTERED_TMP=$(mktemp /tmp/secrets-scan-filelist-XXXXXXXX.tmp)
+    git ls-files 2>/dev/null > "$FILELIST_TMP"
+    git ls-files --others --exclude-standard 2>/dev/null >> "$FILELIST_TMP"
     # Filter out binary-likely extensions and large generated files
     grep -v -E '\.(png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|pdf|zip|tar|gz|bin|exe|dll|so|dylib|pyc|class)$' \
-         /tmp/secrets-scan-filelist.tmp | \
-    grep -v -E '(node_modules/|\.git/|vendor/|dist/|build/|__pycache__/)' > /tmp/secrets-scan-filelist-filtered.tmp
+         "$FILELIST_TMP" | \
+    grep -v -E '(node_modules/|\.git/|vendor/|dist/|build/|__pycache__/)' > "$FILELIST_FILTERED_TMP"
     # Read all filtered files into scan target
     while IFS= read -r f; do
       [ -f "$f" ] && echo "=== FILE: $f ===" >> "$SCAN_TARGET_FILE" && cat "$f" >> "$SCAN_TARGET_FILE"
-    done < /tmp/secrets-scan-filelist-filtered.tmp
-    rm -f /tmp/secrets-scan-filelist.tmp /tmp/secrets-scan-filelist-filtered.tmp
+    done < "$FILELIST_FILTERED_TMP"
+    rm -f "$FILELIST_TMP" "$FILELIST_FILTERED_TMP" 2>/dev/null
     echo "Collected working directory content for scanning"
     ;;
   history)
@@ -117,8 +119,6 @@ Run pattern-based detection across the collected scan target. Each pattern targe
 FINDINGS_FILE="./plans/secrets-scan-${TIMESTAMP}.raw-findings.txt"
 touch "$FINDINGS_FILE"
 
-SCAN_INPUT="./plans/secrets-scan-${TIMESTAMP}.scan-target.txt"
-
 echo "=== PATTERN SCAN RESULTS ===" >> "$FINDINGS_FILE"
 echo "Timestamp: $TIMESTAMP" >> "$FINDINGS_FILE"
 echo "Scope: $SCOPE" >> "$FINDINGS_FILE"
@@ -126,51 +126,51 @@ echo "" >> "$FINDINGS_FILE"
 
 # Pattern 1: AWS Access Keys (AKIA... format — 20 char alphanumeric after AKIA)
 echo "--- AWS Access Keys (AKIA...) ---" >> "$FINDINGS_FILE"
-grep -n -E 'AKIA[0-9A-Z]{16}' "$SCAN_INPUT" | \
+grep -n -E 'AKIA[0-9A-Z]{16}' "$SCAN_TARGET_FILE" | \
   sed 's/\(AKIA[0-9A-Z]\{4\}\)[0-9A-Z]*/\1****REDACTED/' >> "$FINDINGS_FILE" || true
 
 # Pattern 2: AWS Secret Access Keys (40-char base64-like strings after known label)
 echo "--- AWS Secret Access Keys ---" >> "$FINDINGS_FILE"
-grep -n -E -i '(aws_secret_access_key|aws_secret_key)\s*[=:]\s*[A-Za-z0-9/+=]{40}' "$SCAN_INPUT" | \
+grep -n -E -i '(aws_secret_access_key|aws_secret_key)\s*[=:]\s*[A-Za-z0-9/+=]{40}' "$SCAN_TARGET_FILE" | \
   sed 's/\([A-Za-z0-9\/+=]\{4\}\)[A-Za-z0-9\/+=]\{32\}\([A-Za-z0-9\/+=]\{4\}\)/\1****REDACTED****\2/' >> "$FINDINGS_FILE" || true
 
 # Pattern 3: GitHub Personal Access Tokens (ghp_, gho_, ghu_, ghs_, ghr_ prefixes)
 echo "--- GitHub Tokens (ghp_/gho_/ghu_/ghs_/ghr_) ---" >> "$FINDINGS_FILE"
-grep -n -E '(ghp_|gho_|ghu_|ghs_|ghr_)[A-Za-z0-9_]{36}' "$SCAN_INPUT" | \
+grep -n -E '(ghp_|gho_|ghu_|ghs_|ghr_)[A-Za-z0-9_]{36}' "$SCAN_TARGET_FILE" | \
   sed 's/\(gh[a-z]_[A-Za-z0-9_]\{4\}\)[A-Za-z0-9_]*/\1****REDACTED/' >> "$FINDINGS_FILE" || true
 
 # Pattern 4: Private key headers (RSA, EC, OpenSSH, DSA)
 echo "--- Private Key Material ---" >> "$FINDINGS_FILE"
-grep -n -E '-----BEGIN (RSA |EC |DSA |OPENSSH |PRIVATE )PRIVATE KEY-----' "$SCAN_INPUT" >> "$FINDINGS_FILE" || true
+grep -n -E '-----BEGIN (RSA |EC |DSA |OPENSSH |PRIVATE )PRIVATE KEY-----' "$SCAN_TARGET_FILE" >> "$FINDINGS_FILE" || true
 
 # Pattern 5: Generic high-confidence password patterns (labeled assignments)
 echo "--- Generic Passwords (labeled) ---" >> "$FINDINGS_FILE"
-grep -n -E -i '(password|passwd|pwd|secret|api_key|apikey|api_secret|client_secret|auth_token|access_token)\s*[=:]\s*['\''"][^'\''"]{8,}['\''"]' "$SCAN_INPUT" | \
+grep -n -E -i '(password|passwd|pwd|secret|api_key|apikey|api_secret|client_secret|auth_token|access_token)\s*[=:]\s*['\''"][^'\''"]{8,}['\''"]' "$SCAN_TARGET_FILE" | \
   sed "s/\(=\s*['\"][^'\"]\{4\}\)[^'\"]*\([^'\"]\{4\}['\"]\)/\1****REDACTED****\2/" >> "$FINDINGS_FILE" || true
 
 # Pattern 6: Database connection strings with embedded credentials
 echo "--- Database Connection Strings ---" >> "$FINDINGS_FILE"
-grep -n -E '(mysql|postgresql|postgres|mongodb|redis|amqp|jdbc)://[^@\s]+:[^@\s]+@' "$SCAN_INPUT" | \
+grep -n -E '(mysql|postgresql|postgres|mongodb|redis|amqp|jdbc)://[^@\s]+:[^@\s]+@' "$SCAN_TARGET_FILE" | \
   sed 's|://\([^:]*\):[^@]*@|://\1:****REDACTED****@|' >> "$FINDINGS_FILE" || true
 
 # Pattern 7: JWT tokens (3-part base64 separated by dots, starting with eyJ)
 echo "--- JWT Tokens ---" >> "$FINDINGS_FILE"
-grep -n -E 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}' "$SCAN_INPUT" | \
+grep -n -E 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}' "$SCAN_TARGET_FILE" | \
   sed 's/\(eyJ[A-Za-z0-9_-]\{6\}\)[A-Za-z0-9_-]*\(\.[A-Za-z0-9_-]\{4\}\).*/\1****REDACTED***\2.../' >> "$FINDINGS_FILE" || true
 
 # Pattern 8: Slack tokens (xox[bpaso]-...)
 echo "--- Slack Tokens ---" >> "$FINDINGS_FILE"
-grep -n -E 'xox[bpaso]-[A-Za-z0-9-]{10,}' "$SCAN_INPUT" | \
+grep -n -E 'xox[bpaso]-[A-Za-z0-9-]{10,}' "$SCAN_TARGET_FILE" | \
   sed 's/\(xox[bpaso]-[A-Za-z0-9-]\{6\}\)[A-Za-z0-9-]*/\1****REDACTED/' >> "$FINDINGS_FILE" || true
 
 # Pattern 9: Google API keys (AIza...)
 echo "--- Google API Keys ---" >> "$FINDINGS_FILE"
-grep -n -E 'AIza[0-9A-Za-z_-]{35}' "$SCAN_INPUT" | \
+grep -n -E 'AIza[0-9A-Za-z_-]{35}' "$SCAN_TARGET_FILE" | \
   sed 's/\(AIza[0-9A-Za-z_-]\{4\}\)[0-9A-Za-z_-]*/\1****REDACTED/' >> "$FINDINGS_FILE" || true
 
 # Pattern 10: Stripe API keys (sk_live_, pk_live_, sk_test_, rk_live_)
 echo "--- Stripe API Keys ---" >> "$FINDINGS_FILE"
-grep -n -E '(sk_live_|pk_live_|rk_live_|sk_test_)[0-9a-zA-Z]{24,}' "$SCAN_INPUT" | \
+grep -n -E '(sk_live_|pk_live_|rk_live_|sk_test_)[0-9a-zA-Z]{24,}' "$SCAN_TARGET_FILE" | \
   sed 's/\(\(sk\|pk\|rk\)_\(live\|test\)_[0-9a-zA-Z]\{6\}\)[0-9a-zA-Z]*/\1****REDACTED/' >> "$FINDINGS_FILE" || true
 
 echo "" >> "$FINDINGS_FILE"
@@ -179,6 +179,9 @@ echo "=== RAW SCAN COMPLETE ===" >> "$FINDINGS_FILE"
 # Count non-empty finding lines (excluding headers/separators)
 FINDING_LINES=$(grep -v -E '^(---|===|Timestamp|Scope|$)' "$FINDINGS_FILE" | grep -c '[0-9]' || true)
 echo "Raw matches found: $FINDING_LINES"
+
+# Delete unredacted scan target immediately after pattern scan
+rm -f "$SCAN_TARGET_FILE"
 ```
 
 ## Step 3 — False positive filtering
@@ -340,8 +343,7 @@ Tool: `Bash`
 
 ```bash
 mkdir -p ./plans/archive/secrets-scan/${TIMESTAMP}
-mv ./plans/secrets-scan-${TIMESTAMP}.scan-target.txt \
-   ./plans/secrets-scan-${TIMESTAMP}.raw-findings.txt \
+mv ./plans/secrets-scan-${TIMESTAMP}.raw-findings.txt \
    ./plans/secrets-scan-${TIMESTAMP}.filtered-findings.md \
    ./plans/archive/secrets-scan/${TIMESTAMP}/ 2>/dev/null || true
 echo "Archived intermediate artifacts to ./plans/archive/secrets-scan/${TIMESTAMP}/"

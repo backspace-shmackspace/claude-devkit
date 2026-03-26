@@ -434,4 +434,4 @@ You now have:
 
 **Version:** 1.0.0
 **Last Updated:** 2026-02-18
-**Maintained by:** Ian Murphy
+**Maintained by:** @backspace-shmackspace
