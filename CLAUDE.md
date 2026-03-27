@@ -1,7 +1,7 @@
 # Claude Devkit
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-26
+**Last Updated:** 2026-03-27
 **Purpose:** Unified development toolkit for Claude Code - skills, agents, generators, and templates
 
 **New to Claude Devkit?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a 15-minute tutorial.
@@ -57,7 +57,10 @@ claude-devkit/
 │   └── base-definitions/
 │
 └── scripts/             # Deployment and utilities
-    └── deploy.sh        # Deploy skills to ~/.claude/skills/
+    ├── deploy.sh        # Deploy skills to ~/.claude/skills/
+    ├── install.sh       # Automated installation
+    ├── uninstall.sh     # Clean uninstallation
+    └── validate-all.sh  # Health check - validate all skills
 ```
 
 ### Data Flow
@@ -768,6 +771,7 @@ Deployment and utility scripts.
 - `deploy.sh` — Deploy skills to `~/.claude/skills/` (core and/or contrib)
 - `install.sh` — Automated installation (PATH, aliases, shell config)
 - `uninstall.sh` — Clean uninstallation with backup restoration
+- `validate-all.sh` — Health check - validate all skills in one pass
 
 **Usage:**
 ```bash
@@ -777,7 +781,11 @@ Deployment and utility scripts.
 ./scripts/deploy.sh --contrib journal  # Deploy one contrib skill
 ./scripts/deploy.sh --contrib          # Deploy all contrib skills
 ./scripts/deploy.sh --all              # Deploy core + contrib
+./scripts/deploy.sh --validate         # Validate before deploying (blocks on errors)
 ./scripts/deploy.sh --help             # Show usage
+
+# Validate all skills
+./scripts/validate-all.sh              # Health check - validate all skills
 
 # Install/uninstall devkit
 ./scripts/install.sh          # Install claude-devkit
@@ -913,7 +921,10 @@ bash generators/test_skill_generator.sh
 
 **Coverage (46 tests):**
 - Generator and validator help text
-- All 13 core skills + contrib skills (when present)
+- All 13 core skills (architect, ship, retro, audit, sync, test-idempotent,
+  receiving-code-review, verification-before-completion, compliance-check,
+  dependency-audit, secrets-scan, secure-review, threat-model-gate)
+- All 3 contrib skills (journal, journal-recall, journal-review)
 - All archetypes (coordinator, pipeline, scan)
 - Input validation (names, descriptions, paths)
 - JSON output

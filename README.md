@@ -566,23 +566,26 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Test Coverage:**
-- **Skill Generator:** 26 tests
-  - Generator and validator help text
-  - All 5 production skills (architect, ship, audit, sync, test-idempotent)
-  - All 3 archetypes (coordinator, pipeline, scan)
-  - Input validation, JSON output, negative tests
-- **Agent Generator:** 30 tests
-  - All agent types (coder, qa-engineer, code-reviewer, security-analyst, senior-architect)
-  - Auto-detection (Python, TypeScript, security tools)
-  - Validation, force overwrite, tech stack override
+**Test Coverage (46 tests):**
+- Generator and validator help text (2 tests)
+- All 13 core skills validation (architect, ship, retro, audit, sync,
+  test-idempotent, receiving-code-review, verification-before-completion,
+  compliance-check, dependency-audit, secrets-scan, secure-review,
+  threat-model-gate)
+- All 3 contrib skills validation (journal, journal-recall, journal-review)
+- All 3 archetypes (coordinator, pipeline, scan)
+- Input validation (names, descriptions, paths)
+- JSON output
+- Negative tests (missing frontmatter, empty steps)
+- Metadata comments
+- Cleanup
 
 **Expected Output:**
 ```
 Test Summary
 ========================================
-Total:  26
-Pass:   26
+Total:  46
+Pass:   46
 Fail:   0
 
 ✅ All tests passed!
@@ -621,7 +624,8 @@ claude-devkit/
 ├── scripts/                   # Deployment and utilities
 │   ├── deploy.sh              # Deploy skills to ~/.claude/skills/
 │   ├── install.sh             # Automated installation
-│   └── uninstall.sh           # Clean uninstallation
+│   ├── uninstall.sh           # Clean uninstallation
+│   └── validate-all.sh        # Health check - validate all skills
 │
 ├── .claude/                   # Project-specific agents
 │   └── agents/
@@ -655,7 +659,7 @@ Skills are deployed to Claude Code's skill directory:
 **Deployment:**
 1. Edit `~/projects/claude-devkit/skills/*/SKILL.md`
 2. Commit to git
-3. Run `./scripts/deploy.sh`
+3. Run `./scripts/deploy.sh` (or `./scripts/deploy.sh --validate` to block on errors)
 4. Use in Claude Code
 
 ### With Projects
@@ -790,5 +794,5 @@ MIT - Use freely in your projects
 ---
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-26
+**Last Updated:** 2026-03-27
 **Maintained by:** @backspace-shmackspace
