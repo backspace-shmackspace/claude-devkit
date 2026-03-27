@@ -56,6 +56,22 @@ This project follows testing patterns documented in CLAUDE.md. Key sections to r
 - Review existing tests for consistency
 - Apply framework-specific best practices
 
+# Security Testing
+
+## Required Security Tests
+- Input validation boundary tests
+- Authentication bypass attempts
+- Authorization boundary tests (horizontal + vertical privilege escalation)
+- SQL/NoSQL injection test cases
+- XSS payload test cases
+- CSRF token validation tests
+
+## Test Data Security
+- Never use production data in tests
+- Use realistic but synthetic PII
+- Rotate test credentials
+- Clean up test secrets from fixtures
+
 # Conflict Resolution
 
 If patterns conflict between sources:

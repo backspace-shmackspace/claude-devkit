@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Test script for skill generator
-# Runs all 33 test cases from the plan
+# Runs all 46 test cases from the plan
 #
 # Usage:
 #   bash test_skill_generator.sh
@@ -415,9 +415,85 @@ run_test 32 "Undeploy nonexistent skill (idempotent)" \
     "bash '$DEPLOY_SCRIPT' --undeploy nonexistent-skill-xyz" \
     0
 
-# Test 33: Cleanup
+# --- Core skill validation (unconditional -- FAIL if missing) ---
+
+# Test 34: Validate retro skill
+run_test 34 "Validate retro skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/retro/SKILL.md'" \
+    0
+
+# Test 35: Validate test-idempotent skill
+run_test 35 "Validate test-idempotent skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/test-idempotent/SKILL.md'" \
+    0
+
+# Test 36: Validate receiving-code-review skill
+run_test 36 "Validate receiving-code-review skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/receiving-code-review/SKILL.md'" \
+    0
+
+# Test 37: Validate verification-before-completion skill
+run_test 37 "Validate verification-before-completion skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/verification-before-completion/SKILL.md'" \
+    0
+
+# Test 38: Validate secure-review skill
+run_test 38 "Validate secure-review skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/secure-review/SKILL.md'" \
+    0
+
+# Test 39: Validate dependency-audit skill
+run_test 39 "Validate dependency-audit skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/dependency-audit/SKILL.md'" \
+    0
+
+# Test 40: Validate secrets-scan skill
+run_test 40 "Validate secrets-scan skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/secrets-scan/SKILL.md'" \
+    0
+
+# Test 41: Validate threat-model-gate skill
+run_test 41 "Validate threat-model-gate skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/threat-model-gate/SKILL.md'" \
+    0
+
+# Test 42: Validate compliance-check skill
+run_test 42 "Validate compliance-check skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/compliance-check/SKILL.md'" \
+    0
+
+# --- Contrib skill validation (conditional -- skip if not present) ---
+
+# Test 43: Validate journal contrib skill (if exists)
+if [[ -f "$SKILLS_DIR/contrib/journal/SKILL.md" ]]; then
+    run_test 43 "Validate journal contrib skill" \
+        "python3 '$VALIDATE_PY' '$SKILLS_DIR/contrib/journal/SKILL.md'" \
+        0
+else
+    echo -e "${YELLOW}  Test 43: SKIP (journal contrib skill not found)${RESET}"
+fi
+
+# Test 44: Validate journal-recall contrib skill (if exists)
+if [[ -f "$SKILLS_DIR/contrib/journal-recall/SKILL.md" ]]; then
+    run_test 44 "Validate journal-recall contrib skill" \
+        "python3 '$VALIDATE_PY' '$SKILLS_DIR/contrib/journal-recall/SKILL.md'" \
+        0
+else
+    echo -e "${YELLOW}  Test 44: SKIP (journal-recall contrib skill not found)${RESET}"
+fi
+
+# Test 45: Validate journal-review contrib skill (if exists)
+if [[ -f "$SKILLS_DIR/contrib/journal-review/SKILL.md" ]]; then
+    run_test 45 "Validate journal-review contrib skill" \
+        "python3 '$VALIDATE_PY' '$SKILLS_DIR/contrib/journal-review/SKILL.md'" \
+        0
+else
+    echo -e "${YELLOW}  Test 45: SKIP (journal-review contrib skill not found)${RESET}"
+fi
+
+# Test 46: Cleanup
 echo ""
-echo -e "${BLUE}Test 33: Cleanup${RESET}"
+echo -e "${BLUE}Test 46: Cleanup${RESET}"
 rm -rf "$TEST_DIR"
 if [[ ! -d "$TEST_DIR" ]]; then
     echo -e "${GREEN}✅ PASS${RESET}"

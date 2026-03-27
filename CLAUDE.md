@@ -195,6 +195,7 @@ cd ~/projects/workspaces/helper-mcps/redhat-browser-mcp/
 | **skill-pipeline.md.template** | Pipeline workflow | Pipeline | Sequential validation checkpoints |
 | **skill-scan.md.template** | Scan workflow | Scan | Parallel analysis, severity ratings |
 | **senior-architect.md.template** | Local architect agent (legacy) | N/A | High-level design and planning |
+| **claude-md-security-section.md.template** | Security section for project CLAUDE.md | N/A | Project bootstrapping |
 
 ### Agent Templates (templates/agents/)
 
@@ -724,7 +725,7 @@ Python scripts for code generation with validation and atomic writes.
 - `generate_skill.py` — Create skills from archetypes
 - `generate_senior_architect.py` — Create architect agents
 - `validate_skill.py` — Validate skill definitions
-- `test_skill_generator.sh` — Test suite (26 tests)
+- `test_skill_generator.sh` — Test suite (46 tests)
 
 **Capabilities:**
 - Auto-detection (project type, stack)
@@ -910,9 +911,9 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Coverage (26 tests):**
+**Coverage (46 tests):**
 - Generator and validator help text
-- All production skills (architect, ship, audit, sync)
+- All 13 core skills + contrib skills (when present)
 - All archetypes (coordinator, pipeline, scan)
 - Input validation (names, descriptions, paths)
 - JSON output
@@ -1050,33 +1051,29 @@ test(generators): add validation tests for scan archetype
 
 ### v1.0 (Current)
 
-- ✅ Core skills (architect, ship, audit, sync)
-- ✅ Skill generator with 3 archetypes
-- ✅ Senior architect generator
-- ✅ Skill validator
-- ✅ Deployment scripts
-- ✅ Test suite (26 tests)
+- [x] Core skills (architect, ship, audit, sync, retro)
+- [x] Security skills (5 standalone + 3 workflow integrations)
+- [x] Skill generator with 3 archetypes
+- [x] Agent generator (unified)
+- [x] Skill validator + agent validator
+- [x] Deployment scripts (core + contrib)
+- [x] Test suite (46 tests, all 13 core + 3 contrib skills validated)
+- [x] Security maturity levels (L1/L2/L3)
+- [x] validate-all health check command
+- [x] Deploy-time validation (--validate flag)
 
 ### v1.1 (Next)
 
-- [ ] MCP agent generator
+- [ ] CLAUDE.md template generator (broader than security section)
 - [ ] Project initializer (full project setup)
-- [ ] CLAUDE.md template generator
 - [ ] Skill version upgrade tool
 
 ### v1.2 (Planned)
 
 - [ ] Interactive TUI for skill generation
-- [ ] Agent testing framework
+- [ ] Agent testing framework (behavioral, not just structural)
 - [ ] Skill dependency management
-- [ ] Skill marketplace/registry
-
-### v2.0 (Future)
-
-- [ ] Multi-language skill support
-- [ ] Cloud deployment options
-- [ ] Collaborative skill development
-- [ ] Skill analytics and telemetry
+- [ ] CI/CD pipeline templates
 
 ## Contributing
 

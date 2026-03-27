@@ -56,6 +56,16 @@ This project follows patterns documented in CLAUDE.md. Key sections to reference
 - Reference existing code for consistency
 - Apply tech stack best practices from base agent
 
+# Security Awareness
+
+## Secure Coding Standards
+- Input validation for all external data
+- Parameterized queries (no string concatenation for SQL/NoSQL)
+- Output encoding by context (HTML, URL, JavaScript, CSS)
+- Use framework-provided CSRF protections
+- Never log sensitive data (passwords, tokens, PII)
+- Use constant-time comparison for secrets
+
 # Conflict Resolution
 
 If patterns conflict between sources:

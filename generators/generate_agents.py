@@ -428,10 +428,13 @@ def generate_agents(
     project_name = target_dir.name
     generated = []
     skipped = []
+    write_failures = 0
+    unknown_types = 0
 
     for agent_type in agent_types:
         if agent_type not in AGENT_TYPES:
-            print(f"⚠️  Unknown agent type: {agent_type}")
+            print(f"Unknown agent type: {agent_type}", file=sys.stderr)
+            unknown_types += 1
             continue
 
         # Generate content
@@ -455,6 +458,7 @@ def generate_agents(
         success, error = atomic_write(agent_file, content)
         if not success:
             print(f"Error: {error}", file=sys.stderr)
+            write_failures += 1
             continue
 
         generated.append(filename)
@@ -476,7 +480,7 @@ def generate_agents(
         print(f"")
         print(f"Done! 🎉")
 
-    return 0
+    return 1 if (write_failures > 0 or unknown_types > 0) else 0
 
 
 def main():

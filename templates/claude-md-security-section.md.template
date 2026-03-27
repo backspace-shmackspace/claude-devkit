@@ -1,0 +1,20 @@
+## Security
+
+### Threat Model
+[Link to threat model document or describe key assets and trust boundaries]
+
+### Security Requirements
+- Authentication: [method -- e.g., OAuth 2.0, SAML, mTLS]
+- Authorization: [model -- e.g., RBAC, ABAC, policy-based]
+- Encryption: [at-rest and in-transit requirements]
+- Compliance: [frameworks -- e.g., FedRAMP, SOC 2, HIPAA]
+
+### Secure Development
+- All PRs require `/secure-review` pass (or manual security review)
+- Secrets scanning enabled in CI (`/secrets-scan` or equivalent)
+- Dependencies audited weekly (`/dependency-audit`)
+- Threat model updated with each major feature (`threat-model-gate`)
+
+### Platform Specific
+[Add platform-specific security requirements here if applicable,
+e.g., FIPS crypto, container base images, security context constraints]

@@ -36,6 +36,14 @@ deploy_skill() {
         return 1
     fi
 
+    if [ "$VALIDATE" -eq 1 ]; then
+        if ! python3 "$REPO_DIR/generators/validate_skill.py" "$src/SKILL.md"; then
+            echo "ERROR: Validation failed for '$skill'. Skipping deployment." >&2
+            echo "  Run: python3 generators/validate_skill.py $src/SKILL.md" >&2
+            return 1
+        fi
+    fi
+
     mkdir -p "$dst"
     cp "$src/SKILL.md" "$dst/SKILL.md"
     echo "Deployed: $skill"
@@ -50,6 +58,14 @@ deploy_contrib_skill() {
     if [ ! -d "$src" ]; then
         echo "ERROR: Contrib skill '$skill' not found in $src" >&2
         return 1
+    fi
+
+    if [ "$VALIDATE" -eq 1 ]; then
+        if ! python3 "$REPO_DIR/generators/validate_skill.py" "$src/SKILL.md"; then
+            echo "ERROR: Validation failed for '$skill'. Skipping deployment." >&2
+            echo "  Run: python3 generators/validate_skill.py $src/SKILL.md" >&2
+            return 1
+        fi
     fi
 
     mkdir -p "$dst"
@@ -123,7 +139,7 @@ deploy_all_contrib() {
 
 show_help() {
     cat <<EOF
-Usage: deploy.sh [OPTIONS] [SKILL_NAME]
+Usage: deploy.sh [--validate] [OPTIONS] [SKILL_NAME]
 
 Options:
   (no args)                       Deploy all core skills from skills/
@@ -131,6 +147,7 @@ Options:
   --contrib                       Deploy all contrib skills from contrib/
   --contrib <name>                Deploy one contrib skill from contrib/
   --all                           Deploy all core and contrib skills
+  --validate                      Validate each skill before deploying (blocks on failure)
   --undeploy <name>               Remove ~/.claude/skills/<name>/ (triggers permission prompt)
   --undeploy --contrib <name>     Remove ~/.claude/skills/<name>/ (same target, contrib context)
   --help, -h                      Show this help message
@@ -141,9 +158,26 @@ Examples:
   ./scripts/deploy.sh --contrib    # deploy all contrib skills
   ./scripts/deploy.sh --contrib journal  # deploy journal skill
   ./scripts/deploy.sh --all        # deploy everything
+  ./scripts/deploy.sh --validate                    # validate + deploy all core skills
+  ./scripts/deploy.sh --validate architect          # validate + deploy one core skill
+  ./scripts/deploy.sh --validate --all              # validate + deploy core + contrib
+  ./scripts/deploy.sh --validate --contrib          # validate + deploy all contrib
+  ./scripts/deploy.sh --validate --contrib journal  # validate + deploy one contrib skill
   ./scripts/deploy.sh --undeploy architect   # remove deployed architect skill
 EOF
 }
+
+# Pre-processing loop: extract --validate before the case statement
+VALIDATE=0
+ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--validate" ]; then
+        VALIDATE=1
+    else
+        ARGS+=("$arg")
+    fi
+done
+set -- "${ARGS[@]}"
 
 # Argument parsing
 case "${1:-}" in
