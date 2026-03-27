@@ -1,7 +1,7 @@
 ---
 name: audit
 description: Deep security and performance scan with structured reporting.
-version: 3.0.0
+version: 3.1.0
 model: claude-opus-4-6
 ---
 # /audit Workflow
@@ -34,6 +34,39 @@ Validate scope is one of: `plan`, `code`, `full`. If not, stop with:
 Derive timestamp: `[timestamp]` = current ISO datetime (e.g., `2026-02-07T12-30-00`)
 
 ## Step 2 — Security scan
+
+**Secure-review composability check:**
+
+Tool: `Glob`
+
+Glob for `~/.claude/skills/secure-review/SKILL.md`
+
+**If found AND scope is NOT "plan":**
+- Output: "Using /secure-review for deep security analysis (composability mode)."
+- Dispatch `/secure-review` instead of the built-in security scan.
+
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
+
+Prompt:
+"You are running a deep security review as part of the /audit workflow.
+
+Read the secure-review skill definition at `~/.claude/skills/secure-review/SKILL.md`.
+Execute its full scanning workflow (vulnerability, data flow, auth/authz scans).
+
+Scope: [map audit scope to secure-review scope: 'code' -> 'changes', 'full' -> 'full']
+
+Write your findings to `./plans/audit-[timestamp].security.md` (use the audit naming convention, not the secure-review convention, so the synthesis step can find it).
+
+Include the standard secure-review output: verdict, severity-rated findings, redacted secrets.
+
+CRITICAL: Never include actual secret values. Redact to first 4 / last 4 characters."
+
+Skip the existing built-in security scan below. Proceed to Step 3 (Performance scan).
+
+**If not found OR scope is "plan":**
+- If not found: Output: "secure-review skill not deployed. Using built-in security scan."
+- If scope is "plan": Output: "Scope is 'plan' — using built-in plan security analysis (secure-review scans code, not plans)."
+- Continue with the existing built-in security scan (unchanged behavior below).
 
 **Pre-check:** Glob for `.claude/agents/security-analyst*.md`
 

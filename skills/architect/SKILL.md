@@ -2,7 +2,7 @@
 name: architect
 description: Research and create a technical blueprint for a new feature.
 model: claude-opus-4-6
-version: 3.0.0
+version: 3.1.0
 ---
 # /architect Workflow
 
@@ -39,6 +39,14 @@ Run all three globs in parallel:
 
 **If security-analyst not found:**
 - Output note: "💡 No project-specific security-analyst found. Will use generic Task subagent for red team review.\n   For project-tailored analysis, generate one:\n   `gen-agent . --type security-analyst`"
+
+- Pattern 4: `~/.claude/skills/threat-model-gate/SKILL.md`
+
+**If threat-model-gate found:**
+- Output: "Threat model gate active. Security-related plans will include threat modeling requirements."
+
+**If threat-model-gate not found:**
+- No output (threat-model-gate is optional at all maturity levels).
 
 Continue to Step 1.
 
@@ -132,6 +140,27 @@ Feature-name rules:
   - max 40 chars
   - no trailing hyphen
 
+**If threat-model-gate was found in Step 0 AND $ARGUMENTS appears to involve security-sensitive functionality:**
+
+Security-sensitive heuristic: $ARGUMENTS (case-insensitive) contains any of:
+- Identity/Auth: auth, authentication, authorization, login, password, token, session, oauth, oidc, saml, api key, secret, credential, identity, mfa, 2fa, rbac, acl, permission, role, privilege, security
+- Cryptography/Network: encrypt, decrypt, certificate, tls, ssl, firewall, cors, proxy, redirect, webhook, dns, url
+- Data/Compliance: pii, gdpr, hipaa, compliance, fips, fedramp, export, import, backup, database, query, sql
+- File/Process: upload, download, file, path, exec, shell, command, subprocess, eval
+- Payment: payment, stripe, billing, credit card, bank
+
+**If security-sensitive:** Append to the architect Task prompt:
+
+"SECURITY CONTEXT: This plan involves security-sensitive functionality. You MUST include a `## Security Requirements` section addressing:
+- Assets at risk (data classification: public/internal/confidential/restricted)
+- Trust boundaries (where does trust change?)
+- STRIDE analysis (Spoofing, Tampering, Repudiation, Information Disclosure, DoS, Elevation of Privilege)
+- Proposed mitigations for each identified threat
+
+Refer to the threat-model-gate skill at `~/.claude/skills/threat-model-gate/SKILL.md` for the full checklist and security requirements template."
+
+**If not security-sensitive:** Do not append. Standard planning prompt only.
+
 ## Step 3 — Red Team + Librarian + Feasibility review (parallel)
 
 Run all three reviews **in parallel** — three `Task` tool calls in a single message.
@@ -160,7 +189,7 @@ Structure your output as:
 Write your analysis to `./plans/[feature-name].redteam.md`
 with the Verdict as the first heading after the metadata."
 
-**Optional (security-specific plans only):** If `.claude/agents/security-analyst.md` was found in Step 0 AND the plan subject is security-related (e.g., authentication, authorization, cryptography, network), additionally invoke the security-analyst agent via `Task` and append its STRIDE analysis to the redteam artifact as a supplemental section. The Verdict from the primary Task subagent governs the pass/fail decision.
+**Recommended (when threat-model-gate is deployed and plan subject is security-related):** If `.claude/agents/security-analyst.md` was found in Step 0 AND `~/.claude/skills/threat-model-gate/SKILL.md` was found in Step 0 AND the plan subject is security-related (e.g., authentication, authorization, cryptography, network, data handling), additionally invoke the security-analyst agent via `Task` and append its STRIDE analysis to the redteam artifact as a supplemental section. When threat-model-gate is deployed, this invocation is recommended to ensure plans with a `## Security Requirements` section receive expert validation. The Verdict from the primary Task subagent governs the pass/fail decision.
 
 ### 3b — Librarian (rules gate)
 

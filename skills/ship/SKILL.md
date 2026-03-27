@@ -1,7 +1,7 @@
 ---
 name: ship
 description: Execute an approved plan using unattended implementation and validation with worktree isolation.
-version: 3.4.0
+version: 3.5.0
 model: claude-opus-4-6
 ---
 # /ship Workflow
@@ -17,6 +17,18 @@ Your job: read the plan once, dispatch each step, check verdicts, gate progressi
 ## Step 0 — Pre-flight checks
 
 Tool: `Bash` (git status, cleanup), `Glob` (agent checks) — **Run all checks in parallel in a single message**
+
+**Parse --security-override flag (MUST be first action in Step 0):**
+
+If `$ARGUMENTS` contains `--security-override`:
+- Extract the reason string (quoted text after `--security-override`)
+- Store as `$SECURITY_OVERRIDE_REASON`
+- Remove the flag and reason from `$ARGUMENTS` before using it as the plan path
+- After extraction, `$ARGUMENTS` contains ONLY the plan path for all subsequent steps
+- Log: "Security override active. Reason: $SECURITY_OVERRIDE_REASON"
+
+If `$ARGUMENTS` does not contain `--security-override`:
+- Set `$SECURITY_OVERRIDE_REASON` to empty
 
 **First: Generate a unique run ID for this invocation**
 
@@ -69,6 +81,88 @@ rm -f .ship-violations-*.tmp
 - If no qa-engineer agent found: "❌ No qa-engineer agent found. Generate one using:\n  `python3 ~/workspaces/claude-devkit/generators/generate_agents.py . --type qa-engineer`"
 
 If **any** check fails, stop immediately and list all failures.
+
+**Security maturity level check:**
+
+Tool: `Bash`, `Read`
+
+Read `.claude/settings.local.json` (if exists), then `.claude/settings.json` (if exists). Extract the `security_maturity` field. Local settings override project settings.
+
+**Note:** This block uses `python3 -c` for JSON parsing. Python 3 is available on all target platforms (macOS, Linux dev environments) and the `json` module handles edge cases (nested objects, whitespace, escaping) more reliably than regex-based alternatives. If `python3` is not available, the command silently fails and the maturity level defaults to `"advisory"` (L1) — the safe default. This is analogous to existing `/ship` pre-flight checks that use `git` and other CLI tools.
+
+```bash
+SECURITY_MATURITY="advisory"  # Default: L1
+
+# Read local settings first (takes precedence)
+if [ -f ".claude/settings.local.json" ]; then
+  LOCAL_MATURITY=$(python3 -c "import json; d=json.load(open('.claude/settings.local.json')); print(d.get('security_maturity',''))" 2>/dev/null || echo "")
+  [ -n "$LOCAL_MATURITY" ] && SECURITY_MATURITY="$LOCAL_MATURITY"
+fi
+
+# Fall back to project settings
+if [ "$SECURITY_MATURITY" = "advisory" ] && [ -f ".claude/settings.json" ]; then
+  PROJECT_MATURITY=$(python3 -c "import json; d=json.load(open('.claude/settings.json')); print(d.get('security_maturity',''))" 2>/dev/null || echo "")
+  [ -n "$PROJECT_MATURITY" ] && SECURITY_MATURITY="$PROJECT_MATURITY"
+fi
+
+# Validate value
+case "$SECURITY_MATURITY" in
+  advisory|enforced|audited) ;;
+  *) echo "Warning: Invalid security_maturity value '$SECURITY_MATURITY'. Defaulting to 'advisory'."
+     SECURITY_MATURITY="advisory" ;;
+esac
+
+echo "Security maturity level: $SECURITY_MATURITY"
+```
+
+If `$SECURITY_MATURITY` is `enforced` or `audited`:
+
+Tool: `Glob`
+
+Check for required security skills:
+- Glob `~/.claude/skills/secrets-scan/SKILL.md`
+- Glob `~/.claude/skills/secure-review/SKILL.md`
+- Glob `~/.claude/skills/dependency-audit/SKILL.md`
+
+If ANY are missing, stop immediately:
+"Security maturity level '$SECURITY_MATURITY' requires all security skills to be deployed.
+Missing skills:
+- [list missing skills]
+
+Deploy with:
+  cd ~/projects/claude-devkit && ./scripts/deploy.sh secrets-scan secure-review dependency-audit"
+
+**Secrets scan gate (pre-flight):**
+
+Tool: `Glob`
+
+Glob for `~/.claude/skills/secrets-scan/SKILL.md`
+
+**If found:**
+
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+
+Prompt:
+"You are running a pre-commit secrets scan as part of the /ship pre-flight check.
+
+Read the secrets-scan skill definition at `~/.claude/skills/secrets-scan/SKILL.md`.
+Execute it with scope `all` against the current repository working directory.
+
+Report your verdict: PASS or BLOCKED.
+If BLOCKED, list the confirmed secret types and file locations (NO actual secret values).
+If PASS, report 'No secrets detected in working directory.'"
+
+**If secrets scan returns BLOCKED:**
+Secrets-scan BLOCKED blocks at ALL maturity levels (including L1). Committed secrets cannot be un-committed and require rotation.
+- If `--security-override` flag is set: Log override reason. Downgrade to PASS_WITH_NOTES. Continue.
+  Output: "Secrets scan BLOCKED — overridden: [reason]. Logged for audit trail."
+- If `--security-override` flag is NOT set: Stop workflow.
+  Output: "Secrets detected in working directory. Remove before shipping.
+  If this is a false positive, re-run with: /ship $ARGUMENTS --security-override \"reason\""
+
+**If not found:**
+- If L1 (advisory): Log: "Security note: secrets-scan skill not deployed. Consider deploying for pre-commit secret detection."
+- If L2/L3: Already caught by maturity level check above (will not reach here).
 
 ## Step 1 — Coordinator reads plan
 
@@ -193,7 +287,7 @@ Command:
 git add <shared-files> && git commit -m "WIP: /ship shared dependencies for ${name}
 
 This is a temporary commit that will be squashed with the final implementation in Step 6.
-Created by: /ship skill v3.3.0"
+Created by: /ship skill v3.5.0"
 ```
 
 #### Step 3b — Create Worktrees
@@ -441,7 +535,7 @@ rm -f .ship-worktrees-${RUN_ID}.tmp .ship-violations-${RUN_ID}.tmp
 
 Tool: `Task` (code review, QA), `Bash` (tests) — **Run all three checks in parallel in a single message**
 
-Run these verification tasks in parallel:
+Run these verification tasks in parallel (3 or 4 tasks depending on security skill deployment):
 
 ### 4a — Code review
 
@@ -499,17 +593,74 @@ Write `./plans/[name].qa-report.md` with:
 **Learnings (optional):**
 If the file `.claude/learnings.md` exists, read the `## QA Patterns` and `## Test Patterns` sections. Verify that known recurring coverage gaps are addressed in this implementation. If you find a known gap, reference it in your report."
 
+### 4d — Secure review (conditional)
+
+Tool: `Glob`
+
+Glob for `~/.claude/skills/secure-review/SKILL.md`
+
+**If found:**
+
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
+
+Prompt:
+"You are running a semantic security review as part of the /ship verification step.
+
+Read the secure-review skill definition at `~/.claude/skills/secure-review/SKILL.md`.
+Execute its scanning workflow (vulnerability, data flow, auth/authz scans) against the
+files modified in this implementation.
+
+Scope: `changes` (uncommitted modifications in the working directory).
+
+Write your security review summary to `./plans/[name].secure-review.md` with the
+standard secure-review output format including verdict (PASS / PASS_WITH_NOTES / BLOCKED),
+severity-rated findings, and redacted secrets (if any).
+
+CRITICAL: Never include actual secret values in your report. Redact to first 4 / last 4 characters."
+
+**If not found:**
+- Log: "Security note: secure-review skill not deployed. Security code review skipped."
+- Set secure review verdict to "not-run"
+
 ### Result evaluation
 
-Coordinator reads all three outputs and evaluates:
+Coordinator reads all outputs (three or four, depending on secure-review deployment) and evaluates.
 
-| Code Review | Tests | QA | Action |
-|---|---|---|---|
-| PASS | Pass (exit 0) | PASS or PASS_WITH_NOTES | Proceed to Step 6 (commit) |
-| REVISION_NEEDED | Any | Any | Enter Step 5 (revision loop) |
-| FAIL | Any | Any | Stop workflow |
-| Any | Fail (non-zero) | Any | Stop workflow |
-| PASS | Pass | FAIL | Stop workflow |
+**The result evaluation matrix is maturity-level-aware:**
+
+**At L1 (advisory):**
+
+| Code Review | Tests | QA | Secure Review | Action |
+|---|---|---|---|---|
+| PASS | Pass (exit 0) | PASS or PASS_WITH_NOTES | PASS / PASS_WITH_NOTES / BLOCKED / not-run | Proceed to Step 6. If BLOCKED: log prominent warning ("Security review found critical issues"), auto-downgrade to PASS_WITH_NOTES. |
+| REVISION_NEEDED | Any | Any | Any | Enter Step 5 (revision loop) |
+| FAIL | Any | Any | Any | Stop workflow |
+| Any | Fail (non-zero) | Any | Any | Stop workflow |
+| PASS | Pass | FAIL | Any | Stop workflow |
+
+At L1, secure-review BLOCKED is reported but does not stop the workflow (parent plan L1 definition).
+
+**At L2/L3 (enforced/audited):**
+
+| Code Review | Tests | QA | Secure Review | Action |
+|---|---|---|---|---|
+| PASS | Pass (exit 0) | PASS or PASS_WITH_NOTES | PASS or PASS_WITH_NOTES or not-run | Proceed to Step 6 (commit) |
+| PASS | Pass (exit 0) | PASS or PASS_WITH_NOTES | BLOCKED | If --security-override: Proceed to Step 6 (log override). Else: Stop workflow. |
+| REVISION_NEEDED | Any | Any | Any (not BLOCKED) | Enter Step 5 (revision loop) |
+| REVISION_NEEDED | Any | Any | BLOCKED | Enter Step 5 (revision loop). Include security findings in coder instructions. Coders fix both code review and security issues. Re-run Step 4 after revision. |
+| FAIL | Any | Any | Any | Stop workflow |
+| Any | Fail (non-zero) | Any | Any | Stop workflow |
+| PASS | Pass | FAIL | Any | Stop workflow |
+| Any | Any | Any | BLOCKED (no override, revision loop exhausted) | Stop workflow |
+
+If stopping due to secure review BLOCKED (L2/L3, post-revision):
+- "Secure review BLOCKED after revision loop. See `./plans/[name].secure-review.md`. Fix security findings or re-run with --security-override."
+
+If proceeding with security override (L2/L3):
+- Log: "Secure review BLOCKED — overridden: [reason]. Proceeding with PASS_WITH_NOTES."
+
+If auto-downgrading at L1:
+- Log: "Secure review BLOCKED (L1 advisory — non-blocking). Review findings: `./plans/[name].secure-review.md`."
 
 If stopping, output appropriate message:
 - "Code review FAIL. See `./plans/[name].code-review.md`."
@@ -539,7 +690,7 @@ Tool: `Bash`
 # Example: git add src/auth.ts src/auth.test.ts lib/helpers.ts
 # NEVER use git add -A or git add .
 git add $SHARED_DEP_FILES $WG1_FILES $WG2_FILES ...
-git commit -m "WIP: ship v3.4.0 first-pass implementation (pre-revision)"
+git commit -m "WIP: ship v3.5.0 first-pass implementation (pre-revision)"
 ```
 
 This ensures revision-loop worktrees are based on the first-pass code, not the
@@ -585,6 +736,59 @@ Read `./plans/[name].qa-report.md`. Check the verdict.
 
 **If PASS or PASS_WITH_NOTES:**
 
+**Dependency audit gate (conditional):**
+
+Tool: `Glob`
+
+Glob for `~/.claude/skills/dependency-audit/SKILL.md`
+
+**If found:**
+
+Detect actual dependency changes by diffing manifest files against HEAD:
+
+Tool: `Bash`
+
+```bash
+# Check each known manifest file for dependency-section changes
+for manifest in package.json requirements.txt pyproject.toml Pipfile go.mod Cargo.toml pom.xml Gemfile; do
+  if [ -f "$manifest" ]; then
+    git diff HEAD -- "$manifest" 2>/dev/null
+  fi
+done
+```
+
+If any manifest file diff shows additions in dependency sections (new packages, version changes):
+
+**If dependency changes detected:**
+
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+
+Prompt:
+"You are running a dependency audit as part of the /ship commit gate.
+
+Read the dependency-audit skill definition at `~/.claude/skills/dependency-audit/SKILL.md`.
+Execute it against the current project.
+
+Report your verdict: PASS, PASS_WITH_NOTES, INCOMPLETE, or BLOCKED.
+If BLOCKED, list the Critical CVE findings.
+Write your report to `./plans/[name].dependency-audit.md`."
+
+**If dependency audit returns BLOCKED:**
+- At L1 (advisory): Log prominent warning. Auto-downgrade to PASS_WITH_NOTES. Continue.
+  Output: "Dependency audit BLOCKED (L1 advisory — non-blocking). Review findings: `./plans/[name].dependency-audit.md`."
+- At L2/L3: If `--security-override`: Downgrade to PASS_WITH_NOTES. Log override reason. Else: Stop workflow.
+  Output: "Dependency audit BLOCKED. Critical vulnerabilities found. See `./plans/[name].dependency-audit.md`."
+
+**If dependency audit returns INCOMPLETE:**
+- Log: "Dependency audit INCOMPLETE — no scanner available for this ecosystem. Install the appropriate scanner for full CVE scanning."
+- Continue (INCOMPLETE does not block at any level).
+
+**If no dependency changes detected:** Skip dependency audit.
+- Log: "No dependency changes detected (manifest files unchanged vs HEAD). Skipping dependency audit."
+
+**If not found:**
+- Log: "Security note: dependency-audit skill not deployed. Dependency audit skipped."
+
 1. **If WIP commits exist from Step 3a and/or Step 5a:** Soft reset to squash them with the final commit
    - Tool: `Bash`
    - Count the number of WIP commits to squash (0, 1, or 2 depending on whether Step 3a shared deps and Step 5a pre-revision commits were created)
@@ -621,6 +825,10 @@ Read `./plans/[name].qa-report.md`. Check the verdict.
      EOF
      )"
      ```
+   - If `--security-override` was used, append to commit message:
+     ```
+     Security-Override: $SECURITY_OVERRIDE_REASON
+     ```
 
 4. Clean up artifacts:
    - Tool: `Bash`
@@ -629,6 +837,15 @@ Read `./plans/[name].qa-report.md`. Check the verdict.
      ```bash
      if [ -f "./plans/[name].test-failure.log" ]; then
        mv "./plans/[name].test-failure.log" "./plans/archive/[name]/"
+     fi
+     ```
+   - Then, archive security review and dependency audit artifacts if they exist:
+     ```bash
+     if [ -f "./plans/[name].secure-review.md" ]; then
+       mv "./plans/[name].secure-review.md" "./plans/archive/[name]/"
+     fi
+     if [ -f "./plans/[name].dependency-audit.md" ]; then
+       mv "./plans/[name].dependency-audit.md" "./plans/archive/[name]/"
      fi
      ```
 
