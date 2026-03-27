@@ -49,10 +49,10 @@ Pre-built workflows for common development tasks:
 
 | Skill | Purpose | Usage |
 |-------|---------|-------|
-| `/architect` | Create implementation plans with context alignment and approval gates | `/architect add shopping cart` |
-| `/ship` | Execute plans with pattern validation, testing, QA, and retro capture | `/ship plans/feature.md` |
+| `/architect` | Create implementation plans with context alignment and approval gates. Detects security-sensitive features and requires threat modeling when threat-model-gate is deployed. | `/architect add shopping cart` |
+| `/ship` | Execute plans with pattern validation, security gates (secrets/code/deps), testing, QA, and retro capture. Supports security maturity levels (L1/L2/L3) and `--security-override`. | `/ship plans/feature.md` |
 | `/retro` | Mine review artifacts for recurring patterns and capture learnings | `/retro` or `/retro feature-name` |
-| `/audit` | Security and performance scanning | `/audit` or `/audit code` |
+| `/audit` | Security and performance scanning. Composable: invokes /secure-review when deployed. | `/audit` or `/audit code` |
 | `/sync` | Update documentation and CLAUDE.md | `/sync` or `/sync full` |
 | `/test-idempotent` | Test skill idempotency and determinism | `/test-idempotent my-skill` |
 | `/receiving-code-review` | Code review reception discipline | `/receiving-code-review` |
@@ -119,6 +119,39 @@ Reusable templates for skills and agents:
 
 # 4. Final audit
 /audit
+```
+
+### Security-Sensitive Feature Development
+
+```bash
+# 1. Plan with automatic threat modeling (requires threat-model-gate deployed)
+/architect add user authentication with JWT tokens
+
+# 2. Implement with security gates (requires security skills deployed)
+/ship plans/add-user-authentication.md
+
+# Security gates run automatically:
+# - Step 0: Secrets scan (blocks if secrets found)
+# - Step 4d: Secure code review (blocks at L2/L3 if vulnerabilities found)
+# - Step 6: Dependency audit (blocks at L2/L3 if vulnerable deps found)
+
+# 3. Override security gate if needed (false positive or time-sensitive)
+/ship plans/add-user-authentication.md --security-override "False positive: test fixture data"
+
+# 4. Final comprehensive audit
+/audit
+```
+
+**Security Maturity Levels:**
+- **L1 (advisory)**: Security warnings shown, workflow continues (default)
+- **L2 (enforced)**: Security BLOCKED verdicts stop workflow (override available)
+- **L3 (audited)**: Same as L2 + all overrides logged for compliance
+
+Configure in `.claude/settings.json`:
+```json
+{
+  "security_maturity": "L2"
+}
 ```
 
 ### Create New Skill
@@ -202,7 +235,11 @@ Executes implementation plans with code review, testing, and QA validation.
 **Usage:**
 ```bash
 /ship plans/add-user-authentication.md
+/ship plans/feature.md --security-override "reason"
 ```
+
+**Options:**
+- `--security-override "reason"` — Override security BLOCKED verdicts with logged reason
 
 **Output:**
 - Implemented code changes
@@ -211,16 +248,24 @@ Executes implementation plans with code review, testing, and QA validation.
 - Git commit (on approval)
 
 **Workflow:**
-1. Pre-flight checks (plan exists, tests pass)
-2. Read and validate plan
-3. Pattern validation (warnings only)
-4. Implement code
-5. Code review (sonnet model)
-6. Revision loop (max 2 iterations)
-7. Run tests
-8. QA validation
-9. Commit gate with proper format
-10. Suggests `/sync` after success
+1. Pre-flight checks (plan exists, tests pass, security skills deployed at L2/L3)
+2. Secrets scan (if /secrets-scan deployed)
+3. Read and validate plan
+4. Pattern validation (warnings only)
+5. Implement code
+6. Code review (sonnet model)
+7. Secure review (if /secure-review deployed)
+8. Revision loop (max 2 iterations)
+9. Run tests
+10. QA validation
+11. Dependency audit (if /dependency-audit deployed)
+12. Commit gate with proper format
+13. Suggests `/sync` after success
+
+**Security Gates:**
+- At **L1 (advisory)**: Security scans run, BLOCKED verdicts show warnings but don't stop workflow
+- At **L2 (enforced)**: Security BLOCKED verdicts stop workflow (override available)
+- At **L3 (audited)**: Same as L2 + all overrides logged for compliance audit trails
 
 ### `/audit` - Security and Performance
 

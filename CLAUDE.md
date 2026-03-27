@@ -87,10 +87,10 @@ Deploy and use in Claude Code
 
 | Skill | Version | Purpose | Model | Steps |
 |-------|---------|---------|-------|-------|
-| **architect** | 3.0.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Context alignment and metadata in output. Auto-commits artifacts on verdict. | opus-4-6 | 6 |
-| **ship** | 3.4.0 | Pre-flight check → Read plan → Pattern validation (warnings) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate → Retro capture. Structural conflict prevention. Learnings consumption. | opus-4-6 | 8 |
+| **architect** | 3.1.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Detects security-sensitive features and injects threat-model-gate requirements when deployed. Context alignment and metadata in output. Auto-commits artifacts on verdict. | opus-4-6 | 6 |
+| **ship** | 3.5.0 | Pre-flight check → Read plan → Pattern validation (warnings) → Security gates (secrets-scan, secure-review, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. | opus-4-6 | 8 |
 | **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
-| **audit** | 3.0.0 | Scope detection (plan/code/full) → Security scan (security-analyst agent or Task subagent) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. | opus-4-6 | 6 |
+| **audit** | 3.1.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. | opus-4-6 | 6 |
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-5 | 6 |
 | **test-idempotent** | 1.0.1 | Test skill idempotency and determinism. Runs skill multiple times, validates consistent outputs, reports variances. | opus-4-6 | 7 |
 | **receiving-code-review** | 1.0.0 | Code review reception discipline: 6-step response pattern (READ through IMPLEMENT), anti-performative-agreement, YAGNI enforcement, source-specific handling, pushback guidelines. Reference archetype. | claude-sonnet-4-5 | Reference |
@@ -113,6 +113,48 @@ Deploy and use in Claude Code
 - Core skills: `./scripts/deploy.sh` (default)
 - Contrib skills: `./scripts/deploy.sh --contrib [name]`
 - See `contrib/README.md` for prerequisites and usage
+
+## Security Maturity Levels
+
+The `/ship` skill implements a three-level security model for progressive enforcement:
+
+| Level | Name | Behavior | Use Case |
+|-------|------|----------|----------|
+| **L1** | Advisory | Security scans run and report findings. BLOCKED verdicts auto-downgrade to PASS_WITH_NOTES with prominent warnings. Workflow continues. | Default for all projects. Early-stage development, prototypes, teams ramping up security practices. |
+| **L2** | Enforced | Security BLOCKED verdicts stop the workflow. Override available via `--security-override "reason"`. Override reason is logged. | Production codebases with security requirements. Teams enforcing security standards. |
+| **L3** | Audited | Same as L2, but all overrides are logged to audit trails for compliance review. | Regulated environments (FedRAMP, HIPAA, SOC 2, PCI-DSS). Compliance-driven teams. |
+
+**Configuration:**
+
+Set the security maturity level in `.claude/settings.json` or `.claude/settings.local.json`:
+
+```json
+{
+  "security_maturity": "L1"
+}
+```
+
+**Security Gates:**
+
+The `/ship` skill runs three security gates when the corresponding skills are deployed:
+
+1. **Secrets scan** (Step 0 pre-flight): Runs `/secrets-scan` on working directory. BLOCKS at all maturity levels (committed secrets cannot be un-committed). Override available with `--security-override`.
+
+2. **Secure review** (Step 4d verification): Runs `/secure-review` on uncommitted changes. At L1: BLOCKED auto-downgrades to PASS_WITH_NOTES. At L2/L3: BLOCKED stops workflow unless overridden.
+
+3. **Dependency audit** (Step 6 commit gate): Runs `/dependency-audit` on manifest files. At L1: BLOCKED auto-downgrades to PASS_WITH_NOTES. At L2/L3: BLOCKED stops workflow unless overridden.
+
+**Override Syntax:**
+
+```bash
+/ship plans/feature.md --security-override "False positive: hardcoded test API key in fixture file"
+```
+
+**Notes:**
+- Security gates are conditional — only run if the corresponding skill is deployed
+- At L2/L3, `/ship` pre-flight checks that all three security skills are deployed
+- Missing skills at L1 log warnings; at L2/L3, missing skills block pre-flight
+- Override reasons are logged for audit trails (especially important at L3)
 
 ## MCP Servers (Migrated)
 
@@ -261,6 +303,15 @@ gen-agent . --type all  # Generate all agents (auto-detects stack)
 - `plans/archive/add-shopping-cart/` — Code review and QA reports
 - `plans/audit-[timestamp].summary.md` — Final audit results
 - `CLAUDE.md` — Updated with new patterns
+
+**Security Gates:**
+
+If security skills are deployed, `/ship` runs three security gates:
+- **Step 0 (pre-flight):** `/secrets-scan` checks for committed secrets
+- **Step 4d (verification):** `/secure-review` analyzes code changes for vulnerabilities
+- **Step 6 (commit gate):** `/dependency-audit` scans for vulnerable dependencies
+
+At L1 (advisory), BLOCKED verdicts show warnings but don't stop the workflow. At L2/L3 (enforced/audited), BLOCKED verdicts stop the workflow unless overridden with `--security-override "reason"`.
 
 ### Workflow 2: Security Audit (Existing Codebase)
 
