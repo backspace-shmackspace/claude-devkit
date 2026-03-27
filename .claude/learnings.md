@@ -1,6 +1,6 @@
 # Project Learnings
 
-Last updated: 2026-03-27
+Last updated: 2026-03-27 (agentic-sdlc-next-phase)
 
 Source: `/retro` skill — mines archived code review and QA artifacts for recurring patterns.
 Consumed by: `/ship` Step 2 (pattern validation) and coder/reviewer agents.
@@ -39,6 +39,8 @@ Consumed by: `/ship` Step 2 (pattern validation) and coder/reviewer agents.
 
 - **[2026-03-26] New skills not added to test suite** [Medium] — When security skills were added in Phase A (`secrets-scan`, `compliance-check`, etc.), none were added to `test_skill_generator.sh`. The test suite validated only `dream`, `ship`, `audit`, and `sync`. New skills that are later modified have reduced structural safety net. Recommended action: add `validate_skill.py` invocation for each new skill to the test suite at skill creation time. Seen in: secure-review-remediation. #qa #coverage #test-suite (2026-03-26)
 
+- **[2026-03-27] New feature flag paths not covered by automated tests** [Medium] — When a new flag or mode is added to a script (e.g., `--validate`, `--validate --contrib`), the test suite is not updated to exercise the new execution paths. Source code inspection confirms the logic is present, but no automated test verifies: (a) the flag blocks on invalid input, or (b) the flag applies correctly in all invocation combinations. Pattern: for every new CLI flag, add at minimum one positive test (flag works) and one negative test (flag correctly blocks/rejects). Seen in: agentic-sdlc-next-phase (deploy.sh `--validate` and `--validate --contrib` paths). #qa #coverage #test-suite (2026-03-27)
+
 ---
 
 ## Test Patterns
@@ -61,7 +63,7 @@ No recurring coder mistakes identified in early features. Both initial code revi
 
 - **[2026-03-26] Stale internal step cross-references in skill documentation** [Low] — When step numbers are renumbered during development, prose and bash comments that reference other steps by number become stale. Example: Step 5a referred to "Step 2a" but the shared dependency work was in Step 3a. These label-only errors do not affect behavior but create confusion for future editors. Seen in: secure-review-remediation (ship SKILL.md Step 5a). #coder #documentation #maintenance (2026-03-26)
 
-- **[2026-03-26] Generator continues-on-write-error but exits 0** [Low] — `generate_agents.py` continues to the next agent after a write failure (`continue` in loop) but returns exit code 0 even if one or more agents failed to write. A partial generation leaves the project in an inconsistent state with no clear failure signal to callers. Pattern: track write failures in a flag and return exit code 1 if any write failed. Seen in: secure-review-remediation (generate_agents.py). #coder #error-handling #generators (2026-03-26)
+- **[2026-03-27] Script returns false success when expected inputs are absent** [Low] — Scripts that iterate over inputs (agents, skills, files) can silently exit 0 when the input set is empty, producing a false-positive "all passed" result. Two instances: (1) `generate_agents.py` continued past write failures and exited 0 even when agents failed to write; (2) `validate-all.sh` exits 0 with "All skills validated successfully" when no SKILL.md files are found, masking a mispointed REPO_DIR or intermediate repo state. Pattern: after any loop over expected inputs, guard with `if [ "$COUNT" -eq 0 ]; then ... exit 1; fi` before reporting success. Seen in: secure-review-remediation (generate_agents.py), agentic-sdlc-next-phase (validate-all.sh). #coder #error-handling #generators #scripts (2026-03-27)
 
 - **[2026-03-27] Settings precedence check tests outcome rather than source** [Minor] — When implementing a local-overrides-project settings precedence rule, coders check whether the resolved value equals the default rather than tracking whether the local source actually provided a value. This silently breaks the precedence when a user intentionally sets a value that happens to match the default. Pattern: use a separate boolean flag (`LOCAL_SET=0/1`) to track whether the local source provided a value, independent of what that value is. Seen in: security-guardrails-phase-b (ship SKILL.md Step 0 security maturity check). #coder #logic #settings (2026-03-27)
 
