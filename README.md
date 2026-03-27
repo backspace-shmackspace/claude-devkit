@@ -84,7 +84,7 @@ validate-skill skills/my-skill/SKILL.md
 validate-agent .claude/agents/coder.md
 ```
 
-### Templates (11)
+### Templates (12)
 
 Reusable templates for skills and agents:
 
@@ -93,6 +93,7 @@ Reusable templates for skills and agents:
 - **skill-coordinator.md.template** — Coordinator workflow pattern
 - **skill-pipeline.md.template** — Pipeline workflow pattern
 - **skill-scan.md.template** — Scan workflow pattern
+- **claude-md-security-section.md.template** — Security section for project CLAUDE.md
 - **senior-architect.md.template** — Local architect agent (legacy)
 
 **Agent Templates (templates/agents/):**
