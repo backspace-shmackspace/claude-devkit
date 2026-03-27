@@ -1,7 +1,7 @@
 ---
 name: dependency-audit
 description: Supply chain security audit — coordinates real CLI vulnerability scanners (npm audit, pip-audit, govulncheck, cargo audit, etc.) and synthesizes findings with license compliance and risk assessment.
-model: claude-sonnet-4-5
+model: claude-sonnet-4-6
 version: 1.0.0
 ---
 # /dependency-audit Workflow
@@ -175,7 +175,7 @@ cat "$SCANNER_OUTPUT_FILE"
 
 ## Step 3 — LLM synthesis of scanner output
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are a security analyst synthesizing vulnerability scanner output for a dependency audit report.
@@ -232,7 +232,7 @@ If no scanner was available (SCANNER_STATUS=INCOMPLETE), write: 'CVE scan skippe
 
 ## Step 4 — License compliance check
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are reviewing a software project's dependency manifest for license compliance issues.
@@ -279,7 +279,7 @@ Analyze the dependencies for license compliance concerns. LLM analysis is approp
 
 ## Step 5 — Supply chain risk assessment
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are performing a supply chain risk assessment of a software project's dependencies.
@@ -334,7 +334,7 @@ This is LLM heuristic analysis. Findings require human verification. Check packa
 
 ## Step 6 — Generate consolidated report
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are generating a consolidated dependency audit report from three analysis documents.

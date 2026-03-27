@@ -1,7 +1,7 @@
 ---
 name: secrets-scan
 description: Pre-commit secrets detection with pattern-based scanning for API keys, tokens, passwords, private keys, and connection strings. Self-contained — no external tools required.
-model: claude-sonnet-4-5
+model: claude-sonnet-4-6
 version: 1.0.0
 ---
 # /secrets-scan Workflow
@@ -186,7 +186,7 @@ rm -f "$SCAN_TARGET_FILE"
 
 ## Step 3 — False positive filtering
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are a security analyst reviewing raw pattern-match output for false positive elimination.
@@ -292,7 +292,7 @@ Tool: `Task` (report) + `Bash` (archive)
 
 **Generate final report:**
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "Generate a final secrets scan report.

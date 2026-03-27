@@ -140,7 +140,7 @@ Glob for `~/.claude/skills/secrets-scan/SKILL.md`
 
 **If found:**
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are running a pre-commit secrets scan as part of the /ship pre-flight check.
@@ -262,7 +262,7 @@ the plan defines. This ensures concurrent sessions cannot interfere with the imp
 **Trigger:** Plan contains `### Shared Dependencies` section. If no Shared Dependencies
 section exists, skip directly to Step 3b.
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Implement shared files in main working directory with single coder agent:
 
@@ -341,7 +341,7 @@ Output: "✓ Created worktree for Work Group ${wg_num}: ${wg_name} at $WORKTREE_
 
 #### Step 3c — Dispatch Coders to Worktrees
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5` — **dispatch one coder per work group (parallel if multiple, single Task call if one group)**
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6` — **dispatch one coder per work group (parallel if multiple, single Task call if one group)**
 
 Each coder receives this prompt (scoped to its worktree):
 
@@ -539,7 +539,7 @@ Run these verification tasks in parallel (3 or 4 tasks depending on security ski
 
 ### 4a — Code review
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are reviewing code changes against a plan. Read the plan at `$ARGUMENTS`.
@@ -573,7 +573,7 @@ If exit code is non-zero:
 
 ### 4c — QA validation
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are a QA engineer validating that an implementation meets its plan.
@@ -761,7 +761,7 @@ If any manifest file diff shows additions in dependency sections (new packages, 
 
 **If dependency changes detected:**
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are running a dependency audit as part of the /ship commit gate.
@@ -866,7 +866,7 @@ If Step 6 did not commit (FAIL), skip Step 7 entirely.
 
 **This step is non-blocking.** If it fails for any reason, log the error and report success from Step 6. The commit is already done — Step 7 is best-effort learning capture.
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are extracting learnings from a completed /ship run.

@@ -51,7 +51,7 @@ Derive `[name]` from input (e.g., filename without extension).
 
 Delegate the core work to a specialized agent.
 
-Tool: `Task` (subagent_type=general-purpose, model=claude-sonnet-4-5)
+Tool: `Task` (subagent_type=general-purpose, model=claude-sonnet-4-6)
 
 Prompt:
 "You are executing a task. [TODO: Describe the task].
@@ -75,7 +75,7 @@ Expected outputs:
 
 Review the output from Step 2 for quality and correctness.
 
-Tool: `Task` (subagent_type=general-purpose, model=claude-sonnet-4-5)
+Tool: `Task` (subagent_type=general-purpose, model=claude-sonnet-4-6)
 
 Prompt:
 "You are reviewing work output. [TODO: Describe what to review].
@@ -102,7 +102,7 @@ PASS means no Critical or Major findings remain."
 
 ### 4a — Fix issues
 
-Tool: `Task` (subagent_type=general-purpose, model=claude-sonnet-4-5)
+Tool: `Task` (subagent_type=general-purpose, model=claude-sonnet-4-6)
 
 Prompt:
 "Read the review at `./plans/[name].review.md`.
@@ -136,7 +136,7 @@ If exit code is non-zero:
 
 Perform final acceptance testing against criteria.
 
-Tool: `Task` (subagent_type=general-purpose, model=claude-sonnet-4-5)
+Tool: `Task` (subagent_type=general-purpose, model=claude-sonnet-4-6)
 
 Prompt:
 "You are performing final QA validation.

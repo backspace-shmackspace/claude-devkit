@@ -2,7 +2,7 @@
 name: sync
 description: Synchronize CLAUDE.md and README with recent code changes.
 version: 3.0.0
-model: claude-sonnet-4-5
+model: claude-sonnet-4-6
 ---
 # /sync Workflow
 
@@ -57,7 +57,7 @@ Create a list of **undocumented environment variables** (found in code but not i
 
 ## Step 3 — Librarian review
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt: "You are reviewing documentation for currency and accuracy.
 
@@ -115,7 +115,7 @@ Stop the workflow.
 
 **If verdict is UPDATES_NEEDED:**
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt: "You are updating project documentation based on a librarian review.
 

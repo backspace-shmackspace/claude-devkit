@@ -153,7 +153,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
 
 ## Step 3 — Performance scan
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 **If scope is "plan":**
 Prompt: "Read the plan file at `$ARGUMENTS` (after 'plan' keyword).
@@ -218,7 +218,7 @@ Pattern: `.claude/agents/qa-engineer*.md` or `.claude/agents/qa*.md`
 
 **If QA agent exists:**
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt: "You are running QA regression validation.
 Read the `.claude/agents/` directory to find the qa-engineer agent.

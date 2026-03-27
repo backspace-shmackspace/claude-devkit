@@ -4,7 +4,7 @@ description: Use when planning security-sensitive features — authentication, a
 version: 1.0.0
 type: reference
 attribution: Original work, claude-devkit project
-model: claude-sonnet-4-5
+model: claude-sonnet-4-6
 ---
 
 # Threat Model Gate

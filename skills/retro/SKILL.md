@@ -80,7 +80,7 @@ Store the feature list and discovered artifact paths for use in Steps 1-3.
 
 ## Step 1 — Scan: Coder calibration (parallel with Steps 2, 3)
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are analyzing code review artifacts to identify coder behavior patterns.
@@ -137,7 +137,7 @@ Write to `./plans/retro-[timestamp].coder-scan.md` with this structure:
 
 ## Step 2 — Scan: Reviewer calibration (parallel with Steps 1, 3)
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are analyzing code review artifacts to identify reviewer behavior patterns.
@@ -192,7 +192,7 @@ Write to `./plans/retro-[timestamp].reviewer-scan.md` with this structure:
 
 ## Step 3 — Scan: Test pattern analysis (parallel with Steps 1, 2)
 
-Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-5`
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt:
 "You are analyzing QA reports and test failure logs to identify testing patterns.
