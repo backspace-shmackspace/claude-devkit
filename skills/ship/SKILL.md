@@ -86,21 +86,25 @@ If **any** check fails, stop immediately and list all failures.
 
 Tool: `Bash`, `Read`
 
-Read `.claude/settings.local.json` (if exists), then `.claude/settings.json` (if exists). Extract the `security_maturity` field. Local settings override project settings.
+Read `.claude/settings.local.json` (if exists), then `.claude/settings.json` (if exists). Extract the `security_maturity` field. Precedence: if `.claude/settings.local.json` provides a `security_maturity` value (even if that value is `"advisory"`), the project-level setting is not consulted. The fallback to `.claude/settings.json` only occurs when the local file is absent or does not contain the `security_maturity` key.
 
 **Note:** This block uses `python3 -c` for JSON parsing. Python 3 is available on all target platforms (macOS, Linux dev environments) and the `json` module handles edge cases (nested objects, whitespace, escaping) more reliably than regex-based alternatives. If `python3` is not available, the command silently fails and the maturity level defaults to `"advisory"` (L1) — the safe default. This is analogous to existing `/ship` pre-flight checks that use `git` and other CLI tools.
 
 ```bash
 SECURITY_MATURITY="advisory"  # Default: L1
+LOCAL_SET=0  # Track source, not value, to preserve precedence when local sets "advisory"
 
 # Read local settings first (takes precedence)
 if [ -f ".claude/settings.local.json" ]; then
   LOCAL_MATURITY=$(python3 -c "import json; d=json.load(open('.claude/settings.local.json')); print(d.get('security_maturity',''))" 2>/dev/null || echo "")
-  [ -n "$LOCAL_MATURITY" ] && SECURITY_MATURITY="$LOCAL_MATURITY"
+  if [ -n "$LOCAL_MATURITY" ]; then
+    SECURITY_MATURITY="$LOCAL_MATURITY"
+    LOCAL_SET=1
+  fi
 fi
 
-# Fall back to project settings
-if [ "$SECURITY_MATURITY" = "advisory" ] && [ -f ".claude/settings.json" ]; then
+# Only fall back to project settings if local did NOT provide a value
+if [ "$LOCAL_SET" -eq 0 ] && [ -f ".claude/settings.json" ]; then
   PROJECT_MATURITY=$(python3 -c "import json; d=json.load(open('.claude/settings.json')); print(d.get('security_maturity',''))" 2>/dev/null || echo "")
   [ -n "$PROJECT_MATURITY" ] && SECURITY_MATURITY="$PROJECT_MATURITY"
 fi

@@ -1,11 +1,25 @@
 #!/usr/bin/env bash
 #
 # Test script for skill generator
-# Runs all 46 test cases from the plan
 #
 # Usage:
 #   bash test_skill_generator.sh
 #   bash -x test_skill_generator.sh  # verbose mode
+#
+# Test inventory (runtime count: up to 47 tests; numbering gaps noted below):
+#   Tests 1-25:   Core generator/validator tests
+#   Test 26:      SKIPPED (never created)
+#   Test 27:      Validate Reference skill (no model field)
+#   Test 27b:     Validate Reference skill (with model field) -- string label, not a number
+#   Tests 28-30:  Reference skill negative tests
+#   Tests 31-32:  Deploy/undeploy tests
+#   Test 33:      SKIPPED (never created)
+#   Test 34:      Validate retro skill
+#   Test 35:      SKIPPED (never created)
+#   Tests 36-42:  Core skill validation (unconditional)
+#   Tests 43-45:  Contrib skill validation (conditional -- skip if not present)
+#   Tests 47-49:  deploy.sh --validate flag tests (Test 49 is conditional)
+#   Test 50:      Cleanup
 
 set -e
 
@@ -32,6 +46,13 @@ TEST_DIR="/tmp/sg-test"
 # Clean up test directory at start
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
+
+# Trap handler: clean up temporary test fixtures on interruption
+# Prevents stale directories in skills/ that would break deploy_all_core() and validate-all.sh
+cleanup_on_exit() {
+    rm -rf "$SKILLS_DIR/skills/test-validate-invalid" 2>/dev/null || true
+}
+trap cleanup_on_exit EXIT INT TERM
 
 # Test runner function
 run_test() {
@@ -486,9 +507,34 @@ else
     echo -e "${YELLOW}  Test 45: SKIP (journal-review contrib skill not found)${RESET}"
 fi
 
-# Test 46: Cleanup
+# --- Deploy validation tests ---
+
+# Test 47: Deploy with --validate (valid skill)
+run_test 47 "Deploy with --validate (valid skill)" \
+    "bash '$DEPLOY_SCRIPT' --validate architect" \
+    0
+
+# Test 48: Deploy with --validate blocks invalid skill
+# Note: $SKILLS_DIR resolves to the repo root (parent of generators/)
+mkdir -p "$SKILLS_DIR/skills/test-validate-invalid"
+echo "# No frontmatter" > "$SKILLS_DIR/skills/test-validate-invalid/SKILL.md"
+run_test 48 "Deploy with --validate blocks invalid skill" \
+    "bash '$DEPLOY_SCRIPT' --validate test-validate-invalid" \
+    non-zero
+rm -rf "$SKILLS_DIR/skills/test-validate-invalid"
+
+# Test 49: Deploy with --validate --contrib (valid contrib skill)
+if [[ -f "$SKILLS_DIR/contrib/journal/SKILL.md" ]]; then
+    run_test 49 "Deploy with --validate --contrib (valid skill)" \
+        "bash '$DEPLOY_SCRIPT' --validate --contrib journal" \
+        0
+else
+    echo -e "${YELLOW}  Test 49: SKIP (journal contrib skill not found)${RESET}"
+fi
+
+# Test 50: Cleanup
 echo ""
-echo -e "${BLUE}Test 46: Cleanup${RESET}"
+echo -e "${BLUE}Test 50: Cleanup${RESET}"
 rm -rf "$TEST_DIR"
 if [[ ! -d "$TEST_DIR" ]]; then
     echo -e "${GREEN}✅ PASS${RESET}"
