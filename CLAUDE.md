@@ -11,7 +11,7 @@
 Claude Devkit is the complete toolkit for building with Claude Code. It combines skill definitions, agent generators, templates, and reusable configurations into a single, version-controlled repository.
 
 **What's Inside:**
-- **Skills** — 13 core reusable Claude Code workflows including `/architect`, `/ship`, `/retro`, `/audit`, `/sync`, and security skills
+- **Skills** — 12 core reusable Claude Code workflows including `/architect`, `/ship`, `/retro`, `/audit`, `/sync`, and security skills
 - **Generators** — Scripts to create agents, skills, and project structures
 - **Templates** — Reusable templates for agents and skills
 - **Configs** — Shared configurations and patterns
@@ -95,7 +95,6 @@ Deploy and use in Claude Code
 | **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
 | **audit** | 3.1.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. | opus-4-6 | 6 |
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-6 | 6 |
-| **test-idempotent** | 1.0.1 | Test skill idempotency and determinism. Runs skill multiple times, validates consistent outputs, reports variances. | opus-4-6 | 7 |
 | **receiving-code-review** | 1.0.0 | Code review reception discipline: 6-step response pattern (READ through IMPLEMENT), anti-performative-agreement, YAGNI enforcement, source-specific handling, pushback guidelines. Reference archetype. | claude-sonnet-4-6 | Reference |
 | **verification-before-completion** | 1.0.0 | Evidence-before-claims gate: 5-step verification (IDENTIFY, RUN, READ, VERIFY, CLAIM). Requires fresh test/build output before any completion claim. Red flags, rationalization table, key patterns for TDD and bug fixes. Reference archetype. | claude-sonnet-4-6 | Reference |
 | **compliance-check** | 1.0.0 | Validate codebase against code-level compliance signals for regulatory frameworks (FedRAMP, FIPS, OWASP, SOC 2). Scoped to source code analysis only — not a compliance certification. | opus-4-6 | 5 |
@@ -675,7 +674,6 @@ skills/
 ├── retro/SKILL.md
 ├── audit/SKILL.md
 ├── sync/SKILL.md
-├── test-idempotent/SKILL.md
 ├── receiving-code-review/SKILL.md
 ├── verification-before-completion/SKILL.md
 ├── compliance-check/SKILL.md
@@ -759,7 +757,6 @@ Shared configurations and pattern definitions.
 
 **Contents:**
 - `skill-patterns.json` — Validation patterns
-- `agent-patterns.json` — Agent validation patterns
 - `tech-stack-definitions/` — Stack-specific configs (7 stacks: python, fastapi, typescript, react, nextjs, astro, security)
 - `base-definitions/` — Reserved for future use (currently empty)
 
@@ -919,9 +916,9 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Coverage (46 tests):**
+**Coverage (45 tests):**
 - Generator and validator help text
-- All 13 core skills (architect, ship, retro, audit, sync, test-idempotent,
+- All 12 core skills (architect, ship, retro, audit, sync,
   receiving-code-review, verification-before-completion, compliance-check,
   dependency-audit, secrets-scan, secure-review, threat-model-gate)
 - All 3 contrib skills (journal, journal-recall, journal-review)
@@ -1068,7 +1065,7 @@ test(generators): add validation tests for scan archetype
 - [x] Agent generator (unified)
 - [x] Skill validator + agent validator
 - [x] Deployment scripts (core + contrib)
-- [x] Test suite (46 tests, all 13 core + 3 contrib skills validated)
+- [x] Test suite (45 tests, all 12 core + 3 contrib skills validated)
 - [x] Security maturity levels (L1/L2/L3)
 - [x] validate-all health check command
 - [x] Deploy-time validation (--validate flag)

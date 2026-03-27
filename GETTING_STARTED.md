@@ -116,7 +116,7 @@ cd ~/workspaces/claude-devkit
 **Verify deployment:**
 ```bash
 ls ~/.claude/skills/
-# Should show: architect  audit  ship  sync  test-idempotent
+# Should show: architect  audit  ship  sync  etc.
 ```
 
 ### Step 2: Test a Built-in Skill
@@ -311,7 +311,6 @@ Try these complete workflows:
 - **`/ship`** - Code implementation with testing pipeline
 - **`/audit`** - Security and performance scanning
 - **`/sync`** - Documentation synchronization
-- **`/test-idempotent`** - Test skill idempotency
 
 ### Create More Skills
 

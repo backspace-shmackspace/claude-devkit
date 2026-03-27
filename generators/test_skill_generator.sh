@@ -422,11 +422,6 @@ run_test 34 "Validate retro skill" \
     "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/retro/SKILL.md'" \
     0
 
-# Test 35: Validate test-idempotent skill
-run_test 35 "Validate test-idempotent skill" \
-    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/test-idempotent/SKILL.md'" \
-    0
-
 # Test 36: Validate receiving-code-review skill
 run_test 36 "Validate receiving-code-review skill" \
     "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/receiving-code-review/SKILL.md'" \

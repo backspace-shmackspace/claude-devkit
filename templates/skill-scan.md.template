@@ -37,7 +37,7 @@ Derive timestamp: `[timestamp]` = current ISO datetime (e.g., `2026-02-08T14-30-
 
 Run the first type of analysis in parallel with other scans.
 
-Tool: MCP agent (e.g., `mcp__agent-factory__agent_hardener`) or `Task`
+Tool: `Task` (subagent_type=general-purpose, model=opus)
 
 **Prompt varies by scope:**
 
@@ -71,7 +71,7 @@ Write to `./plans/{skill_name}-[timestamp].scan1.md`"
 
 Run the second type of analysis.
 
-Tool: `Task` (subagent_type=general-purpose, model=sonnet) or MCP agent
+Tool: `Task` (subagent_type=general-purpose, model=sonnet)
 
 **Prompt varies by scope:**
 

@@ -59,6 +59,14 @@ if [ -d "$REPO_DIR/contrib" ]; then
     done
 fi
 
+# Guard: fail if no skills were found at all
+if [ $TOTAL_COUNT -eq 0 ]; then
+    echo ""
+    echo "ERROR: No skills found to validate."
+    echo "Check that skills/ directory exists and contains skill definitions."
+    exit 1
+fi
+
 # Summary
 echo ""
 echo "========================================"

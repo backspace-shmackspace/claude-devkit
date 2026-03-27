@@ -18,7 +18,7 @@ This skill is a **coordinator**. It delegates work to specialized agents, orches
 
 Invoke the appropriate specialist agent to perform the core work.
 
-Tool: `Task` (subagent_type=general-purpose, model=opus) or MCP agent
+Tool: `Task` (subagent_type=general-purpose, model=opus)
 
 Prompt:
 "Perform the following task: $ARGUMENTS
@@ -40,7 +40,7 @@ Run multiple reviewers **in parallel** to validate the output from Step 0.
 
 ### 1a — Quality reviewer
 
-Tool: MCP agent (e.g., `mcp__agent-factory__agent_redteam_v2`)
+Tool: `Task` (subagent_type=general-purpose, model=opus)
 
 Task:
 "Review the output at `./plans/{skill_name}-[timestamp].md`.
@@ -50,7 +50,7 @@ Write analysis to `./plans/{skill_name}-[timestamp].review.md` with Verdict: PAS
 
 ### 1b — Compliance reviewer
 
-Tool: MCP agent (e.g., `mcp__agent-factory__agent_librarian_v1`)
+Tool: `Task` (subagent_type=general-purpose, model=opus)
 
 Task:
 "Review the output against project standards in CLAUDE.md.

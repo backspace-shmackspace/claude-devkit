@@ -54,7 +54,6 @@ Pre-built workflows for common development tasks:
 | `/retro` | Mine review artifacts for recurring patterns and capture learnings | `/retro` or `/retro feature-name` |
 | `/audit` | Security and performance scanning. Composable: invokes /secure-review when deployed. | `/audit` or `/audit code` |
 | `/sync` | Update documentation and CLAUDE.md | `/sync` or `/sync full` |
-| `/test-idempotent` | Test skill idempotency and determinism | `/test-idempotent my-skill` |
 | `/receiving-code-review` | Code review reception discipline | `/receiving-code-review` |
 | `/verification-before-completion` | Evidence-before-claims gate — requires fresh test/build output before completion claims | `/verification-before-completion` |
 | `/compliance-check` | Validate against regulatory frameworks (FedRAMP, FIPS, OWASP, SOC 2) | `/compliance-check fedramp fips` |
@@ -567,12 +566,11 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Test Coverage (46 tests):**
+**Test Coverage (45 tests):**
 - Generator and validator help text (2 tests)
-- All 13 core skills validation (architect, ship, retro, audit, sync,
-  test-idempotent, receiving-code-review, verification-before-completion,
-  compliance-check, dependency-audit, secrets-scan, secure-review,
-  threat-model-gate)
+- All 12 core skills validation (architect, ship, retro, audit, sync,
+  receiving-code-review, verification-before-completion, compliance-check,
+  dependency-audit, secrets-scan, secure-review, threat-model-gate)
 - All 3 contrib skills validation (journal, journal-recall, journal-review)
 - All 3 archetypes (coordinator, pipeline, scan)
 - Input validation (names, descriptions, paths)
@@ -618,7 +616,6 @@ claude-devkit/
 │
 ├── configs/                   # Shared configurations
 │   ├── skill-patterns.json
-│   ├── agent-patterns.json
 │   ├── tech-stack-definitions/    # Tech stack configs (7 stacks)
 │   └── base-definitions/          # (empty - reserved for future)
 │
