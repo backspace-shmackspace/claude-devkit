@@ -5,18 +5,18 @@
 | Rev | Date | Trigger | Summary |
 |-----|------|---------|---------|
 | 2 | 2026-03-27 | Red team FAIL + feasibility critical findings + librarian required edits | (1) Replace inline bash function with standalone `scripts/emit-audit-event.sh` helper script to fix shell state persistence across Bash tool calls (RT-F4, FS-C1). (2) Replace `_audit_escape` with `python3 json.dumps()` for RFC 8259 compliance (RT-F3, FS-C2). (3) Persist L3 HMAC key to disk with restricted permissions for post-run chain verification (RT-F1, FS-M1). (4) Drop `duration_ms` from per-event schema; compute in query utility from timestamp pairs (FS-M2). (5) Derive sequence counter from log file line count (FS-M3). (6) Add `security_decision` event verification in Step 6 (RT-F2). (7) Honest OTel migration assessment -- adapter requires span hierarchy reconstruction, not trivial field rename (RT-F5). (8) Librarian fixes: add `agentic-sdlc-next-phase.md` and `agentic-sdlc-security-skills.md` to context references, fix hardcoded `skill_version` to 3.6.0, add `ship-always-worktree.md` to prior plans. |
-| 1 | 2026-03-27 | Initial draft | File-based JSONL audit logging for /ship with OTel-forward design, CRA compliance context, and security maturity level awareness |
+| 1 | 2026-03-27 | Initial draft | File-based JSONL audit logging for /ship with OTel-forward design and security maturity level awareness |
 
 ## Context
 
-Red Hat's CRA enforcement deadline is September 2026. There are 36 open PSRD tickets for insufficient logging, and only 4 of 11 required audit events currently reach Splunk. The corporate mandate for AI-first SDLC requires proving what agents did what and when in the codebase.
+Red Hat's corporate mandate for AI-first SDLC requires proving what agents did what and when in the codebase. As AI-assisted development scales beyond individual contributors — via the Josh Boyer/Kevin Myers governance proposal (CNCF model: Sandbox → Incubating → Graduated) and Marek Baluch's "Agentic Operating System" workstreams — engineering leads need visibility into agent actions. This is a development process accountability requirement, not a product compliance requirement (CRA applies to products with digital elements, not build tooling).
 
 Today, `/ship` generates markdown artifacts (code reviews, QA reports, test logs) and commits them, but there is no structured, machine-parseable record of the run itself: which steps executed, what verdicts were reached, what files were modified, whether security overrides were used. This gap means:
 
 1. **No provenance chain** -- Cannot prove which agent modified which file or when.
 2. **No override accountability** -- `--security-override` reasons appear only in commit messages, not queryable.
 3. **No step-level visibility** -- Cannot determine which steps completed or failed.
-4. **No CRA audit event coverage** -- Agent actions in the SDLC are invisible to compliance tooling.
+4. **No governance readiness** -- When corporate AI tooling controls land (Kagenti, MCP Gateway), there is no structured event stream to integrate with.
 
 **Platform trajectory:** Red Hat's Kagenti platform (OpenShift operator with SPIFFE/SPIRE identity injection, OTel tracing, and MCP Gateway tool governance) is in development. When available, audit events should emit as OTel spans rather than (or in addition to) files. The design must make this transition straightforward, while being honest that a format adapter alone is insufficient -- the migration requires span hierarchy reconstruction (see OTel Migration section).
 
@@ -38,7 +38,7 @@ Today, `/ship` generates markdown artifacts (code reviews, QA reports, test logs
 
 ### Key Drivers
 
-1. **CRA compliance** -- September 2026 deadline requires audit events for agent actions in the SDLC. File-based logs provide the immediate evidence trail; OTel emission provides the future integration path.
+1. **AI governance readiness** -- Corporate AI tooling controls are coming (Kagenti, MCP Gateway, governance proposal). File-based logs provide the immediate accountability trail; OTel emission provides the future integration path when platform infrastructure arrives.
 2. **Zero infrastructure dependency** -- Must work today with nothing more than `bash`, `python3`, and the filesystem. No databases, no message queues, no external services.
 3. **LLM-executable** -- The "runtime" is a Claude Code LLM reading a SKILL.md prompt and executing bash blocks. Each `Tool: Bash` invocation spawns a fresh shell process -- functions and variables do not persist between calls. Audit logging must use a standalone helper script invoked as a one-liner in each step.
 4. **OTel-forward field design** -- JSONL fields must map to OTel span attributes. The migration to OTel spans requires a format adapter with span hierarchy reconstruction (not a trivial field rename).
@@ -90,7 +90,7 @@ Today, `/ship` generates markdown artifacts (code reviews, QA reports, test logs
 - OTel span emission (requires Kagenti -- future work)
 - SPIFFE/SPIRE identity injection (requires Kagenti -- future work)
 - MCP Gateway integration (requires platform -- future work)
-- Splunk ingestion pipeline (corporate infra team scope)
+- Splunk or SIEM integration (corporate infra team scope, contingent on Kagenti)
 - Real-time log streaming or monitoring dashboards
 - Modifying security skills themselves (they are invoked by /ship, not instrumented independently)
 - Agent behavioral testing of the logging (cannot test LLM prompt compliance in CI)
@@ -1103,7 +1103,7 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
 2. **Execute Phase 2** -- Create query utility, add tests, update CLAUDE.md
 3. **Execute Phase 3** -- Instrument `/architect` and `/audit`
 4. **When Kagenti is available** -- Build OTel format adapter with span hierarchy reconstruction (not trivial field rename; see OTel Migration section)
-5. **For CRA compliance** -- Coordinate with corporate compliance team to map audit events to the 11 required audit event types and configure Splunk ingestion from git or OTel. Note: this plan provides structured logging infrastructure; CRA-specific event type mapping is future work contingent on compliance team input.
+5. **For corporate AI governance** -- When the Josh Boyer/Kevin Myers governance proposal is ratified (CNCF model: Sandbox → Incubating → Graduated), audit logs provide the evidence trail for tooling maturity assessment. Structured event data from devkit skills can feed into whatever reporting/dashboard the governance framework requires.
 
 ---
 
