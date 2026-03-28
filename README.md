@@ -43,7 +43,7 @@ cd ~/projects/claude-devkit
 
 ## What's Included
 
-### Skills (13)
+### Skills (12)
 
 Pre-built workflows for common development tasks:
 
@@ -61,6 +61,10 @@ Pre-built workflows for common development tasks:
 | `/secrets-scan` | Pre-commit secrets detection for API keys, tokens, credentials | `/secrets-scan staged` |
 | `/secure-review` | Deep semantic security review with data flow tracing | `/secure-review changes` |
 | `/threat-model-gate` | Security planning reference for authentication, authorization, data handling | `/threat-model-gate` |
+
+**Audit Logging:** `/ship`, `/architect`, and `/audit` emit structured JSONL events to `plans/audit-logs/`
+on every run. At L2/L3, logs are committed to git. Query with `./scripts/audit-log-query.sh`.
+See [CLAUDE.md](CLAUDE.md) for full details.
 
 ### Generators (5)
 
@@ -616,6 +620,7 @@ claude-devkit/
 │
 ├── configs/                   # Shared configurations
 │   ├── skill-patterns.json
+│   ├── audit-event-schema.json    # JSON Schema for audit events (OTel-aligned)
 │   ├── tech-stack-definitions/    # Tech stack configs (7 stacks)
 │   └── base-definitions/          # (empty - reserved for future)
 │
@@ -623,7 +628,9 @@ claude-devkit/
 │   ├── deploy.sh              # Deploy skills to ~/.claude/skills/
 │   ├── install.sh             # Automated installation
 │   ├── uninstall.sh           # Clean uninstallation
-│   └── validate-all.sh        # Health check - validate all skills
+│   ├── validate-all.sh        # Health check - validate all skills
+│   ├── emit-audit-event.sh    # Audit event emission helper (invoked by skills)
+│   └── audit-log-query.sh     # Query utility for JSONL audit logs
 │
 ├── .claude/                   # Project-specific agents
 │   └── agents/
@@ -741,6 +748,17 @@ venv/
 
 # Logs
 *.log
+
+# Audit logs (L1 ephemeral — gitignored at advisory maturity)
+plans/audit-logs/*.jsonl
+
+# Audit run state files (ephemeral — deleted at run end)
+.ship-audit-state-*
+.architect-audit-state-*
+.audit-audit-state-*
+
+# Audit HMAC key files (L3 only — never commit to shared repos)
+.ship-audit-key-*
 ```
 
 ### Syncing Across Machines

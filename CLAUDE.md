@@ -54,13 +54,18 @@ claude-devkit/
 │
 ├── configs/             # Shared configurations
 │   ├── skill-patterns.json
+│   ├── audit-event-schema.json
 │   └── base-definitions/
+│
+├── plans/audit-logs/    # JSONL audit event logs (L1: gitignored, L2/L3: committed)
 │
 └── scripts/             # Deployment and utilities
     ├── deploy.sh        # Deploy skills to ~/.claude/skills/
     ├── install.sh       # Automated installation
     ├── uninstall.sh     # Clean uninstallation
-    └── validate-all.sh  # Health check - validate all skills
+    ├── validate-all.sh  # Health check - validate all skills
+    ├── emit-audit-event.sh    # Audit event emission helper (invoked by skills)
+    └── audit-log-query.sh     # Query utility for JSONL audit logs
 ```
 
 ### Data Flow
@@ -189,6 +194,8 @@ The `/ship` skill runs three security gates when the corresponding skills are de
 | **L3** (audited) | Committed to git; HMAC chain with key persisted to `.ship-audit-key-<run_id>` | HMAC-SHA256 chain (post-run verifiable) |
 
 **Query Utility:**
+
+Requirements: `jq` (required for all commands), `openssl` (required for `verify-chain` HMAC verification).
 
 ```bash
 # Show summary for a specific run
@@ -834,7 +841,7 @@ Deployment and utility scripts.
 - `uninstall.sh` — Clean uninstallation with backup restoration
 - `validate-all.sh` — Health check - validate all skills in one pass
 - `emit-audit-event.sh` — Standalone helper script for skill audit event emission (invoked by `/ship`, `/architect`, `/audit`)
-- `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verify-chain, recent)
+- `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, verify-chain, recent)
 
 **Usage:**
 ```bash
@@ -1108,6 +1115,17 @@ venv/
 # Temporary files
 tmp/
 temp/
+
+# Audit logs (L1 ephemeral — gitignored at advisory maturity)
+plans/audit-logs/*.jsonl
+
+# Audit run state files (ephemeral — deleted at run end)
+.ship-audit-state-*
+.architect-audit-state-*
+.audit-audit-state-*
+
+# Audit HMAC key files (L3 only — never commit to shared repos)
+.ship-audit-key-*
 ```
 
 ### Commit Messages
@@ -1135,6 +1153,7 @@ test(generators): add validation tests for scan archetype
 - [x] Security maturity levels (L1/L2/L3)
 - [x] validate-all health check command
 - [x] Deploy-time validation (--validate flag)
+- [x] Structured JSONL audit logging (ship, architect, audit) with maturity-aware retention and query utility
 
 ### v1.1 (Next)
 
