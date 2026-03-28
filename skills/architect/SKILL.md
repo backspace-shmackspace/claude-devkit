@@ -2,7 +2,7 @@
 name: architect
 description: Research and create a technical blueprint for a new feature.
 model: claude-opus-4-6
-version: 3.1.0
+version: 3.2.0
 ---
 # /architect Workflow
 
@@ -50,7 +50,49 @@ Run all three globs in parallel:
 
 Continue to Step 1.
 
+**Initialize audit logging:**
+
+Tool: `Bash`
+
+```bash
+# --- Audit Logging Setup ---
+RUN_ID=$(date +%Y%m%d-%H%M%S)-$(cat /dev/urandom | LC_ALL=C tr -dc 'a-z0-9' | head -c 6)
+AUDIT_LOG_DIR="./plans/audit-logs"
+mkdir -p "$AUDIT_LOG_DIR"
+AUDIT_LOG="$AUDIT_LOG_DIR/architect-${RUN_ID}.jsonl"
+STATE_FILE=".architect-audit-state-${RUN_ID}.json"
+
+python3 -c "
+import json
+state = {
+    'run_id': '${RUN_ID}',
+    'audit_log': '${AUDIT_LOG}',
+    'skill': 'architect',
+    'skill_version': '3.2.0',
+    'security_maturity': 'advisory',
+    'hmac_key': ''
+}
+with open('${STATE_FILE}', 'w') as f:
+    json.dump(state, f)
+print('Architect audit state file created: ${STATE_FILE}')
+"
+
+bash scripts/emit-audit-event.sh "$STATE_FILE" \
+  "{\"event_type\":\"run_start\",\"plan_feature\":\"${ARGUMENTS:-unknown}\"}"
+
+echo "Architect audit log: $AUDIT_LOG"
+```
+
 ## Step 1 — Context Discovery
+
+**Emit step_start for Step 1:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_1_context_discovery","step_name":"Context discovery","agent_type":"coordinator"}'
+```
 
 Gather project context to inform the architect. All reads run in parallel (single message with multiple tool calls). This step runs regardless of the `--fast` flag.
 
@@ -88,9 +130,27 @@ Assemble the discovered context into a structured block:
 
 **If no plans exist:** Set plans sections to "No prior plans found." Continue to Step 2 (do not block).
 
+**Emit step_end for Step 1:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_1_context_discovery","step_name":"Context discovery","agent_type":"coordinator"}'
+```
+
 Continue to Step 2.
 
 ## Step 2 — Architect drafts plan
+
+**Emit step_start for Step 2:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_2_architect_draft","step_name":"Architect drafts plan","agent_type":"architect"}'
+```
 
 Invoke the project-level architect. If none found, use a Task subagent with general-purpose prompt.
 
@@ -161,7 +221,25 @@ Refer to the threat-model-gate skill at `~/.claude/skills/threat-model-gate/SKIL
 
 **If not security-sensitive:** Do not append. Standard planning prompt only.
 
+**Emit step_end for Step 2:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_2_architect_draft","step_name":"Architect drafts plan","agent_type":"architect"}'
+```
+
 ## Step 3 — Red Team + Librarian + Feasibility review (parallel)
+
+**Emit step_start for Step 3:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_3_review","step_name":"Red Team + Librarian + Feasibility review","agent_type":"coordinator"}'
+```
 
 Run all three reviews **in parallel** — three `Task` tool calls in a single message.
 
@@ -230,11 +308,36 @@ Write `./plans/[feature-name].feasibility.md` with:
 - Concerns (categorized: Critical / Major / Minor)
 - Recommended adjustments"
 
+**Emit verdict events and step_end for Step 3:**
+
+Tool: `Bash`
+
+```bash
+# Emit verdict events for each reviewer (replace VERDICT_X with actual verdicts)
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"verdict\",\"step\":\"step_3_review\",\"verdict\":\"${REDTEAM_VERDICT:-PASS}\",\"verdict_source\":\"red_team\",\"agent_type\":\"red-team\"}"
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"verdict\",\"step\":\"step_3_review\",\"verdict\":\"${LIBRARIAN_VERDICT:-PASS}\",\"verdict_source\":\"librarian\",\"agent_type\":\"librarian\"}"
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"verdict\",\"step\":\"step_3_review\",\"verdict\":\"${FEASIBILITY_VERDICT:-PASS}\",\"verdict_source\":\"feasibility\",\"agent_type\":\"code-reviewer\"}"
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_3_review","step_name":"Red Team + Librarian + Feasibility review","agent_type":"coordinator"}'
+```
+
 ## Step 4 — Revision loop (conditional)
 
 **Trigger:** Step 3 produced any Critical or Major findings, OR a FAIL verdict from any reviewer.
 
 **If no Critical/Major findings and no FAIL verdict:** skip to Step 5.
+
+**Emit step_start for Step 4:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_4_revision","step_name":"Revision loop","agent_type":"architect"}'
+```
 
 Re-invoke the architect to revise the plan using the same pattern as Step 2 (local `.claude/agents/senior-architect.md` preferred, Task subagent fallback — no MCP). MUST use exact model string `claude-opus-4-6`:
 
@@ -256,7 +359,25 @@ Then re-run Step 3 (all three reviews in parallel) on the revised plan.
 
 **Max 2 revision rounds total.** If after 2 rounds the plan still has Critical findings or a FAIL verdict, proceed to Step 5 (which will halt the workflow).
 
+**Emit step_end for Step 4:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_4_revision","step_name":"Revision loop","agent_type":"architect"}'
+```
+
 ## Step 5 — Final verdict gate
+
+**Emit step_start for Step 5:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_5_verdict","step_name":"Final verdict gate","agent_type":"coordinator"}'
+```
 
 Read the latest review artifacts:
 - `./plans/[feature-name].review.md` (librarian)
@@ -328,3 +449,23 @@ Do NOT change the verdict based on commit success or failure.
 - Run the **Auto-commit** step above (same pre-flight checks, staging loop, and commit — but use the FAIL commit message with `chore(plans):` prefix).
 - Output: "Plan not approved. Blocking issues:" followed by the unresolved Critical/Major findings from all reviewers.
 - Stop the workflow.
+
+**Emit verdict, run_end, and step_end for Step 5:**
+
+Tool: `Bash`
+
+```bash
+# APPROVAL_VERDICT: "PASS" if approved, "FAIL" if not approved
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"verdict\",\"step\":\"step_5_verdict\",\"verdict\":\"${APPROVAL_VERDICT:-PASS}\",\"verdict_source\":\"final_gate\",\"agent_type\":\"coordinator\"}"
+
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"run_end\",\"outcome\":\"${APPROVAL_VERDICT:-PASS}\",\"plan_file\":\"./plans/${FEATURE_NAME:-unknown}.md\"}"
+
+bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_5_verdict","step_name":"Final verdict gate","agent_type":"coordinator"}'
+
+# Clean up state file
+rm -f ".architect-audit-state-${RUN_ID}.json"
+echo "Architect audit log complete: ./plans/audit-logs/architect-${RUN_ID}.jsonl"
+```

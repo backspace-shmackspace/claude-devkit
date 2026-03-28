@@ -1,7 +1,7 @@
 ---
 name: ship
 description: Execute an approved plan using unattended implementation and validation with worktree isolation.
-version: 3.5.0
+version: 3.6.0
 model: claude-opus-4-6
 ---
 # /ship Workflow
@@ -65,6 +65,60 @@ done
 
 # Clean up orphaned violation files
 rm -f .ship-violations-*.tmp
+```
+
+**Then: Initialize audit logging**
+
+Tool: `Bash`
+
+```bash
+# --- Audit Logging Setup ---
+AUDIT_LOG_DIR="./plans/audit-logs"
+mkdir -p "$AUDIT_LOG_DIR"
+AUDIT_LOG="$AUDIT_LOG_DIR/ship-${RUN_ID}.jsonl"
+STATE_FILE=".ship-audit-state-${RUN_ID}.json"
+
+# L3 (audited): generate HMAC key and persist to disk for post-run chain verification
+HMAC_KEY=""
+if [ "$SECURITY_MATURITY" = "audited" ]; then
+  HMAC_KEY=$(cat /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 64 2>/dev/null || echo "")
+  if [ -n "$HMAC_KEY" ]; then
+    KEY_FILE=".ship-audit-key-${RUN_ID}"
+    printf '%s' "$HMAC_KEY" > "$KEY_FILE"
+    chmod 600 "$KEY_FILE"
+    echo "L3 HMAC key written to $KEY_FILE (mode 0600)"
+  else
+    echo "Warning: Could not generate L3 HMAC key (/dev/urandom unavailable)."
+  fi
+fi
+
+# Create state file for helper script
+python3 -c "
+import json
+state = {
+    'run_id': '${RUN_ID}',
+    'audit_log': '${AUDIT_LOG}',
+    'skill': 'ship',
+    'skill_version': '3.6.0',
+    'security_maturity': '${SECURITY_MATURITY}',
+    'hmac_key': '${HMAC_KEY}'
+}
+with open('${STATE_FILE}', 'w') as f:
+    json.dump(state, f)
+print('Audit state file created: ${STATE_FILE}')
+"
+
+# Emit run_start event
+OVERRIDE_ACTIVE="false"
+[ -n "${SECURITY_OVERRIDE_REASON:-}" ] && OVERRIDE_ACTIVE="true"
+bash scripts/emit-audit-event.sh "$STATE_FILE" \
+  "{\"event_type\":\"run_start\",\"plan_file\":\"${PLAN_PATH:-${ARGUMENTS:-unknown}}\",\"security_override_active\":${OVERRIDE_ACTIVE}}"
+
+# Emit step_start for step_0
+bash scripts/emit-audit-event.sh "$STATE_FILE" \
+  '{"event_type":"step_start","step":"step_0_preflight","step_name":"Pre-flight checks","agent_type":"coordinator"}'
+
+echo "Audit log: $AUDIT_LOG"
 ```
 
 **Then: Run validation checks in parallel:**
@@ -168,7 +222,39 @@ Secrets-scan BLOCKED blocks at ALL maturity levels (including L1). Committed sec
 - If L1 (advisory): Log: "Security note: secrets-scan skill not deployed. Consider deploying for pre-commit secret detection."
 - If L2/L3: Already caught by maturity level check above (will not reach here).
 
+**Emit security_decision event for secrets scan gate:**
+
+Tool: `Bash`
+
+```bash
+# Emit security_decision event for secrets scan result
+# Replace GATE_VERDICT and ACTION with actual values from above check:
+#   GATE_VERDICT: "PASS", "BLOCKED", or "not-run" (if skill not deployed)
+#   ACTION: "pass", "block", "override", or "skip" (if not deployed)
+#   EFFECTIVE_VERDICT: "PASS", "BLOCKED", or "PASS_WITH_NOTES" (if overridden)
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"security_decision\",\"step\":\"step_0_preflight\",\"gate\":\"secrets_scan\",\"gate_verdict\":\"${SECRETS_GATE_VERDICT:-not-run}\",\"action\":\"${SECRETS_ACTION:-skip}\",\"effective_verdict\":\"${SECRETS_EFFECTIVE_VERDICT:-PASS}\"}"
+```
+
+**Emit step_end for Step 0:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_0_preflight","step_name":"Pre-flight checks","agent_type":"coordinator"}'
+```
+
 ## Step 1 — Coordinator reads plan
+
+**Emit step_start for Step 1:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_1_read_plan","step_name":"Coordinator reads plan","agent_type":"coordinator"}'
+```
 
 Tool: `Read` (direct — coordinator does this)
 
@@ -209,7 +295,25 @@ If no `## Work Groups` section exists, treat the entire Task Breakdown as a sing
 
 Store these as the `scoped_files` for the single implicit work group. This list is used in Step 3d (boundary validation) and Step 3e (merge).
 
+**Emit step_end for Step 1:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_1_read_plan","step_name":"Coordinator reads plan","agent_type":"coordinator"}'
+```
+
 ## Step 2 — Pattern Validation (warnings only)
+
+**Emit step_start for Step 2:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_2_pattern_validation","step_name":"Pattern validation","agent_type":"coordinator"}'
+```
 
 Validate the plan against project patterns before implementation. This step produces warnings but does NOT block the workflow.
 
@@ -256,6 +360,15 @@ If no warnings, output:
 
 Continue to Step 3 regardless of warnings.
 
+**Emit step_end for Step 2:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_2_pattern_validation","step_name":"Pattern validation","agent_type":"coordinator"}'
+```
+
 ## Step 3 — Implementation (with worktree isolation)
 
 Every implementation runs in isolated git worktrees, regardless of how many work groups
@@ -265,6 +378,15 @@ the plan defines. This ensures concurrent sessions cannot interfere with the imp
 
 **Trigger:** Plan contains `### Shared Dependencies` section. If no Shared Dependencies
 section exists, skip directly to Step 3b.
+
+**Emit step_start for Step 3a:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_3a_shared_deps","step_name":"Shared dependencies","agent_type":"coder"}'
+```
 
 Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
@@ -291,10 +413,28 @@ Command:
 git add <shared-files> && git commit -m "WIP: /ship shared dependencies for ${name}
 
 This is a temporary commit that will be squashed with the final implementation in Step 6.
-Created by: /ship skill v3.5.0"
+Created by: /ship skill v3.6.0"
+```
+
+**Emit step_end for Step 3a:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_3a_shared_deps","step_name":"Shared dependencies","agent_type":"coder"}'
 ```
 
 #### Step 3b — Create Worktrees
+
+**Emit step_start for Step 3b:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_3b_create_worktrees","step_name":"Create worktrees","agent_type":"coordinator"}'
+```
 
 Tool: `Bash`
 
@@ -343,7 +483,26 @@ fi
 
 Output: "✓ Created worktree for Work Group ${wg_num}: ${wg_name} at $WORKTREE_PATH"
 
+**Emit step_end for Step 3b:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_3b_create_worktrees","step_name":"Create worktrees","agent_type":"coordinator"}'
+```
+
 #### Step 3c — Dispatch Coders to Worktrees
+
+**Emit step_start for Step 3c:**
+
+Tool: `Bash`
+
+```bash
+# WG_COUNT = number of work groups dispatched
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"step_start\",\"step\":\"step_3c_dispatch_coders\",\"step_name\":\"Dispatch coders to worktrees\",\"agent_type\":\"coder\",\"work_groups\":${WG_COUNT:-1}}"
+```
 
 Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6` — **dispatch one coder per work group (parallel if multiple, single Task call if one group)**
 
@@ -392,7 +551,25 @@ done < .ship-worktrees-${RUN_ID}.tmp
 
 If any worktree has BLOCKED.md, stop workflow and output: "❌ Implementation blocked. See output above."
 
+**Emit step_end for Step 3c:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_3c_dispatch_coders","step_name":"Dispatch coders to worktrees","agent_type":"coder"}'
+```
+
 #### Step 3d — File Boundary Validation
+
+**Emit step_start for Step 3d:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_3d_boundary_validation","step_name":"File boundary validation","agent_type":"coordinator"}'
+```
 
 Tool: `Bash`
 
@@ -464,9 +641,31 @@ Workflow stopped. Review agent behavior and retry.
 
 **STOP workflow** — do not proceed to Step 3e.
 
+**Emit verdict event for boundary check:**
+
+Tool: `Bash`
+
+```bash
+# BOUNDARY_VERDICT: "PASS" if no violations, "BLOCKED" if violations detected
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"verdict\",\"step\":\"step_3d_boundary_validation\",\"verdict\":\"${BOUNDARY_VERDICT:-PASS}\",\"verdict_source\":\"boundary_check\",\"agent_type\":\"coordinator\"}"
+
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_3d_boundary_validation","step_name":"File boundary validation","agent_type":"coordinator"}'
+```
+
 If no violations, continue to Step 3e.
 
 #### Step 3e — Merge Worktrees
+
+**Emit step_start for Step 3e:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_3e_merge","step_name":"Merge worktrees","agent_type":"coordinator"}'
+```
 
 Tool: `Bash`
 
@@ -504,7 +703,33 @@ The code review in Step 4 serves as the catch for genuinely missing files.
 
 Output: "✓ Merged N work groups (X files total)"
 
+**Emit file_modification event per work group, then step_end for Step 3e:**
+
+For each work group processed in the merge loop above, emit a `file_modification` event using the actual values from that iteration (`WG_NUM`, `WG_NAME`, and the list of scoped files as a JSON array):
+
+Tool: `Bash`
+
+```bash
+# Emit one file_modification event per work group using actual loop values.
+# Construct FILES_JSON as a JSON array of the scoped files for this work group.
+# Example (replace WG_NUM, WG_NAME, and FILES_JSON with actual values):
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"file_modification\",\"step\":\"step_3e_merge\",\"work_group\":${WG_NUM},\"work_group_name\":\"${WG_NAME}\",\"files_modified\":${FILES_JSON}}"
+
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_3e_merge","step_name":"Merge worktrees","agent_type":"coordinator"}'
+```
+
 #### Step 3f — Cleanup Worktrees
+
+**Emit step_start for Step 3f:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_3f_cleanup","step_name":"Cleanup worktrees","agent_type":"coordinator"}'
+```
 
 Tool: `Bash`
 
@@ -534,6 +759,15 @@ rm -f .ship-worktrees-${RUN_ID}.tmp .ship-violations-${RUN_ID}.tmp
 ```
 
 **Note:** Cleanup failures are logged but don't block the workflow. Orphaned worktrees can be cleaned manually with `git worktree prune` or automatically by the pre-flight check in Step 0.
+
+**Emit step_end for Step 3f:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_3f_cleanup","step_name":"Cleanup worktrees","agent_type":"coordinator"}'
+```
 
 ## Step 4 — Parallel verification
 
@@ -694,7 +928,7 @@ Tool: `Bash`
 # Example: git add src/auth.ts src/auth.test.ts lib/helpers.ts
 # NEVER use git add -A or git add .
 git add $SHARED_DEP_FILES $WG1_FILES $WG2_FILES ...
-git commit -m "WIP: ship v3.5.0 first-pass implementation (pre-revision)"
+git commit -m "WIP: ship v3.6.0 first-pass implementation (pre-revision)"
 ```
 
 This ensures revision-loop worktrees are based on the first-pass code, not the
@@ -735,6 +969,15 @@ stop the workflow. Output: "Code review did not converge after 2 rounds. See `./
 - Re-running tests/QA is cheaper than sequential workflows
 
 ## Step 6 — Commit gate
+
+**Emit step_start for Step 6:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_6_commit_gate","step_name":"Commit gate","agent_type":"coordinator"}'
+```
 
 Read `./plans/[name].qa-report.md`. Check the verdict.
 
@@ -792,6 +1035,83 @@ Write your report to `./plans/[name].dependency-audit.md`."
 
 **If not found:**
 - Log: "Security note: dependency-audit skill not deployed. Dependency audit skipped."
+
+**Emit security_decision event for dependency audit gate:**
+
+Tool: `Bash`
+
+```bash
+# Emit security_decision event for dependency audit result
+# Replace DEP_GATE_VERDICT, DEP_ACTION, and DEP_EFFECTIVE_VERDICT with actual values:
+#   DEP_GATE_VERDICT: "PASS", "PASS_WITH_NOTES", "BLOCKED", "INCOMPLETE", or "not-run"
+#   DEP_ACTION: "pass", "block", "override", or "skip"
+#   DEP_EFFECTIVE_VERDICT: "PASS", "PASS_WITH_NOTES", or "BLOCKED"
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"security_decision\",\"step\":\"step_6_commit_gate\",\"gate\":\"dependency_audit\",\"gate_verdict\":\"${DEP_GATE_VERDICT:-not-run}\",\"action\":\"${DEP_ACTION:-skip}\",\"effective_verdict\":\"${DEP_EFFECTIVE_VERDICT:-PASS}\"}"
+```
+
+**Audit log verification and finalization:**
+
+Tool: `Bash`
+
+```bash
+# Audit log verification (non-blocking) and run_end emission
+if [ -f "$AUDIT_LOG" ]; then
+  EVENT_COUNT=$(wc -l < "$AUDIT_LOG" | tr -d ' ')
+  RUN_START_COUNT=$(grep -c '"event_type":"run_start"' "$AUDIT_LOG" 2>/dev/null || echo "0")
+
+  # Check 1: run_start exists
+  if [ "$RUN_START_COUNT" -eq 0 ]; then
+    echo "Warning: Audit log exists but missing run_start event."
+  fi
+
+  # Check 2: minimum event count (at least 5: run_start + at least 2 step pairs)
+  EXPECTED_MIN=5
+  if [ "$EVENT_COUNT" -lt "$EXPECTED_MIN" ]; then
+    echo "Warning: Audit log has only $EVENT_COUNT events (expected at least $EXPECTED_MIN)."
+  fi
+
+  # Check 3: security_decision events when security gates ran
+  SECRETS_SCAN_DEPLOYED=$(ls ~/.claude/skills/secrets-scan/SKILL.md 2>/dev/null && echo "yes" || echo "no")
+  SECURE_REVIEW_DEPLOYED=$(ls ~/.claude/skills/secure-review/SKILL.md 2>/dev/null && echo "yes" || echo "no")
+  DEP_AUDIT_DEPLOYED=$(ls ~/.claude/skills/dependency-audit/SKILL.md 2>/dev/null && echo "yes" || echo "no")
+
+  SECURITY_EVENTS=$(grep -c '"event_type":"security_decision"' "$AUDIT_LOG" 2>/dev/null || echo "0")
+
+  if [ "$SECRETS_SCAN_DEPLOYED" = "yes" ] || [ "$SECURE_REVIEW_DEPLOYED" = "yes" ] || [ "$DEP_AUDIT_DEPLOYED" = "yes" ]; then
+    if [ "$SECURITY_EVENTS" -eq 0 ]; then
+      echo "Warning: Security skills are deployed but no security_decision events found in audit log."
+    fi
+  fi
+
+  # Emit run_end
+  COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+  bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+    "{\"event_type\":\"run_end\",\"outcome\":\"success\",\"commit_sha\":\"${COMMIT_SHA}\",\"plan_file\":\"${PLAN_PATH:-${ARGUMENTS:-unknown}}\"}"
+
+  # Stage audit log for commit at L2/L3
+  if [ "$SECURITY_MATURITY" = "enforced" ] || [ "$SECURITY_MATURITY" = "audited" ]; then
+    git add --force "$AUDIT_LOG"
+    echo "Audit log staged for commit (${SECURITY_MATURITY} maturity)."
+
+    # L3: also stage key file
+    if [ "$SECURITY_MATURITY" = "audited" ]; then
+      KEY_FILE=".ship-audit-key-${RUN_ID}"
+      if [ -f "$KEY_FILE" ]; then
+        git add --force "$KEY_FILE"
+        echo "HMAC key file staged for commit (audited maturity)."
+      fi
+    fi
+  else
+    echo "Audit log available at $AUDIT_LOG (advisory maturity -- not committed)."
+  fi
+
+  # Cleanup state file (not needed after run)
+  rm -f ".ship-audit-state-${RUN_ID}.json"
+else
+  echo "Warning: Audit log not found at $AUDIT_LOG. Logging may have failed."
+fi
+```
 
 1. **If WIP commits exist from Step 3a and/or Step 5a:** Soft reset to squash them with the final commit
    - Tool: `Bash`
@@ -858,6 +1178,15 @@ Write your report to `./plans/[name].dependency-audit.md`."
    - QA report: `./plans/archive/[name]/[name].qa-report.md`
    - **Next step:** Run `/sync` to update documentation."
 
+**Emit step_end for Step 6:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_6_commit_gate","step_name":"Commit gate","agent_type":"coordinator"}'
+```
+
 **If FAIL:**
 - Do NOT commit.
 - Output: "❌ QA validation failed. See `./plans/[name].qa-report.md`."
@@ -867,6 +1196,15 @@ Write your report to `./plans/[name].dependency-audit.md`."
 
 **Trigger:** Step 6 committed successfully (PASS or PASS_WITH_NOTES verdict).
 If Step 6 did not commit (FAIL), skip Step 7 entirely.
+
+**Emit step_start for Step 7:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_7_retro","step_name":"Retro capture","agent_type":"coordinator"}'
+```
 
 **This step is non-blocking.** If it fails for any reason, log the error and report success from Step 6. The commit is already done — Step 7 is best-effort learning capture.
 
@@ -942,3 +1280,12 @@ If Task failed, output:
 "Retro capture skipped (non-blocking). The commit from Step 6 is unaffected.
 Error: [Task error message]
 Run `/retro` manually to capture learnings."
+
+**Emit step_end for Step 7:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_7_retro","step_name":"Retro capture","agent_type":"coordinator"}'
+```

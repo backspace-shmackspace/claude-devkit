@@ -68,3 +68,14 @@ temp/
 
 # Machine-specific Claude Code permissions (not for version control)
 .claude/settings.local.json
+
+# Audit logs (L1 advisory logs are ephemeral -- L2/L3 use git add --force to commit)
+plans/audit-logs/*.jsonl
+
+# Audit run state files (ephemeral -- created at Step 0, deleted at Step 6)
+.ship-audit-state-*
+.architect-audit-state-*
+.audit-audit-state-*
+
+# L3 HMAC key files (committed via git add --force at L3 -- gitignored to keep L1/L2 clean)
+.ship-audit-key-*

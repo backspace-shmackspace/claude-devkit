@@ -1,0 +1,338 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/backspace-shmackspace/claude-devkit/configs/audit-event-schema.json",
+  "title": "Claude Devkit Audit Event Schema",
+  "description": "JSON Schema for JSONL audit events emitted by /ship, /architect, and /audit skills. Fields are designed to map to OpenTelemetry span attributes for future Kagenti integration.",
+  "version": "1.0.0",
+  "definitions": {
+    "common_fields": {
+      "type": "object",
+      "description": "Fields present in every audit event.",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "Unique identifier for this skill run. Format: YYYYMMDD-HHMMSS-xxxxxx. OTel: baggage.run_id (run_id format is not a valid OTel trace_id -- adapter must generate a proper 128-bit trace_id and carry run_id as baggage).",
+          "pattern": "^[0-9]{8}-[0-9]{6}-[a-z0-9]{6}$",
+          "examples": ["20260327-143052-a1b2c3"]
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp when the event was emitted. Second precision (macOS date lacks nanosecond support). OTel: start_time / end_time (adapter converts to nanosecond Unix timestamps).",
+          "examples": ["2026-03-27T14:30:52.000Z"]
+        },
+        "event_type": {
+          "type": "string",
+          "description": "Type of audit event. OTel: determines span vs. span event -- step_start/step_end define span boundaries; verdict/security_decision map to span events (annotations).",
+          "enum": [
+            "run_start",
+            "run_end",
+            "step_start",
+            "step_end",
+            "verdict",
+            "security_decision",
+            "file_modification",
+            "error"
+          ]
+        },
+        "skill": {
+          "type": "string",
+          "description": "Name of the skill that emitted this event. OTel: service.name.",
+          "enum": ["ship", "architect", "audit"]
+        },
+        "skill_version": {
+          "type": "string",
+          "description": "Semver version of the skill. OTel: service.version.",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "examples": ["3.6.0"]
+        },
+        "security_maturity": {
+          "type": "string",
+          "description": "Security maturity level active during this run. OTel: span attribute devkit.ship.security_maturity.",
+          "enum": ["advisory", "enforced", "audited"]
+        },
+        "sequence": {
+          "type": "integer",
+          "description": "Monotonic counter for total ordering within a run. Derived from wc -l of the log file at emit time. Preserved in OTel as span attribute devkit.ship.sequence (OTel timestamps do not guarantee ordering for concurrent spans).",
+          "minimum": 1
+        }
+      },
+      "required": ["run_id", "timestamp", "event_type", "skill", "skill_version", "security_maturity", "sequence"]
+    },
+    "step_fields": {
+      "type": "object",
+      "description": "Fields present in step_start and step_end events.",
+      "properties": {
+        "step": {
+          "type": "string",
+          "description": "Machine-readable step identifier. OTel: span.name. Used by adapter for span hierarchy reconstruction -- steps named step_3c are children of step_3.",
+          "examples": ["step_0_preflight", "step_3c_dispatch_coders", "step_6_commit_gate"]
+        },
+        "step_name": {
+          "type": "string",
+          "description": "Human-readable step description. OTel: span attribute devkit.ship.step_name.",
+          "examples": ["Pre-flight checks", "Dispatch coders to worktrees", "Commit gate"]
+        },
+        "agent_type": {
+          "type": "string",
+          "description": "Type of agent executing the step. OTel: span attribute devkit.ship.agent_type.",
+          "enum": ["coordinator", "coder", "code-reviewer", "qa-engineer", "secrets-scan", "secure-review", "dependency-audit"]
+        },
+        "work_groups": {
+          "type": "integer",
+          "description": "Number of parallel work groups (for dispatch steps). OTel: span attribute devkit.ship.work_groups.",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "title": "run_start",
+      "description": "Emitted once at the beginning of Step 0. Anchors the run in the log.",
+      "allOf": [
+        { "$ref": "#/definitions/common_fields" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "run_start" },
+            "plan_file": {
+              "type": "string",
+              "description": "Relative path to the plan being shipped. OTel: span attribute devkit.ship.plan_file.",
+              "examples": ["./plans/add-user-auth.md"]
+            },
+            "security_override_active": {
+              "type": "boolean",
+              "description": "Whether --security-override flag was provided for this run.",
+              "default": false
+            }
+          },
+          "required": ["event_type"]
+        }
+      ]
+    },
+    {
+      "title": "run_end",
+      "description": "Emitted once at the end of the run (Step 6 or on workflow stop).",
+      "allOf": [
+        { "$ref": "#/definitions/common_fields" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "run_end" },
+            "outcome": {
+              "type": "string",
+              "description": "Final outcome of the run.",
+              "enum": ["success", "failure", "blocked"]
+            },
+            "steps_completed": {
+              "type": "integer",
+              "description": "Number of steps that completed before run ended.",
+              "minimum": 0
+            },
+            "revision_rounds": {
+              "type": "integer",
+              "description": "Number of revision loop rounds executed (0-2).",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "commit_sha": {
+              "type": "string",
+              "description": "Short SHA of HEAD at run completion. NOTE: This is 'last known HEAD at run completion' not 'the commit containing this run's changes' (chicken-and-egg limitation: run_end emitted before final commit). OTel: span attribute devkit.ship.commit_sha.",
+              "examples": ["abc1234"]
+            },
+            "plan_file": {
+              "type": "string",
+              "description": "Relative path to the plan that was shipped.",
+              "examples": ["./plans/add-user-auth.md"]
+            }
+          },
+          "required": ["event_type", "outcome"]
+        }
+      ]
+    },
+    {
+      "title": "step_start",
+      "description": "Emitted at the beginning of each step or substep.",
+      "allOf": [
+        { "$ref": "#/definitions/common_fields" },
+        { "$ref": "#/definitions/step_fields" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "step_start" }
+          },
+          "required": ["event_type", "step", "step_name"]
+        }
+      ]
+    },
+    {
+      "title": "step_end",
+      "description": "Emitted at the end of each step or substep.",
+      "allOf": [
+        { "$ref": "#/definitions/common_fields" },
+        { "$ref": "#/definitions/step_fields" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "step_end" }
+          },
+          "required": ["event_type", "step", "step_name"]
+        }
+      ]
+    },
+    {
+      "title": "verdict",
+      "description": "Emitted when a verdict gate is evaluated.",
+      "allOf": [
+        { "$ref": "#/definitions/common_fields" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "verdict" },
+            "step": {
+              "type": "string",
+              "description": "Step in which the verdict was reached.",
+              "examples": ["step_3d_boundary_validation", "step_4a_code_review"]
+            },
+            "verdict": {
+              "type": "string",
+              "description": "The verdict value. OTel: span attribute devkit.ship.verdict.",
+              "enum": ["PASS", "FAIL", "BLOCKED", "PASS_WITH_NOTES", "REVISION_NEEDED"]
+            },
+            "verdict_source": {
+              "type": "string",
+              "description": "Which check produced this verdict.",
+              "examples": ["code_review", "qa", "tests", "boundary_check", "dependency_audit"]
+            },
+            "agent_type": {
+              "type": "string",
+              "description": "Agent type that produced the verdict. OTel: span attribute devkit.ship.agent_type.",
+              "examples": ["code-reviewer", "qa-engineer"]
+            },
+            "artifact": {
+              "type": "string",
+              "description": "Path to the review artifact containing the full verdict.",
+              "examples": ["./plans/feature-x.code-review.md"]
+            }
+          },
+          "required": ["event_type", "step", "verdict", "verdict_source"]
+        }
+      ]
+    },
+    {
+      "title": "security_decision",
+      "description": "Emitted for security gate outcomes and overrides.",
+      "allOf": [
+        { "$ref": "#/definitions/common_fields" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "security_decision" },
+            "step": {
+              "type": "string",
+              "description": "Step in which the security decision was made.",
+              "examples": ["step_0_preflight", "step_4d_secure_review", "step_6_commit_gate"]
+            },
+            "gate": {
+              "type": "string",
+              "description": "Security gate that was evaluated.",
+              "enum": ["secrets_scan", "secure_review", "dependency_audit"]
+            },
+            "gate_verdict": {
+              "type": "string",
+              "description": "Raw verdict from the security gate.",
+              "enum": ["PASS", "PASS_WITH_NOTES", "BLOCKED", "INCOMPLETE", "not-run"]
+            },
+            "action": {
+              "type": "string",
+              "description": "Action taken after the gate verdict.",
+              "enum": ["pass", "block", "override", "downgrade", "skip"]
+            },
+            "override_reason": {
+              "type": "string",
+              "description": "Free-text justification when action=override. OTel: span attribute devkit.ship.security_override_reason."
+            },
+            "effective_verdict": {
+              "type": "string",
+              "description": "Effective verdict after action was applied.",
+              "enum": ["PASS", "PASS_WITH_NOTES", "BLOCKED"]
+            }
+          },
+          "required": ["event_type", "step", "gate", "gate_verdict", "action", "effective_verdict"]
+        }
+      ]
+    },
+    {
+      "title": "file_modification",
+      "description": "Emitted during merge (Step 3e) to record which files were modified per work group.",
+      "allOf": [
+        { "$ref": "#/definitions/common_fields" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "file_modification" },
+            "step": {
+              "type": "string",
+              "description": "Step in which files were modified (typically step_3e_merge).",
+              "examples": ["step_3e_merge"]
+            },
+            "files_modified": {
+              "type": "array",
+              "description": "Relative paths of files created or modified. OTel: span attribute devkit.ship.files.",
+              "items": { "type": "string" },
+              "minItems": 0,
+              "examples": [["src/auth.ts", "src/auth.test.ts", "src/middleware.ts"]]
+            },
+            "work_group": {
+              "type": "integer",
+              "description": "Work group number that modified these files.",
+              "minimum": 1
+            },
+            "work_group_name": {
+              "type": "string",
+              "description": "Human-readable work group name.",
+              "examples": ["Authentication", "Database Layer"]
+            }
+          },
+          "required": ["event_type", "step", "files_modified"]
+        }
+      ]
+    },
+    {
+      "title": "error",
+      "description": "Emitted when a step fails unexpectedly (execution error, not a verdict FAIL).",
+      "allOf": [
+        { "$ref": "#/definitions/common_fields" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "error" },
+            "step": {
+              "type": "string",
+              "description": "Step in which the error occurred.",
+              "examples": ["step_3b_create_worktrees"]
+            },
+            "error": {
+              "type": "string",
+              "description": "Error description. OTel: maps to span status ERROR + exception.message.",
+              "examples": ["Failed to create worktree: disk full"]
+            },
+            "fatal": {
+              "type": "boolean",
+              "description": "Whether the error stopped the workflow.",
+              "default": false
+            }
+          },
+          "required": ["event_type", "step", "error"]
+        }
+      ]
+    }
+  ],
+  "notes": {
+    "otel_migration": "Migration from JSONL to OTel spans requires a format adapter with span hierarchy reconstruction -- not a trivial field rename. The adapter must: (1) generate proper 128-bit trace_id from run_id, (2) reconstruct parent-child span hierarchy from step naming conventions (e.g. step_3c is a child of step_3), (3) handle concurrent spans (steps 4a/4b/4c run in parallel). When Kagenti provides an OTel collector endpoint, build the adapter then.",
+    "hmac_field": "At L3 (security_maturity=audited), every event includes an 'hmac' field containing HMAC-SHA256(event_json + previous_hmac, run_key). The run_key is persisted to .ship-audit-key-{run_id} (mode 0600) for post-run chain verification. This field is not defined in the schema as a required field because it is only present at L3.",
+    "l1_retention": "At L1 (advisory), audit logs are gitignored and ephemeral. At L2 (enforced), logs are committed via git add --force. At L3 (audited), logs and key files are committed.",
+    "sequence_note": "sequence is derived from wc -l of the log file at emit time. This is stateless -- no shell variable needs to persist across Bash tool calls."
+  }
+}

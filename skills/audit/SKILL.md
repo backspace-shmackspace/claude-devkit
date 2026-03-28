@@ -1,7 +1,7 @@
 ---
 name: audit
 description: Deep security and performance scan with structured reporting.
-version: 3.1.0
+version: 3.2.0
 model: claude-opus-4-6
 ---
 # /audit Workflow
@@ -33,7 +33,61 @@ Validate scope is one of: `plan`, `code`, `full`. If not, stop with:
 
 Derive timestamp: `[timestamp]` = current ISO datetime (e.g., `2026-02-07T12-30-00`)
 
+**Initialize audit logging:**
+
+Tool: `Bash`
+
+```bash
+# --- Audit Logging Setup ---
+RUN_ID=$(date +%Y%m%d-%H%M%S)-$(cat /dev/urandom | LC_ALL=C tr -dc 'a-z0-9' | head -c 6)
+AUDIT_LOG_DIR="./plans/audit-logs"
+mkdir -p "$AUDIT_LOG_DIR"
+AUDIT_LOG="$AUDIT_LOG_DIR/audit-${RUN_ID}.jsonl"
+STATE_FILE=".audit-audit-state-${RUN_ID}.json"
+
+python3 -c "
+import json
+state = {
+    'run_id': '${RUN_ID}',
+    'audit_log': '${AUDIT_LOG}',
+    'skill': 'audit',
+    'skill_version': '3.2.0',
+    'security_maturity': 'advisory',
+    'hmac_key': ''
+}
+with open('${STATE_FILE}', 'w') as f:
+    json.dump(state, f)
+print('Audit skill state file created: ${STATE_FILE}')
+"
+
+bash scripts/emit-audit-event.sh "$STATE_FILE" \
+  "{\"event_type\":\"run_start\",\"scope\":\"${AUDIT_SCOPE:-unknown}\"}"
+
+bash scripts/emit-audit-event.sh "$STATE_FILE" \
+  '{"event_type":"step_start","step":"step_1_determine_scope","step_name":"Determine scope","agent_type":"coordinator"}'
+
+echo "Audit skill log: $AUDIT_LOG"
+```
+
+**Emit step_end for Step 1:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_1_determine_scope","step_name":"Determine scope","agent_type":"coordinator"}'
+```
+
 ## Step 2 — Security scan
+
+**Emit step_start for Step 2:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_2_security_scan","step_name":"Security scan","agent_type":"coordinator"}'
+```
 
 **Secure-review composability check:**
 
@@ -151,7 +205,25 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
   Rate findings: Critical / High / Medium / Low.
   Write to `./plans/audit-[timestamp].security.md`"
 
+**Emit step_end for Step 2:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_2_security_scan","step_name":"Security scan","agent_type":"coordinator"}'
+```
+
 ## Step 3 — Performance scan
+
+**Emit step_start for Step 3:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_3_performance_scan","step_name":"Performance scan","agent_type":"coordinator"}'
+```
 
 Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
@@ -190,9 +262,27 @@ Prompt: "Full codebase performance audit:
 Rate findings: Critical / High / Medium / Low.
 Write to `./plans/audit-[timestamp].performance.md`"
 
+**Emit step_end for Step 3:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_3_performance_scan","step_name":"Performance scan","agent_type":"coordinator"}'
+```
+
 ## Step 4 — QA regression (conditional)
 
 **Trigger:** Only run if scope is "code" or "full" (skip for "plan")
+
+**Emit step_start for Step 4:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_4_qa_regression","step_name":"QA regression","agent_type":"coordinator"}'
+```
 
 **Pre-check:** Verify qa-engineer agent exists
 
@@ -235,7 +325,25 @@ Write `./plans/audit-[timestamp].qa.md` with:
 
 If no test command is found or tests cannot run, document this limitation."
 
+**Emit step_end for Step 4:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_4_qa_regression","step_name":"QA regression","agent_type":"coordinator"}'
+```
+
 ## Step 5 — Synthesis
+
+**Emit step_start for Step 5:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_5_synthesis","step_name":"Synthesis","agent_type":"coordinator"}'
+```
 
 Tool: `Read` (direct — coordinator does this)
 
@@ -295,7 +403,25 @@ Generate `./plans/audit-[timestamp].summary.md` with this structure:
 - **PASS_WITH_NOTES**: 1-2 High findings OR 3+ Medium findings
 - **PASS**: Only Medium/Low findings
 
+**Emit step_end for Step 5:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_5_synthesis","step_name":"Synthesis","agent_type":"coordinator"}'
+```
+
 ## Step 6 — Gate
+
+**Emit step_start for Step 6:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_6_gate","step_name":"Gate","agent_type":"coordinator"}'
+```
 
 Read `./plans/audit-[timestamp].summary.md` and check verdict.
 
@@ -328,3 +454,23 @@ Only minor findings to consider.
 
 Medium findings: [count]
 Low findings: [count]"
+
+**Emit verdict, run_end, and step_end for Step 6:**
+
+Tool: `Bash`
+
+```bash
+# AUDIT_FINAL_VERDICT: "PASS", "PASS_WITH_NOTES", or "BLOCKED"
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"verdict\",\"step\":\"step_6_gate\",\"verdict\":\"${AUDIT_FINAL_VERDICT:-PASS}\",\"verdict_source\":\"synthesis\",\"agent_type\":\"coordinator\"}"
+
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"run_end\",\"outcome\":\"${AUDIT_FINAL_VERDICT:-PASS}\",\"scope\":\"${AUDIT_SCOPE:-unknown}\"}"
+
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_6_gate","step_name":"Gate","agent_type":"coordinator"}'
+
+# Clean up state file
+rm -f ".audit-audit-state-${RUN_ID}.json"
+echo "Audit skill log complete: ./plans/audit-logs/audit-${RUN_ID}.jsonl"
+```

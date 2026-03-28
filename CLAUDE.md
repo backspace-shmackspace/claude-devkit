@@ -90,10 +90,10 @@ Deploy and use in Claude Code
 
 | Skill | Version | Purpose | Model | Steps |
 |-------|---------|---------|-------|-------|
-| **architect** | 3.1.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Detects security-sensitive features and injects threat-model-gate requirements when deployed. Context alignment and metadata in output. Auto-commits artifacts on verdict. | opus-4-6 | 6 |
-| **ship** | 3.5.0 | Pre-flight check → Read plan → Pattern validation (warnings) → Security gates (secrets-scan, secure-review, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. | opus-4-6 | 8 |
+| **architect** | 3.2.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Detects security-sensitive features and injects threat-model-gate requirements when deployed. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `plans/audit-logs/architect-<run_id>.jsonl`. | opus-4-6 | 6 |
+| **ship** | 3.6.0 | Pre-flight check → Read plan → Pattern validation (warnings) → Security gates (secrets-scan, secure-review, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. | opus-4-6 | 8 |
 | **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
-| **audit** | 3.1.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. | opus-4-6 | 6 |
+| **audit** | 3.2.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. JSONL audit logging to `plans/audit-logs/audit-<run_id>.jsonl`. | opus-4-6 | 6 |
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-6 | 6 |
 | **receiving-code-review** | 1.0.0 | Code review reception discipline: 6-step response pattern (READ through IMPLEMENT), anti-performative-agreement, YAGNI enforcement, source-specific handling, pushback guidelines. Reference archetype. | claude-sonnet-4-6 | Reference |
 | **verification-before-completion** | 1.0.0 | Evidence-before-claims gate: 5-step verification (IDENTIFY, RUN, READ, VERIFY, CLAIM). Requires fresh test/build output before any completion claim. Red flags, rationalization table, key patterns for TDD and bug fixes. Reference archetype. | claude-sonnet-4-6 | Reference |
@@ -157,6 +157,66 @@ The `/ship` skill runs three security gates when the corresponding skills are de
 - At L2/L3, `/ship` pre-flight checks that all three security skills are deployed
 - Missing skills at L1 log warnings; at L2/L3, missing skills block pre-flight
 - Override reasons are logged for audit trails (especially important at L3)
+
+## Audit Logging
+
+`/ship`, `/architect`, and `/audit` emit structured JSONL audit events to `plans/audit-logs/` on every run, providing a machine-parseable record of what agents did and when.
+
+**Event Types:**
+
+| Event | When Emitted |
+|-------|-------------|
+| `run_start` | Beginning of every run |
+| `run_end` | End of every run (success, failure, or blocked) |
+| `step_start` / `step_end` | Beginning and end of each step |
+| `verdict` | When a verdict gate is evaluated (PASS/FAIL/BLOCKED) |
+| `security_decision` | When a security gate runs (secrets-scan, secure-review, dependency-audit) |
+| `file_modification` | When files are merged from worktrees (per work group) |
+| `error` | When a step fails unexpectedly |
+
+**Log File Locations:**
+
+- `/ship` logs: `plans/audit-logs/ship-<run_id>.jsonl`
+- `/architect` logs: `plans/audit-logs/architect-<run_id>.jsonl`
+- `/audit` logs: `plans/audit-logs/audit-<run_id>.jsonl`
+
+**Maturity-Aware Retention:**
+
+| Level | Log Retention | HMAC Integrity |
+|-------|--------------|----------------|
+| **L1** (advisory) | Gitignored — ephemeral, available during run for debugging | None |
+| **L2** (enforced) | Committed to git via `git add --force` in Step 6 | None |
+| **L3** (audited) | Committed to git; HMAC chain with key persisted to `.ship-audit-key-<run_id>` | HMAC-SHA256 chain (post-run verifiable) |
+
+**Query Utility:**
+
+```bash
+# Show summary for a specific run
+./scripts/audit-log-query.sh summary 20260327-143052-a1b2c3
+
+# Show step timeline with computed durations
+./scripts/audit-log-query.sh timeline 20260327-143052-a1b2c3
+
+# Show security decisions
+./scripts/audit-log-query.sh security 20260327-143052-a1b2c3
+
+# Show all security overrides across all runs
+./scripts/audit-log-query.sh overrides --all
+
+# Show 5 most recent runs
+./scripts/audit-log-query.sh recent 5
+
+# Verify L3 HMAC chain integrity
+./scripts/audit-log-query.sh verify-chain 20260327-143052-a1b2c3
+```
+
+**Implementation:**
+
+- `scripts/emit-audit-event.sh` — Standalone helper script invoked by each skill step. Reads state from a per-run state file (shell variables don't persist across Bash tool calls). Uses `python3 json.dumps()` for RFC 8259 compliant escaping. Exits 0 on all error paths (never blocks `/ship`).
+- `configs/audit-event-schema.json` — JSON Schema defining all event types with OTel field mapping documentation.
+- `plans/audit-logs/` — Dedicated directory for audit logs (separate lifecycle from `plans/archive/`).
+
+**OTel Migration:** The JSONL format is designed for future migration to OpenTelemetry spans via a format adapter. The adapter requires span hierarchy reconstruction (not a trivial field rename) and will be built when Kagenti provides an OTel collector endpoint.
 
 ## MCP Servers (Migrated)
 
@@ -619,6 +679,10 @@ Tool: Bash (git worktree remove, delete temp files)
 ├── retro-[timestamp].reviewer-scan.md     # Reviewer calibration scan (from /retro)
 ├── retro-[timestamp].test-scan.md         # Test pattern scan (from /retro)
 ├── retro-[timestamp].summary.md           # Retro summary with verdict
+├── audit-logs/                            # JSONL audit event logs (queryable across runs)
+│   ├── ship-[run_id].jsonl                # /ship run audit log (L1: gitignored, L2/L3: committed)
+│   ├── architect-[run_id].jsonl           # /architect run audit log
+│   └── audit-[run_id].jsonl              # /audit run audit log
 └── archive/
     ├── [feature]/
     │   ├── [feature].code-review.md       # Code review (from /ship)
@@ -769,6 +833,8 @@ Deployment and utility scripts.
 - `install.sh` — Automated installation (PATH, aliases, shell config)
 - `uninstall.sh` — Clean uninstallation with backup restoration
 - `validate-all.sh` — Health check - validate all skills in one pass
+- `emit-audit-event.sh` — Standalone helper script for skill audit event emission (invoked by `/ship`, `/architect`, `/audit`)
+- `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verify-chain, recent)
 
 **Usage:**
 ```bash

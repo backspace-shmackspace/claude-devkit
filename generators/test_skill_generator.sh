@@ -6,7 +6,7 @@
 #   bash test_skill_generator.sh
 #   bash -x test_skill_generator.sh  # verbose mode
 #
-# Test inventory (runtime count: up to 47 tests; numbering gaps noted below):
+# Test inventory (runtime count: up to 56 tests; numbering gaps noted below):
 #   Tests 1-25:   Core generator/validator tests
 #   Test 26:      SKIPPED (never created)
 #   Test 27:      Validate Reference skill (no model field)
@@ -20,6 +20,7 @@
 #   Tests 43-45:  Contrib skill validation (conditional -- skip if not present)
 #   Tests 47-49:  deploy.sh --validate flag tests (Test 49 is conditional)
 #   Test 50:      Cleanup
+#   Tests 51-56:  Audit logging infrastructure tests (Tests B and C added: 55-56)
 
 set -e
 
@@ -531,6 +532,38 @@ if [[ -f "$SKILLS_DIR/contrib/journal/SKILL.md" ]]; then
 else
     echo -e "${YELLOW}  Test 49: SKIP (journal contrib skill not found)${RESET}"
 fi
+
+# --- Audit logging infrastructure tests ---
+
+# Test 51: Ship skill validates with audit logging additions (Test A from plan)
+run_test 51 "Validate ship skill (with audit logging)" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/ship/SKILL.md'" \
+    0
+
+# Test 55: Architect skill validates with audit logging additions (Test B from plan)
+run_test 55 "Validate architect skill (with audit logging)" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/architect/SKILL.md'" \
+    0
+
+# Test 56: Audit skill validates with audit logging additions (Test C from plan)
+run_test 56 "Validate audit skill (with audit logging)" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/audit/SKILL.md'" \
+    0
+
+# Test 52: Audit event schema is valid JSON (Test D from plan)
+run_test 52 "Audit event schema is valid JSON" \
+    "python3 -c \"import json; json.load(open('$SKILLS_DIR/configs/audit-event-schema.json'))\"" \
+    0
+
+# Test 53: Audit log query utility help (Test E from plan)
+run_test 53 "Audit log query utility help" \
+    "bash '$SKILLS_DIR/scripts/audit-log-query.sh' --help" \
+    0
+
+# Test 54: Audit event helper script help (Test F from plan)
+run_test 54 "Audit event helper script help" \
+    "bash '$SKILLS_DIR/scripts/emit-audit-event.sh' --help" \
+    0
 
 # Test 50: Cleanup
 echo ""
