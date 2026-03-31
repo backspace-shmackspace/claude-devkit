@@ -900,6 +900,62 @@ If proceeding with security override (L2/L3):
 If auto-downgrading at L1:
 - Log: "Secure review BLOCKED (L1 advisory — non-blocking). Review findings: `./plans/[name].secure-review.md`."
 
+**Emit retrospective per-substep audit events for Step 4 results:**
+
+The coordinator evaluates each substep's result sequentially below. For each substep, a `step_start`/`step_end` pair brackets the verdict emission. These are retrospective markers -- the parallel Tasks have already completed. The markers preserve the parent plan's per-substep identifiers (`step_4a`, `step_4b`, `step_4c`, `step_4d`) for timeline reconstruction.
+
+The coordinator MUST replace VERDICT variables with actual values from the result evaluation above.
+
+Tool: `Bash`
+
+```bash
+# Step 4a -- Code review retrospective markers
+# CODE_REVIEW_VERDICT: "PASS", "REVISION_NEEDED", or "FAIL"
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_4a_code_review","step_name":"Code review (retrospective)","agent_type":"coordinator"}'
+
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"verdict\",\"step\":\"step_4a_code_review\",\"verdict\":\"${CODE_REVIEW_VERDICT}\",\"verdict_source\":\"code_review\",\"agent_type\":\"code-reviewer\"}"
+
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_4a_code_review","step_name":"Code review (retrospective)","agent_type":"coordinator"}'
+
+# Step 4b -- Tests retrospective markers
+# TEST_VERDICT: "PASS" or "FAIL"
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_4b_tests","step_name":"Tests (retrospective)","agent_type":"coordinator"}'
+
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"verdict\",\"step\":\"step_4b_tests\",\"verdict\":\"${TEST_VERDICT}\",\"verdict_source\":\"tests\",\"agent_type\":\"coordinator\"}"
+
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_4b_tests","step_name":"Tests (retrospective)","agent_type":"coordinator"}'
+
+# Step 4c -- QA retrospective markers
+# QA_VERDICT: "PASS", "PASS_WITH_NOTES", or "FAIL"
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_4c_qa","step_name":"QA (retrospective)","agent_type":"coordinator"}'
+
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"verdict\",\"step\":\"step_4c_qa\",\"verdict\":\"${QA_VERDICT}\",\"verdict_source\":\"qa\",\"agent_type\":\"qa-engineer\"}"
+
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_4c_qa","step_name":"QA (retrospective)","agent_type":"coordinator"}'
+
+# Step 4d -- Secure review retrospective markers (conditional: only if gate ran)
+# SECURE_REVIEW_GATE_VERDICT: "PASS", "PASS_WITH_NOTES", "BLOCKED", or "not-run"
+# SECURE_REVIEW_ACTION: "pass", "block", "override", or "skip"
+# SECURE_REVIEW_EFFECTIVE_VERDICT: "PASS", "PASS_WITH_NOTES", or "BLOCKED"
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_4d_secure_review","step_name":"Secure review (retrospective)","agent_type":"coordinator"}'
+
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"security_decision\",\"step\":\"step_4d_secure_review\",\"gate\":\"secure_review\",\"gate_verdict\":\"${SECURE_REVIEW_GATE_VERDICT:-not-run}\",\"action\":\"${SECURE_REVIEW_ACTION:-skip}\",\"effective_verdict\":\"${SECURE_REVIEW_EFFECTIVE_VERDICT:-PASS}\"}"
+
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_4d_secure_review","step_name":"Secure review (retrospective)","agent_type":"coordinator"}'
+```
+
 If stopping, output appropriate message:
 - "Code review FAIL. See `./plans/[name].code-review.md`."
 - "Tests failed. See `./plans/[name].test-failure.log`."
@@ -910,6 +966,17 @@ If stopping, output appropriate message:
 **Trigger:** Step 4 code review verdict is `REVISION_NEEDED` (and no FAIL verdicts from any check).
 
 **If Step 4 all checks PASS:** skip to Step 6.
+
+**Emit step_start for Step 5 (only if Step 5 is executing):**
+
+These emit calls are conditional on Step 5 actually executing. If Step 4 code review returned PASS, skip this entire Step 5 section including these emit calls.
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_5_revision_loop","step_name":"Revision loop","agent_type":"coordinator"}'
+```
 
 ### 5a — Coder fixes (with worktree isolation)
 
@@ -963,6 +1030,15 @@ Evaluate results using the same result matrix from Step 4.
 
 **Max 2 revision rounds total.** If still REVISION_NEEDED or FAIL after 2 rounds:
 stop the workflow. Output: "Code review did not converge after 2 rounds. See `./plans/[name].code-review.md`."
+
+**Emit step_end for Step 5 (only if Step 5 executed):**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_5_revision_loop","step_name":"Revision loop","agent_type":"coordinator"}'
+```
 
 **Note:** Yes, this re-runs tests and QA on code that may be revised. This is an acceptable tradeoff because:
 - Most implementations pass code review on the first try (parallelism saves time in the common case)
@@ -1050,7 +1126,9 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"security_decision\",\"step\":\"step_6_commit_gate\",\"gate\":\"dependency_audit\",\"gate_verdict\":\"${DEP_GATE_VERDICT:-not-run}\",\"action\":\"${DEP_ACTION:-skip}\",\"effective_verdict\":\"${DEP_EFFECTIVE_VERDICT:-PASS}\"}"
 ```
 
-**Audit log verification and finalization:**
+Execute the following finalization block ONLY if the commit gate verdict is PASS or PASS_WITH_NOTES (i.e., only if execution has reached this point on the PASS path):
+
+**Audit log verification and finalization (PASS path only):**
 
 Tool: `Bash`
 
@@ -1084,6 +1162,10 @@ if [ -f "$AUDIT_LOG" ]; then
     fi
   fi
 
+  # Emit step_end for Step 6 (MUST be before state file deletion)
+  bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+    '{"event_type":"step_end","step":"step_6_commit_gate","step_name":"Commit gate","agent_type":"coordinator"}'
+
   # Emit run_end
   COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
   bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
@@ -1106,8 +1188,8 @@ if [ -f "$AUDIT_LOG" ]; then
     echo "Audit log available at $AUDIT_LOG (advisory maturity -- not committed)."
   fi
 
-  # Cleanup state file (not needed after run)
-  rm -f ".ship-audit-state-${RUN_ID}.json"
+  # Do NOT delete state file here on PASS path -- Step 7 needs it for emit calls.
+  # State file cleanup happens at the end of Step 7.
 else
   echo "Warning: Audit log not found at $AUDIT_LOG. Logging may have failed."
 fi
@@ -1178,17 +1260,22 @@ fi
    - QA report: `./plans/archive/[name]/[name].qa-report.md`
    - **Next step:** Run `/sync` to update documentation."
 
-**Emit step_end for Step 6:**
+**If FAIL:**
+- Do NOT commit.
+- Do NOT run the finalization block above.
 
 Tool: `Bash`
 
 ```bash
+# Emit step_end for Step 6 on FAIL path, then run_end, then cleanup.
+# The state file still exists because the finalization block (which contains cleanup) was skipped.
 bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_6_commit_gate","step_name":"Commit gate","agent_type":"coordinator"}'
+bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  "{\"event_type\":\"run_end\",\"outcome\":\"failure\",\"plan_file\":\"${PLAN_PATH:-${ARGUMENTS:-unknown}}\"}"
+rm -f ".ship-audit-state-${RUN_ID}.json"
 ```
 
-**If FAIL:**
-- Do NOT commit.
 - Output: "❌ QA validation failed. See `./plans/[name].qa-report.md`."
 - Stop the workflow.
 
@@ -1288,4 +1375,7 @@ Tool: `Bash`
 ```bash
 bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_7_retro","step_name":"Retro capture","agent_type":"coordinator"}'
+
+# Final cleanup: remove audit state file (kept alive through Step 7 for event emission)
+rm -f ".ship-audit-state-${RUN_ID}.json"
 ```

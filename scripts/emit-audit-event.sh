@@ -121,7 +121,11 @@ if [[ -L "$AUDIT_LOG" ]]; then
 fi
 
 # --- Derive sequence counter from log file line count (stateless) ---
-SEQUENCE=$(( $(wc -l < "$AUDIT_LOG" 2>/dev/null | tr -d ' ') + 1 ))
+if [ -f "$AUDIT_LOG" ]; then
+  SEQUENCE=$(( $(wc -l < "$AUDIT_LOG" | tr -d ' ') + 1 ))
+else
+  SEQUENCE=1
+fi
 
 # --- Generate timestamp ---
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
@@ -186,7 +190,9 @@ fi
 # --- L3: compute HMAC chain ---
 if [[ -n "$HMAC_KEY" ]]; then
     # Read previous HMAC from last line of log file
-    PREV_HMAC=$(tail -1 "$AUDIT_LOG" 2>/dev/null | python3 -c "
+    # Guard with file existence check to avoid pipefail-under-missing-file producing "genesisgenesis"
+    if [[ -f "$AUDIT_LOG" ]]; then
+        PREV_HMAC=$(tail -1 "$AUDIT_LOG" | python3 -c "
 import json, sys
 try:
     line = sys.stdin.read().strip()
@@ -197,7 +203,11 @@ try:
         print('genesis', end='')
 except Exception:
     print('genesis', end='')
-" 2>/dev/null || echo "genesis")
+" 2>/dev/null)
+        [[ -z "$PREV_HMAC" ]] && PREV_HMAC="genesis"
+    else
+        PREV_HMAC="genesis"
+    fi
 
     # Compute HMAC-SHA256(event_json + prev_hmac, key)
     HMAC=$(printf '%s' "${FULL_EVENT}${PREV_HMAC}" | openssl dgst -sha256 -hmac "$HMAC_KEY" 2>/dev/null | awk '{print $NF}')
