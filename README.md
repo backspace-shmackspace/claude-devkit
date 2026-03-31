@@ -570,7 +570,7 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Test Coverage (45 tests):**
+**Test Coverage (46 tests):**
 - Generator and validator help text (2 tests)
 - All 12 core skills validation (architect, ship, retro, audit, sync,
   receiving-code-review, verification-before-completion, compliance-check,
@@ -593,6 +593,25 @@ Fail:   0
 
 ✅ All tests passed!
 ```
+
+### Integration Tests
+
+Run the integration smoke tests to verify audit logging infrastructure end-to-end:
+
+```bash
+cd ~/projects/claude-devkit
+bash scripts/test-integration.sh
+```
+
+**Integration Test Coverage (8 tests):**
+- Coordinator lifecycle (generate → validate → deploy → undeploy)
+- `validate-all.sh` health check
+- Pipeline lifecycle
+- Unit meta-test
+- `emit-audit-event.sh` multi-call JSONL correctness
+- L3 HMAC chain verification
+- 10+ call state persistence
+- Cleanup
 
 ## Structure
 
@@ -810,5 +829,5 @@ MIT - Use freely in your projects
 ---
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-27
+**Last Updated:** 2026-03-31
 **Maintained by:** @backspace-shmackspace

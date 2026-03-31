@@ -1,7 +1,7 @@
 # Claude Devkit
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-27
+**Last Updated:** 2026-03-31
 **Purpose:** Unified development toolkit for Claude Code - skills, agents, generators, and templates
 
 **New to Claude Devkit?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a 15-minute tutorial.
@@ -65,7 +65,8 @@ claude-devkit/
     ├── uninstall.sh     # Clean uninstallation
     ├── validate-all.sh  # Health check - validate all skills
     ├── emit-audit-event.sh    # Audit event emission helper (invoked by skills)
-    └── audit-log-query.sh     # Query utility for JSONL audit logs
+    ├── audit-log-query.sh     # Query utility for JSONL audit logs
+    └── test-integration.sh    # Integration smoke tests (8 tests)
 ```
 
 ### Data Flow
@@ -842,6 +843,8 @@ Deployment and utility scripts.
 - `validate-all.sh` — Health check - validate all skills in one pass
 - `emit-audit-event.sh` — Standalone helper script for skill audit event emission (invoked by `/ship`, `/architect`, `/audit`)
 - `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, verify-chain, recent)
+- `test-integration.sh` — Integration smoke tests (8 tests): emit-audit-event.sh JSONL correctness, L3 HMAC chain
+  verification, 10+ call state persistence, and end-to-end generate/validate/deploy lifecycle
 
 **Usage:**
 ```bash
@@ -989,7 +992,7 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Coverage (45 tests):**
+**Coverage (46 tests):**
 - Generator and validator help text
 - All 12 core skills (architect, ship, retro, audit, sync,
   receiving-code-review, verification-before-completion, compliance-check,
@@ -1149,7 +1152,7 @@ test(generators): add validation tests for scan archetype
 - [x] Agent generator (unified)
 - [x] Skill validator + agent validator
 - [x] Deployment scripts (core + contrib)
-- [x] Test suite (45 tests, all 12 core + 3 contrib skills validated)
+- [x] Test suite (46 tests, all 12 core + 3 contrib skills validated)
 - [x] Security maturity levels (L1/L2/L3)
 - [x] validate-all health check command
 - [x] Deploy-time validation (--validate flag)
