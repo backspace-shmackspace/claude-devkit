@@ -1,7 +1,7 @@
 ---
 name: ship
 description: Execute an approved plan using unattended implementation and validation with worktree isolation.
-version: 3.6.0
+version: 3.7.0
 model: claude-opus-4-6
 ---
 # /ship Workflow
@@ -99,7 +99,7 @@ state = {
     'run_id': '${RUN_ID}',
     'audit_log': '${AUDIT_LOG}',
     'skill': 'ship',
-    'skill_version': '3.6.0',
+    'skill_version': '3.7.0',
     'security_maturity': '${SECURITY_MATURITY}',
     'hmac_key': '${HMAC_KEY}'
 }
@@ -272,6 +272,35 @@ Read the plan file at `$ARGUMENTS`. Extract:
 If any section is missing or plan is not approved, stop with:
 "Plan at `$ARGUMENTS` is incomplete or not approved. Required: Task Breakdown, Test Plan, Acceptance Criteria, and ## Status: APPROVED marker. Run `/architect` first."
 
+**Security requirements validation (conditional):**
+
+Check whether this plan contains a `## Security Requirements` section:
+
+Tool: `Grep` (direct -- coordinator does this)
+
+Search the plan text for the heading `## Security Requirements`.
+
+**If `## Security Requirements` section is found:**
+- Extract the section content (from `## Security Requirements` heading to the next `##` heading or end of file)
+- Retain the extracted content in coordinator context for use in Step 4d
+- Output: "Plan contains `## Security Requirements` section. Threat model context will be passed to /secure-review."
+
+**If `## Security Requirements` section is NOT found:**
+
+Check whether the plan's content contains security signals by scanning for the
+same keyword categories used by /architect Step 2 Stage 1 (Identity/Auth,
+Cryptography/Network, Data/Compliance, File/Process, Payment keywords) applied
+against the plan body text:
+
+**If security signals found in plan content:**
+- At L1 (advisory): Output warning: "This plan appears to involve security-sensitive functionality but does not contain a `## Security Requirements` section. Consider re-running `/architect` or adding the section manually. Continuing (L1 advisory)."
+- At L2/L3 (enforced/audited):
+  - If `--security-override` active: Output warning (same as L1) and log override. Continue.
+  - If no override: Stop workflow. Output: "This plan appears to involve security-sensitive functionality but does not contain a `## Security Requirements` section. Add the section or re-run `/architect`. To override: `/ship [plan-path] --security-override \"reason\"`"
+
+**If no security signals found in plan content:**
+- No output (plan is not security-sensitive, no check needed)
+
 Derive `[name]` from the plan filename (e.g. `./plans/feature-x.md` → `feature-x`).
 
 **Parse work groups (optional):** Look for a `## Work Groups` section inside the Task Breakdown. Format:
@@ -300,8 +329,9 @@ Store these as the `scoped_files` for the single implicit work group. This list 
 Tool: `Bash`
 
 ```bash
+# SEC_REQ_PRESENT: "true" if ## Security Requirements section was found in the plan, "false" otherwise
 bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
-  '{"event_type":"step_end","step":"step_1_read_plan","step_name":"Coordinator reads plan","agent_type":"coordinator"}'
+  "{\"event_type\":\"step_end\",\"step\":\"step_1_read_plan\",\"step_name\":\"Coordinator reads plan\",\"agent_type\":\"coordinator\",\"security_requirements_present\":${SEC_REQ_PRESENT:-false}}"
 ```
 
 ## Step 2 — Pattern Validation (warnings only)
@@ -413,7 +443,7 @@ Command:
 git add <shared-files> && git commit -m "WIP: /ship shared dependencies for ${name}
 
 This is a temporary commit that will be squashed with the final implementation in Step 6.
-Created by: /ship skill v3.6.0"
+Created by: /ship skill v3.7.0"
 ```
 
 **Emit step_end for Step 3a:**
@@ -839,6 +869,47 @@ Glob for `~/.claude/skills/secure-review/SKILL.md`
 
 **If found:**
 
+**If security requirements content was extracted in Step 1 (plan has threat model):**
+
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
+
+Prompt:
+"You are running a semantic security review as part of the /ship verification step.
+
+Read the secure-review skill definition at `~/.claude/skills/secure-review/SKILL.md`.
+Execute its scanning workflow (vulnerability, data flow, auth/authz scans) against the
+files modified in this implementation.
+
+THREAT MODEL CONTEXT: The plan for this implementation includes a threat model.
+Cross-reference your findings against the following security requirements from the plan.
+Specifically:
+- Verify that each mitigation listed in the STRIDE analysis has been implemented in the code
+- Check whether any trust boundary identified in the plan lacks enforcement in the implementation
+- Flag any STRIDE category (Spoofing, Tampering, Repudiation, Information Disclosure, DoS,
+  Elevation of Privilege) where the plan identifies a threat but the code does not implement
+  the specified mitigation
+
+Plan Security Requirements:
+---
+[extracted security requirements content]
+---
+
+In your report, include a section '## Threat Model Coverage' that maps each plan-identified
+threat to its implementation status: IMPLEMENTED / PARTIALLY_IMPLEMENTED / NOT_IMPLEMENTED / NOT_APPLICABLE.
+Include evidence (file path and line reference) for each status.
+
+Scope: `changes` (uncommitted modifications in the working directory).
+
+Write your security review summary to `./plans/[name].secure-review.md` with the
+standard secure-review output format including verdict (PASS / PASS_WITH_NOTES / BLOCKED),
+severity-rated findings, and redacted secrets (if any).
+
+CRITICAL: Never include actual secret values in your report. Redact to first 4 / last 4 characters."
+
+**If no security requirements content was extracted in Step 1 (no threat model):**
+
+Use the existing prompt unchanged:
+
 Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
 
 Prompt:
@@ -995,7 +1066,7 @@ Tool: `Bash`
 # Example: git add src/auth.ts src/auth.test.ts lib/helpers.ts
 # NEVER use git add -A or git add .
 git add $SHARED_DEP_FILES $WG1_FILES $WG2_FILES ...
-git commit -m "WIP: ship v3.6.0 first-pass implementation (pre-revision)"
+git commit -m "WIP: ship v3.7.0 first-pass implementation (pre-revision)"
 ```
 
 This ensures revision-loop worktrees are based on the first-pass code, not the
@@ -1326,12 +1397,23 @@ Read the existing learnings file (if it exists):
 3. From test failures (if any), extract:
    - Failure categories (what type of test failed and why). Rate each: Critical / High / Medium / Low.
 
-4. **Deduplication:** For each finding:
+4. From the security review (if exists):
+   - Glob for `./plans/archive/[name]/*.secure-review.md`
+     (Note: the secure-review artifact is read from the archive directory because Step 6 moves it there before Step 7 runs.)
+   - If found, read the file and check for a `## Threat Model Coverage` section
+   - Any threat with `NOT_IMPLEMENTED` status is a threat model gap -- the plan identified
+     a risk but the implementation did not address it. Rate: High.
+   - Any Critical or High finding from the vulnerability/data-flow/auth scans that does NOT
+     correspond to a threat identified in the plan's STRIDE analysis is a reverse gap -- a real
+     risk the threat model missed. Rate: Medium.
+   - Place threat model gap findings under: `## Security Patterns > ### Threat model gaps`
+
+5. **Deduplication:** For each finding:
    - Check if an existing learning in `.claude/learnings.md` describes the same underlying issue (same root cause, same actor, same category)
    - If it does: update the date to today and append `[name]` to the `Seen in:` list using the Edit tool
    - If it is a new issue: append as a new entry under the appropriate section
 
-5. **Write learnings:**
+6. **Write learnings:**
    - If `.claude/learnings.md` does not exist, create it with the standard header and sections
    - Use this format for each entry:
      `- **[YYYY-MM-DD] [Pattern Title]** — [Description]. Seen in: [feature-list]. #category #tags`
@@ -1339,9 +1421,10 @@ Read the existing learnings file (if it exists):
      - Code review Critical/Major findings -> `## Coder Patterns > ### Missed by coders, caught by reviewers`
      - QA missing coverage -> `## QA Patterns > ### Coverage gaps`
      - Test failures -> `## Test Patterns > ### Common failures`
+     - Threat model gaps -> `## Security Patterns > ### Threat model gaps`
    - Update the `Last updated:` timestamp in the header
 
-6. **Report** what you wrote (or that no new learnings were found) to stdout. Do NOT write any report files — just output a summary."
+7. **Report** what you wrote (or that no new learnings were found) to stdout. Do NOT write any report files — just output a summary."
 
 **After Task completes:**
 

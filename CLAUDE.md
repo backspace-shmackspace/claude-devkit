@@ -96,8 +96,8 @@ Deploy and use in Claude Code
 
 | Skill | Version | Purpose | Model | Steps |
 |-------|---------|---------|-------|-------|
-| **architect** | 3.2.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Detects security-sensitive features and injects threat-model-gate requirements when deployed. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `plans/audit-logs/architect-<run_id>.jsonl`. | opus-4-6 | 6 |
-| **ship** | 3.6.0 | Pre-flight check → Read plan → Pattern validation (warnings) → Security gates (secrets-scan, secure-review, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. | opus-4-6 | 8 |
+| **architect** | 3.3.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Stage 2 plan content scan detects security-sensitive features; invokes security-analyst (Required, not Recommended) when deployed and injects threat-model-gate requirements. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `plans/audit-logs/architect-<run_id>.jsonl`. | opus-4-6 | 6 |
+| **ship** | 3.7.0 | Pre-flight check → Read plan + security requirements validation (Step 1 checks for threat model output and blocks if required gates are unmet) → Pattern validation (warnings) → Security gates (secrets-scan, secure-review with threat model context passing in Step 4d, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. | opus-4-6 | 8 |
 | **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
 | **audit** | 3.2.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. JSONL audit logging to `plans/audit-logs/audit-<run_id>.jsonl`. | opus-4-6 | 6 |
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-6 | 6 |
@@ -106,7 +106,7 @@ Deploy and use in Claude Code
 | **compliance-check** | 1.0.0 | Validate codebase against code-level compliance signals for regulatory frameworks (FedRAMP, FIPS, OWASP, SOC 2). Scoped to source code analysis only — not a compliance certification. | opus-4-6 | 5 |
 | **dependency-audit** | 1.0.0 | Supply chain security audit — coordinates real CLI vulnerability scanners (npm audit, pip-audit, govulncheck, cargo audit, etc.) and synthesizes findings with license compliance and risk assessment. | claude-sonnet-4-6 | 8 |
 | **secrets-scan** | 1.0.0 | Pre-commit secrets detection with pattern-based scanning for API keys, tokens, passwords, private keys, and connection strings. Self-contained — no external tools required. | claude-sonnet-4-6 | 6 |
-| **secure-review** | 1.0.0 | Deep semantic security review of code changes with data flow tracing, taint analysis, and trust boundary validation. Composable building block invoked by /audit when deployed. | opus-4-6 | 5 |
+| **secure-review** | 1.1.0 | Deep semantic security review of code changes with data flow tracing, taint analysis, and trust boundary validation. When invoked with plan context (e.g., by /ship Step 4d), includes a `## Threat Model Coverage` section mapping findings against threat model requirements. Composable building block invoked by /audit when deployed. | opus-4-6 | 5 |
 | **threat-model-gate** | 1.0.0 | Use when planning security-sensitive features — authentication, authorization, data handling, API design, cryptography, or network configuration — requires explicit threat modeling before implementation decisions are made. Reference archetype. | claude-sonnet-4-6 | Reference |
 
 ### Contrib Skills (contrib/)
@@ -694,6 +694,7 @@ Tool: Bash (git worktree remove, delete temp files)
 └── archive/
     ├── [feature]/
     │   ├── [feature].code-review.md       # Code review (from /ship)
+    │   ├── [feature].secure-review.md     # Secure review (from /ship Step 4d; may include ## Threat Model Coverage section when invoked with plan context)
     │   └── [feature].qa-report.md         # QA report (from /ship)
     ├── sync/
     │   └── sync-[timestamp].review.md     # Archived sync reviews

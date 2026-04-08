@@ -2,7 +2,7 @@
 name: architect
 description: Research and create a technical blueprint for a new feature.
 model: claude-opus-4-6
-version: 3.2.0
+version: 3.3.0
 ---
 # /architect Workflow
 
@@ -68,7 +68,7 @@ state = {
     'run_id': '${RUN_ID}',
     'audit_log': '${AUDIT_LOG}',
     'skill': 'architect',
-    'skill_version': '3.2.0',
+    'skill_version': '3.3.0',
     'security_maturity': 'advisory',
     'hmac_key': ''
 }
@@ -221,6 +221,36 @@ Refer to the threat-model-gate skill at `~/.claude/skills/threat-model-gate/SKIL
 
 **If not security-sensitive:** Do not append. Standard planning prompt only.
 
+**Stage 2 -- Plan content security scan (runs only when Stage 1 did NOT fire):**
+
+If the keyword heuristic did NOT trigger (i.e., `$ARGUMENTS` did not contain security keywords) AND threat-model-gate was found in Step 0:
+
+After the architect subagent writes the plan, read `./plans/[feature-name].md` and scan its content for security signals:
+- References to authentication, authorization, session management, or access control
+- References to PII, personal data, GDPR, HIPAA, or data classification
+- References to encryption, TLS, certificates, or key management
+- References to API keys, secrets, credentials, or tokens in the design
+- References to trust boundaries, privilege escalation, or injection
+- The plan modifies files in paths commonly associated with security: `auth/`, `security/`, `middleware/`, `permissions/`, `rbac/`, `acl/`, `crypto/`, `secrets/`
+
+**If any security signals found in plan content:**
+
+Re-invoke the architect subagent (max 1 additional call):
+
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
+
+Prompt:
+"The plan you just drafted at `./plans/[feature-name].md` touches security-sensitive areas
+(detected: [list of security signals found]). Use the Edit tool to insert a `## Security Requirements`
+section into the existing plan, placing it after the last existing section and before
+any `## Status` or metadata sections. Follow the template in
+`~/.claude/skills/threat-model-gate/SKILL.md` for the section structure. Do not modify
+any other section of the plan."
+
+Output: "Plan content scan detected security signals. Security Requirements section injected."
+
+**If no security signals found:** No action. Continue to Step 3.
+
 **Emit step_end for Step 2:**
 
 Tool: `Bash`
@@ -267,7 +297,18 @@ Structure your output as:
 Write your analysis to `./plans/[feature-name].redteam.md`
 with the Verdict as the first heading after the metadata."
 
-**Recommended (when threat-model-gate is deployed and plan subject is security-related):** If `.claude/agents/security-analyst.md` was found in Step 0 AND `~/.claude/skills/threat-model-gate/SKILL.md` was found in Step 0 AND the plan subject is security-related (e.g., authentication, authorization, cryptography, network, data handling), additionally invoke the security-analyst agent via `Task` and append its STRIDE analysis to the redteam artifact as a supplemental section. When threat-model-gate is deployed, this invocation is recommended to ensure plans with a `## Security Requirements` section receive expert validation. The Verdict from the primary Task subagent governs the pass/fail decision.
+**Required (when threat-model-gate is deployed and plan is security-sensitive):** If `~/.claude/skills/threat-model-gate/SKILL.md` was found in Step 0 AND the plan is security-sensitive (Stage 1 keyword match OR Stage 2 plan content scan fired in Step 2) AND the `--fast` flag is NOT set, MUST invoke a security-analyst review:
+
+- If `.claude/agents/security-analyst.md` was found in Step 0: invoke the project-specific security-analyst agent via `Task`.
+- If `.claude/agents/security-analyst.md` was NOT found: invoke a generic `Task` subagent with this prompt:
+  "You are a security analyst. Read the threat-model-gate skill at `~/.claude/skills/threat-model-gate/SKILL.md` for your threat modeling framework and checklist. Then read the plan at `./plans/[feature-name].md`. Validate the `## Security Requirements` section:
+  - Are all six STRIDE categories addressed?
+  - Are mitigations specific (not vague like 'use standard security practices')?
+  - Are trust boundaries explicitly identified?
+  - Are failure modes defined for each security control?
+  Rate any gaps as Major findings."
+
+Append the STRIDE validation to the redteam artifact as a `## Security-Analyst Supplement` section. If the security-analyst identifies gaps in the `## Security Requirements` section (missing STRIDE categories, vague mitigations, unstated trust boundaries), these count as Major findings in the redteam review. The red team verdict considers the full redteam artifact including this supplement -- Major findings from the security-analyst are part of the red team's input, not a separate verdict. When Major gaps are present, the red team should issue FAIL, which triggers the existing Step 4 revision loop.
 
 ### 3b — Librarian (rules gate)
 

@@ -9,8 +9,9 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 8 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
-#          emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence, cleanup
+# 18 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+#           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
+#           threat model consumption structural tests (10 tests), cleanup
 
 set -e
 
@@ -231,6 +232,58 @@ print('PASS: 12 events across 12 separate calls with consistent state')
 PYEOF
      python3 \"\$VERIFY_SCRIPT\" && \
      rm -f \"\$TEST_STATE\" \"\$TEST_LOG\" \"\$VERIFY_SCRIPT\"" \
+    0
+
+# --- Threat model consumption structural tests ---
+
+# Test 10: /ship SKILL.md contains the conditional THREAT MODEL CONTEXT prompt block
+run_test 10 "ship SKILL.md contains THREAT MODEL CONTEXT prompt block" \
+    "grep -q 'THREAT MODEL CONTEXT:' '$REPO_DIR/skills/ship/SKILL.md'" \
+    0
+
+# Test 11: /ship SKILL.md contains the security_requirements_present audit field
+run_test 11 "ship SKILL.md contains security_requirements_present audit field" \
+    "grep -q 'security_requirements_present' '$REPO_DIR/skills/ship/SKILL.md'" \
+    0
+
+# Test 12: /ship SKILL.md contains the threat model gap retro capture block
+run_test 12 "ship SKILL.md contains threat model gap retro capture" \
+    "grep -q 'Threat model gaps' '$REPO_DIR/skills/ship/SKILL.md'" \
+    0
+
+# Test 13: /architect SKILL.md contains Stage 2 plan content scan
+run_test 13 "architect SKILL.md contains Stage 2 plan content scan" \
+    "grep -q 'Stage 2' '$REPO_DIR/skills/architect/SKILL.md'" \
+    0
+
+# Test 14: /architect SKILL.md contains Required security-analyst language
+run_test 14 "architect SKILL.md contains Required (when threat-model-gate) language" \
+    "grep -q 'Required (when threat-model-gate' '$REPO_DIR/skills/architect/SKILL.md'" \
+    0
+
+# Test 15: /secure-review SKILL.md contains Threat Model Coverage section template
+run_test 15 "secure-review SKILL.md contains Threat Model Coverage section template" \
+    "grep -q '## Threat Model Coverage' '$REPO_DIR/skills/secure-review/SKILL.md'" \
+    0
+
+# Test 16: /ship version bumped to 3.7.0
+run_test 16 "ship SKILL.md version is 3.7.0" \
+    "grep -q 'version: 3.7.0' '$REPO_DIR/skills/ship/SKILL.md'" \
+    0
+
+# Test 17: /architect version bumped to 3.3.0
+run_test 17 "architect SKILL.md version is 3.3.0" \
+    "grep -q 'version: 3.3.0' '$REPO_DIR/skills/architect/SKILL.md'" \
+    0
+
+# Test 18: /secure-review version bumped to 1.1.0
+run_test 18 "secure-review SKILL.md version is 1.1.0" \
+    "grep -q 'version: 1.1.0' '$REPO_DIR/skills/secure-review/SKILL.md'" \
+    0
+
+# Test 19: /ship SKILL.md does NOT contain the removed SECURITY CONTEXT marker
+run_test 19 "ship SKILL.md does not reference SECURITY CONTEXT marker" \
+    "! grep -q 'SECURITY CONTEXT:' '$REPO_DIR/skills/ship/SKILL.md'" \
     0
 
 # Test 9: Cleanup

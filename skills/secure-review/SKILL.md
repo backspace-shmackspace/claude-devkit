@@ -2,7 +2,7 @@
 name: secure-review
 description: Deep semantic security review of code changes with data flow tracing, taint analysis, and trust boundary validation. Composable building block invoked by /audit when deployed.
 model: claude-opus-4-6
-version: 1.0.0
+version: 1.1.0
 ---
 # /secure-review Workflow
 
@@ -232,6 +232,39 @@ Generate `./plans/secure-review-[timestamp].summary.md` with this structure:
 All secret values in findings have been redacted (first 4 / last 4 characters shown).
 Actual values are never included in security reports.
 ```
+
+**Threat Model Coverage (conditional):**
+
+If the invocation included threat model context (the coordinator or caller passed a `THREAT MODEL CONTEXT:` block with plan security requirements), add the following section to the synthesis output after `## Scan Coverage`:
+
+```markdown
+## Threat Model Coverage
+
+| STRIDE Category | Plan-Identified Threat | Implementation Status | Evidence |
+|----------------|----------------------|---------------------|----------|
+| Spoofing | [Threat from plan] | IMPLEMENTED / PARTIALLY_IMPLEMENTED / NOT_IMPLEMENTED / NOT_APPLICABLE | [File:line or rationale] |
+| Tampering | [Threat from plan] | ... | ... |
+| Repudiation | [Threat from plan] | ... | ... |
+| Information Disclosure | [Threat from plan] | ... | ... |
+| Denial of Service | [Threat from plan] | ... | ... |
+| Elevation of Privilege | [Threat from plan] | ... | ... |
+
+**Coverage Summary:**
+- Threats addressed: N/6
+- Threats partially addressed: N/6
+- Threats not addressed: N/6
+- Not applicable: N/6
+```
+
+Status definitions:
+- **IMPLEMENTED:** The mitigation specified in the plan is present in the code
+- **PARTIALLY_IMPLEMENTED:** Some mitigation is present but does not fully address the threat
+- **NOT_IMPLEMENTED:** No mitigation found for the identified threat
+- **NOT_APPLICABLE:** The threat does not apply to the files in scope
+
+**This section is informational.** It does NOT change the verdict logic. The verdict remains severity-based per the existing rules (BLOCKED / PASS_WITH_NOTES / PASS).
+
+**If no threat model context was provided:** Omit this section entirely. The report uses the standard format.
 
 **Verdict rules:**
 - **BLOCKED**: Any Critical findings OR 3+ High findings
