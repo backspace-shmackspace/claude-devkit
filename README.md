@@ -49,7 +49,7 @@ Pre-built workflows for common development tasks:
 
 | Skill | Purpose | Usage |
 |-------|---------|-------|
-| `/architect` | Create implementation plans with context alignment and approval gates. Detects security-sensitive features and requires threat modeling when threat-model-gate is deployed. | `/architect add shopping cart` |
+| `/architect` | Create implementation plans with context alignment and approval gates. Detects security-sensitive features via keyword heuristic and Stage 2 plan content scan; requires threat modeling when threat-model-gate is deployed. | `/architect add shopping cart` |
 | `/ship` | Execute plans with pattern validation, security gates (secrets/code/deps), testing, QA, and retro capture. Supports security maturity levels (L1/L2/L3) and `--security-override`. | `/ship plans/feature.md` |
 | `/retro` | Mine review artifacts for recurring patterns and capture learnings | `/retro` or `/retro feature-name` |
 | `/audit` | Security and performance scanning. Composable: invokes /secure-review when deployed. | `/audit` or `/audit code` |
@@ -59,7 +59,7 @@ Pre-built workflows for common development tasks:
 | `/compliance-check` | Validate against regulatory frameworks (FedRAMP, FIPS, OWASP, SOC 2) | `/compliance-check fedramp fips` |
 | `/dependency-audit` | Supply chain security with vulnerability scanning and license compliance | `/dependency-audit` |
 | `/secrets-scan` | Pre-commit secrets detection for API keys, tokens, credentials | `/secrets-scan staged` |
-| `/secure-review` | Deep semantic security review with data flow tracing | `/secure-review changes` |
+| `/secure-review` | Deep semantic security review with data flow tracing, taint analysis, and trust boundary validation. When invoked with threat model context, produces a `## Threat Model Coverage` section mapping STRIDE threats to implementation status. | `/secure-review changes` |
 | `/threat-model-gate` | Security planning reference for authentication, authorization, data handling | `/threat-model-gate` |
 
 **Audit Logging:** `/ship`, `/architect`, and `/audit` emit structured JSONL events to `plans/audit-logs/`
@@ -254,7 +254,8 @@ Executes implementation plans with code review, testing, and QA validation.
 **Workflow:**
 1. Pre-flight checks (plan exists, tests pass, security skills deployed at L2/L3)
 2. Secrets scan (if /secrets-scan deployed)
-3. Read and validate plan
+3. Read and validate plan — checks for `## Security Requirements` section on security-sensitive
+   plans (warns at L1, blocks at L2/L3 if missing)
 4. Pattern validation (warnings only)
 5. Implement code
 6. Code review (sonnet model)
@@ -603,7 +604,7 @@ cd ~/projects/claude-devkit
 bash scripts/test-integration.sh
 ```
 
-**Integration Test Coverage (8 tests):**
+**Integration Test Coverage (18 tests):**
 - Coordinator lifecycle (generate → validate → deploy → undeploy)
 - `validate-all.sh` health check
 - Pipeline lifecycle
@@ -612,6 +613,7 @@ bash scripts/test-integration.sh
 - L3 HMAC chain verification
 - 10+ call state persistence
 - Cleanup
+- Threat model consumption structural tests across /ship, /architect, /secure-review (10 tests)
 
 ## Structure
 
@@ -829,5 +831,5 @@ MIT - Use freely in your projects
 ---
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-31
+**Last Updated:** 2026-04-08
 **Maintained by:** @backspace-shmackspace

@@ -1,7 +1,7 @@
 # Claude Devkit
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-31
+**Last Updated:** 2026-04-08
 **Purpose:** Unified development toolkit for Claude Code - skills, agents, generators, and templates
 
 **New to Claude Devkit?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a 15-minute tutorial.
@@ -66,7 +66,7 @@ claude-devkit/
     ├── validate-all.sh  # Health check - validate all skills
     ├── emit-audit-event.sh    # Audit event emission helper (invoked by skills)
     ├── audit-log-query.sh     # Query utility for JSONL audit logs
-    └── test-integration.sh    # Integration smoke tests (8 tests)
+    └── test-integration.sh    # Integration smoke tests (18 tests)
 ```
 
 ### Data Flow
@@ -144,13 +144,21 @@ Set the security maturity level in `.claude/settings.json` or `.claude/settings.
 
 **Security Gates:**
 
-The `/ship` skill runs three security gates when the corresponding skills are deployed:
+The `/ship` skill runs four security gates when the corresponding skills are deployed:
 
-1. **Secrets scan** (Step 0 pre-flight): Runs `/secrets-scan` on working directory. BLOCKS at all maturity levels (committed secrets cannot be un-committed). Override available with `--security-override`.
+0. **Plan security requirements check** (Step 1): Validates that security-sensitive plans include a
+   `## Security Requirements` section (derived from threat-model-gate output). At L1: warns if
+   missing. At L2/L3: blocks if missing.
 
-2. **Secure review** (Step 4d verification): Runs `/secure-review` on uncommitted changes. At L1: BLOCKED auto-downgrades to PASS_WITH_NOTES. At L2/L3: BLOCKED stops workflow unless overridden.
+1. **Secrets scan** (Step 0 pre-flight): Runs `/secrets-scan` on working directory. BLOCKS at all
+   maturity levels (committed secrets cannot be un-committed). Override available with
+   `--security-override`.
 
-3. **Dependency audit** (Step 6 commit gate): Runs `/dependency-audit` on manifest files. At L1: BLOCKED auto-downgrades to PASS_WITH_NOTES. At L2/L3: BLOCKED stops workflow unless overridden.
+2. **Secure review** (Step 4d verification): Runs `/secure-review` on uncommitted changes. At L1:
+   BLOCKED auto-downgrades to PASS_WITH_NOTES. At L2/L3: BLOCKED stops workflow unless overridden.
+
+3. **Dependency audit** (Step 6 commit gate): Runs `/dependency-audit` on manifest files. At L1:
+   BLOCKED auto-downgrades to PASS_WITH_NOTES. At L2/L3: BLOCKED stops workflow unless overridden.
 
 **Override Syntax:**
 
@@ -844,8 +852,9 @@ Deployment and utility scripts.
 - `validate-all.sh` — Health check - validate all skills in one pass
 - `emit-audit-event.sh` — Standalone helper script for skill audit event emission (invoked by `/ship`, `/architect`, `/audit`)
 - `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, verify-chain, recent)
-- `test-integration.sh` — Integration smoke tests (8 tests): emit-audit-event.sh JSONL correctness, L3 HMAC chain
-  verification, 10+ call state persistence, and end-to-end generate/validate/deploy lifecycle
+- `test-integration.sh` — Integration smoke tests (18 tests): emit-audit-event.sh JSONL correctness,
+  L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
+  lifecycle, and threat model consumption structural tests across /ship, /architect, /secure-review
 
 **Usage:**
 ```bash
