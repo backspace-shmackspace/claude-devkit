@@ -79,3 +79,4 @@ plans/audit-logs/*.jsonl
 
 # L3 HMAC key files (committed via git add --force at L3 -- gitignored to keep L1/L2 clean)
 .ship-audit-key-*
+.mcp.json
