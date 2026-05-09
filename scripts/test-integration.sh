@@ -9,9 +9,10 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 18 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+# 26 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
 #           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
-#           threat model consumption structural tests (10 tests), cleanup
+#           threat model consumption structural tests (10 tests),
+#           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases), cleanup
 
 set -e
 
@@ -266,9 +267,9 @@ run_test 15 "secure-review SKILL.md contains Threat Model Coverage section templ
     "grep -q '## Threat Model Coverage' '$REPO_DIR/skills/secure-review/SKILL.md'" \
     0
 
-# Test 16: /ship version bumped to 3.7.0
-run_test 16 "ship SKILL.md version is 3.7.0" \
-    "grep -q 'version: 3.7.0' '$REPO_DIR/skills/ship/SKILL.md'" \
+# Test 16: /ship version bumped to 3.8.0
+run_test 16 "ship SKILL.md version is 3.8.0" \
+    "grep -q 'version: 3.8.0' '$REPO_DIR/skills/ship/SKILL.md'" \
     0
 
 # Test 17: /architect version bumped to 3.3.0
@@ -284,6 +285,139 @@ run_test 18 "secure-review SKILL.md version is 1.1.0" \
 # Test 19: /ship SKILL.md does NOT contain the removed SECURITY CONTEXT marker
 run_test 19 "ship SKILL.md does not reference SECURITY CONTEXT marker" \
     "! grep -q 'SECURITY CONTEXT:' '$REPO_DIR/skills/ship/SKILL.md'" \
+    0
+
+# --- Quantitative scoring tests ---
+
+# Test 20 (positive): compute-run-score.sh produces valid JSON for a synthetic log
+run_test 20 "compute-run-score.sh produces valid JSON for a complete synthetic log" \
+    "SCORE_LOG=\"/tmp/integration-smoke-test/score-test-complete.jsonl\" && \
+     mkdir -p /tmp/integration-smoke-test && \
+     printf '{\"event_type\":\"run_start\",\"timestamp\":\"2026-05-09T10:00:00.000Z\",\"run_id\":\"test-score-1\"}\n' > \"\$SCORE_LOG\" && \
+     printf '{\"event_type\":\"verdict\",\"verdict\":\"PASS\",\"verdict_source\":\"code_review\"}\n' >> \"\$SCORE_LOG\" && \
+     printf '{\"event_type\":\"security_decision\",\"gate\":\"secrets_scan\",\"gate_verdict\":\"PASS\",\"action\":\"pass\",\"effective_verdict\":\"PASS\"}\n' >> \"\$SCORE_LOG\" && \
+     printf '{\"event_type\":\"verdict\",\"verdict\":\"PASS\",\"verdict_source\":\"qa\"}\n' >> \"\$SCORE_LOG\" && \
+     OUTPUT=\$(bash '$REPO_DIR/scripts/compute-run-score.sh' \"\$SCORE_LOG\") && \
+     python3 -c \"
+import json, sys
+data = json.loads(sys.argv[1])
+assert data['event_type'] == 'run_score', 'wrong event_type'
+assert 'dimensions' in data, 'missing dimensions'
+assert 'composite' in data, 'missing composite'
+dims = {d['name']: d['score'] for d in data['dimensions']}
+assert dims.get('efficiency') == 1.0, f'expected efficiency 1.0, got {dims.get(\\\"efficiency\\\")}'
+assert dims.get('security') == 1.0, f'expected security 1.0, got {dims.get(\\\"security\\\")}'
+assert dims.get('quality') == 1.0, f'expected quality 1.0, got {dims.get(\\\"quality\\\")}'
+print('PASS: valid JSON with correct scores')
+\" \"\$OUTPUT\" && \
+     rm -f \"\$SCORE_LOG\"" \
+    0
+
+# Test 21 (positive): compute-run-score.sh handles empty log gracefully (neutral scores)
+run_test 21 "compute-run-score.sh handles empty log with neutral scores" \
+    "SCORE_LOG=\"/tmp/integration-smoke-test/score-test-empty.jsonl\" && \
+     mkdir -p /tmp/integration-smoke-test && \
+     printf '' > \"\$SCORE_LOG\" && \
+     OUTPUT=\$(bash '$REPO_DIR/scripts/compute-run-score.sh' \"\$SCORE_LOG\") && \
+     python3 -c \"
+import json, sys
+data = json.loads(sys.argv[1])
+assert data['event_type'] == 'run_score', 'wrong event_type'
+assert data['composite'] == 0.5, f'expected composite 0.5, got {data[\\\"composite\\\"]}'
+dims = {d['name']: d['score'] for d in data['dimensions']}
+for name, score in dims.items():
+    assert score == 0.5, f'expected neutral 0.5 for {name}, got {score}'
+print('PASS: empty log returns neutral scores')
+\" \"\$OUTPUT\" && \
+     rm -f \"\$SCORE_LOG\"" \
+    0
+
+# Test 22 (positive): audit-log-query.sh scores command handles run_score events
+run_test 22 "audit-log-query.sh scores command parses run_score events" \
+    "SCORE_RUN_ID=\"test-scores-\$(date +%s)\" && \
+     SCORE_LOG=\"/tmp/integration-smoke-test/plans/audit-logs/ship-\${SCORE_RUN_ID}.jsonl\" && \
+     mkdir -p /tmp/integration-smoke-test/plans/audit-logs && \
+     printf '{\"event_type\":\"run_start\",\"run_id\":\"%s\",\"timestamp\":\"2026-05-09T10:00:00.000Z\",\"skill\":\"ship\",\"skill_version\":\"3.8.0\",\"security_maturity\":\"advisory\",\"sequence\":1}\n' \"\$SCORE_RUN_ID\" > \"\$SCORE_LOG\" && \
+     printf '{\"event_type\":\"run_score\",\"run_id\":\"%s\",\"timestamp\":\"2026-05-09T10:05:00.000Z\",\"skill\":\"ship\",\"skill_version\":\"3.8.0\",\"security_maturity\":\"advisory\",\"sequence\":2,\"dimensions\":[{\"name\":\"efficiency\",\"score\":1.0,\"weight\":0.3333,\"details\":\"0 revision round(s)\"},{\"name\":\"security\",\"score\":0.5,\"weight\":0.3333,\"details\":\"neutral\"},{\"name\":\"quality\",\"score\":0.7,\"weight\":0.3333,\"details\":\"code_review:PASS\"}],\"composite\":0.7333}\n' \"\$SCORE_RUN_ID\" >> \"\$SCORE_LOG\" && \
+     AUDIT_LOG_DIR=/tmp/integration-smoke-test/plans/audit-logs '$REPO_DIR/scripts/audit-log-query.sh' scores \"\$SCORE_RUN_ID\" 2>/dev/null | grep -q 'efficiency' && \
+     AUDIT_LOG_DIR=/tmp/integration-smoke-test/plans/audit-logs '$REPO_DIR/scripts/audit-log-query.sh' scores \"\$SCORE_RUN_ID\" 2>/dev/null | grep -q 'Composite score' && \
+     rm -f \"\$SCORE_LOG\"" \
+    0
+
+# Test 23 (positive): audit-log-query.sh trend command aggregates across multiple logs
+run_test 23 "audit-log-query.sh trend command aggregates run_score events across logs" \
+    "TREND_DIR=\"/tmp/integration-smoke-test/plans/audit-logs\" && \
+     mkdir -p \"\$TREND_DIR\" && \
+     for i in 1 2 3; do \
+       RUN_ID=\"trend-test-\${i}-\$(date +%s)\${i}\" && \
+       LOG=\"\${TREND_DIR}/ship-\${RUN_ID}.jsonl\" && \
+       printf '{\"event_type\":\"run_score\",\"run_id\":\"%s\",\"timestamp\":\"2026-05-09T10:0%s:00.000Z\",\"skill\":\"ship\",\"skill_version\":\"3.8.0\",\"security_maturity\":\"advisory\",\"sequence\":1,\"dimensions\":[{\"name\":\"efficiency\",\"score\":0.8,\"weight\":0.3333,\"details\":\"test\"},{\"name\":\"security\",\"score\":0.9,\"weight\":0.3333,\"details\":\"test\"},{\"name\":\"quality\",\"score\":0.7,\"weight\":0.3333,\"details\":\"test\"}],\"composite\":0.8}\n' \"\$RUN_ID\" \"\$i\" > \"\$LOG\"; \
+     done && \
+     AUDIT_LOG_DIR=\"\$TREND_DIR\" '$REPO_DIR/scripts/audit-log-query.sh' trend 10 2>/dev/null | grep -q 'Composite\|composite\|efficiency\|No score' && \
+     rm -f \"\$TREND_DIR\"/ship-trend-test-*.jsonl" \
+    0
+
+# Test 24 (negative): compute-run-score.sh with nonexistent file exits 0 with neutral scores
+run_test 24 "compute-run-score.sh with nonexistent file exits 0 with neutral scores" \
+    "OUTPUT=\$(bash '$REPO_DIR/scripts/compute-run-score.sh' '/tmp/does-not-exist-score.jsonl' 2>/dev/null) && \
+     python3 -c \"
+import json, sys
+data = json.loads(sys.argv[1])
+assert data['event_type'] == 'run_score', 'wrong event_type'
+assert data['composite'] == 0.5, f'expected neutral composite 0.5, got {data[\\\"composite\\\"]}'
+print('PASS: nonexistent file returns neutral scores with exit 0')
+\" \"\$OUTPUT\"" \
+    0
+
+# Test 25 (negative): compute-run-score.sh with incomplete log (no run_end) computes from available events
+run_test 25 "compute-run-score.sh with incomplete log (no run_end) still computes scores" \
+    "SCORE_LOG=\"/tmp/integration-smoke-test/score-test-incomplete.jsonl\" && \
+     mkdir -p /tmp/integration-smoke-test && \
+     printf '{\"event_type\":\"run_start\",\"timestamp\":\"2026-05-09T10:00:00.000Z\",\"run_id\":\"test-incomplete\"}\n' > \"\$SCORE_LOG\" && \
+     printf '{\"event_type\":\"verdict\",\"verdict\":\"REVISION_NEEDED\",\"verdict_source\":\"code_review\"}\n' >> \"\$SCORE_LOG\" && \
+     printf '{\"event_type\":\"verdict\",\"verdict\":\"PASS\",\"verdict_source\":\"code_review\"}\n' >> \"\$SCORE_LOG\" && \
+     OUTPUT=\$(bash '$REPO_DIR/scripts/compute-run-score.sh' \"\$SCORE_LOG\") && \
+     python3 -c \"
+import json, sys
+data = json.loads(sys.argv[1])
+assert data['event_type'] == 'run_score', 'wrong event_type'
+dims = {d['name']: d['score'] for d in data['dimensions']}
+# 2 code_review verdicts = 1 revision round = efficiency 0.6
+assert dims.get('efficiency') == 0.6, f'expected efficiency 0.6, got {dims.get(\\\"efficiency\\\")}'
+# First CR was REVISION_NEEDED -> quality penalty -0.3 -> 0.7
+assert dims.get('quality') == 0.7, f'expected quality 0.7, got {dims.get(\\\"quality\\\")}'
+print('PASS: incomplete log scored from available events')
+\" \"\$OUTPUT\" && \
+     rm -f \"\$SCORE_LOG\"" \
+    0
+
+# Test 26 (negative): compute-run-score.sh with malformed JSONL lines skips bad lines
+run_test 26 "compute-run-score.sh with malformed JSONL skips bad lines and computes from valid ones" \
+    "SCORE_LOG=\"/tmp/integration-smoke-test/score-test-malformed.jsonl\" && \
+     mkdir -p /tmp/integration-smoke-test && \
+     printf '{\"event_type\":\"run_start\",\"timestamp\":\"2026-05-09T10:00:00.000Z\"}\n' > \"\$SCORE_LOG\" && \
+     printf 'NOT VALID JSON {{{{ broken\n' >> \"\$SCORE_LOG\" && \
+     printf '{\"event_type\":\"security_decision\",\"gate\":\"secrets_scan\",\"gate_verdict\":\"BLOCKED\",\"action\":\"block\",\"effective_verdict\":\"BLOCKED\"}\n' >> \"\$SCORE_LOG\" && \
+     printf 'also broken json\n' >> \"\$SCORE_LOG\" && \
+     OUTPUT=\$(bash '$REPO_DIR/scripts/compute-run-score.sh' \"\$SCORE_LOG\" 2>/dev/null) && \
+     python3 -c \"
+import json, sys
+data = json.loads(sys.argv[1])
+assert data['event_type'] == 'run_score', 'wrong event_type'
+dims = {d['name']: d['score'] for d in data['dimensions']}
+# BLOCKED security gate -> 1.0 - 0.3 = 0.7
+assert dims.get('security') == 0.7, f'expected security 0.7, got {dims.get(\\\"security\\\")}'
+print('PASS: malformed lines skipped, valid events scored correctly')
+\" \"\$OUTPUT\" && \
+     rm -f \"\$SCORE_LOG\"" \
+    0
+
+# Test 27 (negative): audit-log-query.sh trend with 0 scored runs shows "No score data found"
+run_test 27 "audit-log-query.sh trend with 0 scored runs shows no score data message" \
+    "EMPTY_DIR=\"/tmp/integration-smoke-test/empty-audit-logs-\$(date +%s)\" && \
+     mkdir -p \"\$EMPTY_DIR\" && \
+     AUDIT_LOG_DIR=\"\$EMPTY_DIR\" '$REPO_DIR/scripts/audit-log-query.sh' trend 2>/dev/null | grep -q 'No score data' && \
+     rm -rf \"\$EMPTY_DIR\"" \
     0
 
 # Test 9: Cleanup

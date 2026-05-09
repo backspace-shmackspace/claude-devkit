@@ -32,7 +32,8 @@
             "verdict",
             "security_decision",
             "file_modification",
-            "error"
+            "error",
+            "run_score"
           ]
         },
         "skill": {
@@ -327,12 +328,69 @@
           "required": ["event_type", "step", "error"]
         }
       ]
+    },
+    {
+      "title": "run_score",
+      "description": "Emitted once near the end of a run, immediately before run_end. Contains per-dimension quantitative scores computed from the run's audit log.",
+      "allOf": [
+        { "$ref": "#/definitions/common_fields" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "run_score" },
+            "dimensions": {
+              "type": "array",
+              "description": "Per-dimension quantitative scores for this run.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Dimension name.",
+                    "examples": ["efficiency", "security", "quality", "velocity"]
+                  },
+                  "score": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Dimension score from 0.0 (worst) to 1.0 (best). 0.5 = neutral (no data)."
+                  },
+                  "weight": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Dimension weight for composite calculation. 0.0 = informational only (not in composite)."
+                  },
+                  "details": {
+                    "type": "string",
+                    "description": "Human-readable explanation of how this score was derived.",
+                    "examples": ["1 revision round(s) (2 code_review verdict(s))", "secrets_scan:PASS; secure_review:PASS_WITH_NOTES"]
+                  }
+                },
+                "required": ["name", "score", "weight", "details"]
+              }
+            },
+            "composite": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Weighted composite score across all scored dimensions (excludes velocity which has weight 0.0)."
+            },
+            "velocity_minutes": {
+              "type": "number",
+              "description": "Wall-clock run duration in minutes (informational only, not included in composite). Computed from run_start.timestamp to time of run_score emission (before run_end)."
+            }
+          },
+          "required": ["event_type", "dimensions", "composite"]
+        }
+      ]
     }
   ],
   "notes": {
     "otel_migration": "Migration from JSONL to OTel spans requires a format adapter with span hierarchy reconstruction -- not a trivial field rename. The adapter must: (1) generate proper 128-bit trace_id from run_id, (2) reconstruct parent-child span hierarchy from step naming conventions (e.g. step_3c is a child of step_3), (3) handle concurrent spans (steps 4a/4b/4c run in parallel). When Kagenti provides an OTel collector endpoint, build the adapter then.",
     "hmac_field": "At L3 (security_maturity=audited), every event includes an 'hmac' field containing HMAC-SHA256(event_json + previous_hmac, run_key). The run_key is persisted to .ship-audit-key-{run_id} (mode 0600) for post-run chain verification. This field is not defined in the schema as a required field because it is only present at L3.",
     "l1_retention": "At L1 (advisory), audit logs are gitignored and ephemeral. At L2 (enforced), logs are committed via git add --force. At L3 (audited), logs and key files are committed.",
-    "sequence_note": "sequence is derived from wc -l of the log file at emit time. This is stateless -- no shell variable needs to persist across Bash tool calls."
+    "sequence_note": "sequence is derived from wc -l of the log file at emit time. This is stateless -- no shell variable needs to persist across Bash tool calls.",
+    "run_score_ordering": "run_score is emitted immediately before run_end. It is the penultimate run-lifecycle event. This ordering ensures run_score is included in L2/L3 committed logs (git add --force happens after run_end) and is part of the L3 HMAC chain before run_end is chained. Scoring scripts (compute-run-score.sh) may use current time for velocity since run_end has not been emitted yet."
   }
 }

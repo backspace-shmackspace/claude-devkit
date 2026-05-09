@@ -1,0 +1,44 @@
+{
+  "title": "Claude Devkit Score Dimensions",
+  "version": "1.0.0",
+  "description": "Configurable scoring dimensions for skill run evaluation. v1: dimensions are hardcoded in compute-run-score.sh; this file serves as documentation and future machine-readable configuration.",
+  "notes": {
+    "weight_convention": "Active dimension weights should sum to ~1.0 (excluding velocity which has weight 0.0). compute-run-score.sh normalizes weights at runtime, so non-unit sums produce correct composites but non-standard individual weighted contributions.",
+    "efficiency_coupling": "The efficiency formula (1.0 - revision_count * 0.4) assumes /ship max revision count is 2. If /ship increases this limit, review the formula.",
+    "schema_gap": "run_end.revision_rounds and run_end.steps_completed are defined in audit-event-schema.json but NOT emitted by any skill coordinator. Efficiency is derived from code_review verdict count instead (verdict_count - 1 = revision rounds)."
+  },
+  "dimensions": [
+    {
+      "name": "efficiency",
+      "weight": 0.3333,
+      "description": "How clean was the implementation? Fewer revision rounds = better.",
+      "source": "verdict events where verdict_source == 'code_review' (count - 1 = revision rounds)",
+      "scoring": "Count code_review verdict events. 1 verdict = 0 rounds = 1.0, 2 verdicts = 1 round = 0.6, 3 verdicts = 2 rounds = 0.2. Formula: max(0.0, 1.0 - (count - 1) * 0.4)",
+      "neutral": 0.5
+    },
+    {
+      "name": "security",
+      "weight": 0.3333,
+      "description": "Security gate outcomes. Penalizes BLOCKED and PASS_WITH_NOTES verdicts.",
+      "source": "security_decision events",
+      "scoring": "Start 1.0. BLOCKED: -0.3, PASS_WITH_NOTES: -0.1, floor 0.0",
+      "neutral": 0.5
+    },
+    {
+      "name": "quality",
+      "weight": 0.3333,
+      "description": "Code review and QA outcomes. Uses first code review verdict (pre-revision) and final QA verdict.",
+      "source": "verdict events (code_review first, qa last)",
+      "scoring": "Start 1.0. CR REVISION_NEEDED: -0.3, CR FAIL: -0.5, QA PASS_WITH_NOTES: -0.1, QA FAIL: -0.5, floor 0.0",
+      "neutral": 0.5
+    },
+    {
+      "name": "velocity",
+      "weight": 0.0,
+      "description": "Wall-clock run duration in minutes. Informational only (not in composite).",
+      "source": "run_start.timestamp to current time (run_score is emitted before run_end)",
+      "scoring": "Duration in minutes. Not normalized.",
+      "neutral": null
+    }
+  ]
+}

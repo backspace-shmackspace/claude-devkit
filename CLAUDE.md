@@ -66,7 +66,9 @@ claude-devkit/
     ├── validate-all.sh  # Health check - validate all skills
     ├── emit-audit-event.sh    # Audit event emission helper (invoked by skills)
     ├── audit-log-query.sh     # Query utility for JSONL audit logs
-    └── test-integration.sh    # Integration smoke tests (18 tests)
+    ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
+    ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
+    └── test-integration.sh    # Integration smoke tests (26 tests)
 ```
 
 ### Data Flow
@@ -97,7 +99,7 @@ Deploy and use in Claude Code
 | Skill | Version | Purpose | Model | Steps |
 |-------|---------|---------|-------|-------|
 | **architect** | 3.3.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Stage 2 plan content scan detects security-sensitive features; invokes security-analyst (Required, not Recommended) when deployed and injects threat-model-gate requirements. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `plans/audit-logs/architect-<run_id>.jsonl`. | opus-4-6 | 6 |
-| **ship** | 3.7.0 | Pre-flight check → Read plan + security requirements validation (Step 1 checks for threat model output and blocks if required gates are unmet) → Pattern validation (warnings) → Security gates (secrets-scan, secure-review with threat model context passing in Step 4d, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. | opus-4-6 | 8 |
+| **ship** | 3.8.0 | Pre-flight check → Read plan + security requirements validation (Step 1 checks for threat model output and blocks if required gates are unmet) → Pattern validation (warnings) → Security gates (secrets-scan, secure-review with threat model context passing in Step 4d, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate (emits `run_score` before `run_end`) → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. Quantitative scoring (efficiency, security, quality, velocity) emitted as `run_score` event. | opus-4-6 | 8 |
 | **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
 | **audit** | 3.2.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. JSONL audit logging to `plans/audit-logs/audit-<run_id>.jsonl`. | opus-4-6 | 6 |
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-6 | 6 |
@@ -187,6 +189,7 @@ The `/ship` skill runs four security gates when the corresponding skills are dep
 | `security_decision` | When a security gate runs (secrets-scan, secure-review, dependency-audit) |
 | `file_modification` | When files are merged from worktrees (per work group) |
 | `error` | When a step fails unexpectedly |
+| `run_score` | When a skill run completes and scores are computed (emitted immediately before `run_end`, on PASS path only) |
 
 **Log File Locations:**
 
@@ -229,10 +232,64 @@ Requirements: `jq` (required for all commands), `openssl` (required for `verify-
 **Implementation:**
 
 - `scripts/emit-audit-event.sh` — Standalone helper script invoked by each skill step. Reads state from a per-run state file (shell variables don't persist across Bash tool calls). Uses `python3 json.dumps()` for RFC 8259 compliant escaping. Exits 0 on all error paths (never blocks `/ship`).
+- `scripts/compute-run-score.sh` — Reads a run's JSONL audit log, computes per-dimension scores (efficiency, security, quality, velocity), outputs partial event JSON for `emit-audit-event.sh`. Exits 0 on all paths; handles empty, incomplete, and malformed logs gracefully (neutral 0.5 scores). No jq dependency.
+- `scripts/score-reflector.sh` — Deterministic score reflector. Reads all `run_score` events from `plans/audit-logs/`, computes statistics and trends, outputs candidate learnings entries to stdout for human review. Tiered analysis: 5-9 runs = summary stats, 10+ runs = trends. No jq dependency.
 - `configs/audit-event-schema.json` — JSON Schema defining all event types with OTel field mapping documentation.
 - `plans/audit-logs/` — Dedicated directory for audit logs (separate lifecycle from `plans/archive/`).
 
 **OTel Migration:** The JSONL format is designed for future migration to OpenTelemetry spans via a format adapter. The adapter requires span hierarchy reconstruction (not a trivial field rename) and will be built when Kagenti provides an OTel collector endpoint.
+
+## Quantitative Scoring
+
+`/ship` v3.8.0+ emits a `run_score` event at the end of each successful run (immediately before `run_end`). Scores are computed from data already available in the JSONL audit log -- no LLM required.
+
+**Scoring Dimensions:**
+
+| Dimension | Weight | Source | Scoring Logic |
+|-----------|--------|--------|---------------|
+| **efficiency** | 0.3333 | `verdict` events with `verdict_source == "code_review"` | Count code_review verdicts. 1 verdict = 0 revision rounds = 1.0. 2 verdicts = 1 round = 0.6. 3 verdicts = 2 rounds = 0.2. Formula: `max(0.0, 1.0 - (count - 1) * 0.4)`. No events: 0.5 (neutral). |
+| **security** | 0.3333 | `security_decision` events | Start 1.0. BLOCKED: -0.3, PASS_WITH_NOTES: -0.1, floor 0.0. No events: 0.5 (neutral). |
+| **quality** | 0.3333 | `verdict` events (code_review + qa) | Start 1.0. First CR REVISION_NEEDED: -0.3, CR FAIL: -0.5. Last QA PASS_WITH_NOTES: -0.1, QA FAIL: -0.5, floor 0.0. No events: 0.5 (neutral). |
+| **velocity** | 0.0 | `run_start.timestamp` to time of `run_score` emission | Duration in minutes. Informational only (not in composite). |
+
+**Composite score** = normalized weighted sum of efficiency, security, quality (each effective weight 1/3). Velocity is excluded.
+
+**Neutral score (0.5):** Used when a dimension has no data (e.g., no security skills deployed). Avoids artificially inflating or penalizing scores for missing data.
+
+**Query commands:**
+
+```bash
+# Show per-dimension scores for a specific run
+./scripts/audit-log-query.sh scores 20260327-143052-a1b2c3
+
+# Show composite score trend for last 10 runs
+./scripts/audit-log-query.sh trend
+
+# Show efficiency trend for last 5 runs
+./scripts/audit-log-query.sh trend 5 --dimension efficiency
+```
+
+**Score reflector (manual invocation):**
+
+```bash
+# Analyze score history and generate candidate learnings entries
+bash scripts/score-reflector.sh
+
+# With options
+bash scripts/score-reflector.sh --min-runs 10 --format json
+```
+
+**Sample size thresholds for reflector analysis:**
+
+| Runs Available | Analysis Level |
+|----------------|---------------|
+| < 5 | "Insufficient data" message (exit 0, no output) |
+| 5-9 | Summary statistics only: per-dimension mean, min, max. No trend claims. |
+| 10+ | Full analysis: summary statistics + linear regression trends (slope > 0.05/run threshold). |
+
+**L1 ephemeral log limitation:** At L1 (advisory), JSONL audit logs are gitignored and ephemeral. The `trend` command and `score-reflector.sh` can only analyze runs that still have log files on disk. For meaningful cross-session trend analysis, use L2 or L3 maturity (logs are committed to git). The tools display a notice when operating against gitignored logs.
+
+**Dimension definitions:** `configs/score-dimensions.json` — plain JSON data file documenting dimension weights, scoring logic, and design notes. Consumed by humans and future tooling (v1 dimensions are hardcoded in `compute-run-score.sh`).
 
 ## MCP Servers (Migrated)
 
@@ -851,10 +908,13 @@ Deployment and utility scripts.
 - `uninstall.sh` — Clean uninstallation with backup restoration
 - `validate-all.sh` — Health check - validate all skills in one pass
 - `emit-audit-event.sh` — Standalone helper script for skill audit event emission (invoked by `/ship`, `/architect`, `/audit`)
-- `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, verify-chain, recent)
-- `test-integration.sh` — Integration smoke tests (18 tests): emit-audit-event.sh JSONL correctness,
+- `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, overrides, verify-chain, recent, scores, trend)
+- `compute-run-score.sh` — Compute per-dimension quantitative scores from a JSONL audit log (python3, no jq)
+- `score-reflector.sh` — Deterministic score reflector for candidate learnings generation (python3, no jq)
+- `test-integration.sh` — Integration smoke tests (26 tests): emit-audit-event.sh JSONL correctness,
   L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
-  lifecycle, and threat model consumption structural tests across /ship, /architect, /secure-review
+  lifecycle, threat model consumption structural tests across /ship, /architect, /secure-review,
+  and quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases)
 
 **Usage:**
 ```bash

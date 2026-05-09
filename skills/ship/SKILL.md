@@ -1,7 +1,7 @@
 ---
 name: ship
 description: Execute an approved plan using unattended implementation and validation with worktree isolation.
-version: 3.7.0
+version: 3.8.0
 model: claude-opus-4-6
 ---
 # /ship Workflow
@@ -1236,6 +1236,17 @@ if [ -f "$AUDIT_LOG" ]; then
   # Emit step_end for Step 6 (MUST be before state file deletion)
   bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
     '{"event_type":"step_end","step":"step_6_commit_gate","step_name":"Commit gate","agent_type":"coordinator"}'
+
+  # Score computation (pre-run_end, non-blocking)
+  # All verdict, security_decision, and step events are already in the log at this point.
+  # run_score is emitted before run_end so it is included in L2/L3 committed logs.
+  SCORE_JSON=$(bash scripts/compute-run-score.sh "$AUDIT_LOG" 2>/dev/null)
+  if [ -n "$SCORE_JSON" ]; then
+    bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" "$SCORE_JSON"
+    echo "Run score computed and logged."
+  else
+    echo "Warning: Score computation returned empty output. Continuing without score."
+  fi
 
   # Emit run_end
   COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")

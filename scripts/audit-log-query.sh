@@ -17,6 +17,8 @@
 #   timeline <run_id>        Show step-by-step timeline (duration computed from timestamp pairs)
 #   verify-chain <run_id>    Verify L3 HMAC chain integrity
 #   recent [N]               Show N most recent runs (default 10)
+#   scores <run_id>          Show per-dimension scores for a run
+#   trend [N] [--dimension name]  Show composite score trend for last N runs (default 10)
 
 set -uo pipefail
 
@@ -31,14 +33,16 @@ Usage:
   ./scripts/audit-log-query.sh <command> [options]
 
 Commands:
-  summary <run_id>         Show run summary (skill, outcome, timestamps, step count)
-  verdicts <run_id>        Show all verdict events for a run
-  security <run_id>        Show all security_decision events for a run
-  files <run_id>           Show all file_modification events for a run
-  overrides [--all]        Show security overrides (recent run only, or --all runs)
-  timeline <run_id>        Show step timeline with computed durations from timestamp pairs
-  verify-chain <run_id>    Verify L3 HMAC chain integrity using .ship-audit-key-<run_id>
-  recent [N]               Show N most recent runs across all skills (default: 10)
+  summary <run_id>              Show run summary (skill, outcome, timestamps, step count)
+  verdicts <run_id>             Show all verdict events for a run
+  security <run_id>             Show all security_decision events for a run
+  files <run_id>                Show all file_modification events for a run
+  overrides [--all]             Show security overrides (recent run only, or --all runs)
+  timeline <run_id>             Show step timeline with computed durations from timestamp pairs
+  verify-chain <run_id>         Verify L3 HMAC chain integrity using .ship-audit-key-<run_id>
+  recent [N]                    Show N most recent runs across all skills (default: 10)
+  scores <run_id>               Show per-dimension scores for a scored run
+  trend [N] [--dimension name]  Show composite score trend for last N runs (default: 10)
 
 Environment:
   AUDIT_LOG_DIR            Directory containing .jsonl files (default: ./plans/audit-logs)
@@ -62,11 +66,21 @@ Examples:
   # Show all security overrides across all runs
   ./scripts/audit-log-query.sh overrides --all
 
+  # Show per-dimension scores for a run
+  ./scripts/audit-log-query.sh scores 20260327-143052-a1b2c3
+
+  # Show composite score trend for last 10 runs
+  ./scripts/audit-log-query.sh trend
+
+  # Show efficiency trend for last 5 runs
+  ./scripts/audit-log-query.sh trend 5 --dimension efficiency
+
 Notes:
   - Requires jq for all commands
   - Requires openssl for verify-chain command
   - L1 logs are gitignored and ephemeral; L2/L3 logs are committed to git
   - Duration in timeline is computed from step_start/step_end timestamp pairs
+  - Composite scores are most useful for trend analysis across runs
 EOF
     exit 0
 fi
@@ -560,6 +574,211 @@ cmd_recent() {
     done <<< "$logs"
 }
 
+# --- scores ---
+cmd_scores() {
+    local run_id="${1:-}"
+    if [[ -z "$run_id" ]]; then
+        echo "Usage: $0 scores <run_id>" >&2
+        exit 1
+    fi
+
+    local log_file
+    log_file=$(find_log "$run_id") || exit 1
+
+    echo "=== Run Scores for run ${run_id} ==="
+    echo ""
+
+    # Check if this log is gitignored (L1 ephemeral limitation notice)
+    if git check-ignore --quiet "$log_file" 2>/dev/null; then
+        echo "Note: L1 (advisory) logs are not committed to git. Trend data is limited to logs still on disk."
+        echo ""
+    fi
+
+    # Extract run_score event
+    local score_event
+    score_event=$(grep '"event_type":"run_score"' "$log_file" 2>/dev/null | tail -1)
+
+    if [[ -z "$score_event" ]]; then
+        echo "(No run_score event found in this log.)"
+        echo "Scores are emitted by /ship v3.8.0+ on the PASS path."
+        echo "This run may predate scoring support or use an earlier skill version."
+        return
+    fi
+
+    # Use python3 to format the score data
+    python3 -c "
+import json
+import sys
+
+event_json = '''${score_event}'''
+try:
+    event = json.loads(event_json)
+except Exception as e:
+    print(f'Error parsing run_score event: {e}', file=sys.stderr)
+    sys.exit(1)
+
+dims = event.get('dimensions', [])
+composite = event.get('composite', 'N/A')
+velocity = event.get('velocity_minutes')
+
+print(f\"{'Dimension':<12} {'Score':>6} {'Weight':>7}  Details\")
+print('-' * 80)
+for d in dims:
+    name = d.get('name', '?')
+    score = d.get('score', 0.5)
+    weight = d.get('weight', 0.0)
+    details = d.get('details', '')
+    weight_str = f'{weight:.4f}' if weight > 0 else '(info)'
+    print(f\"{name:<12} {score:>6.4f} {weight_str:>7}  {details}\")
+
+print('')
+print(f'Composite score: {composite:.4f}')
+if velocity is not None:
+    print(f'Velocity:        {velocity:.1f} minutes (informational, not in composite)')
+print('')
+print('Composite scores are most useful for trend analysis across runs.')
+" 2>/dev/null || {
+        echo "Error formatting score data. Raw event:" >&2
+        echo "$score_event" | jq '.'
+    }
+}
+
+# --- trend ---
+cmd_trend() {
+    # Parse trend arguments: [N] [--dimension name]
+    local n=10
+    local dimension=""
+
+    while [[ $# -gt 0 ]]; do
+        case "${1:-}" in
+            --dimension)
+                dimension="${2:-}"
+                shift 2
+                ;;
+            [0-9]*)
+                n="$1"
+                shift
+                ;;
+            *)
+                echo "Warning: Unknown argument '${1}' for trend command. Ignoring." >&2
+                shift
+                ;;
+        esac
+    done
+
+    echo "=== Score Trend (last ${n} scored runs${dimension:+, dimension: $dimension}) ==="
+    echo ""
+
+    # Check if logs are gitignored (L1 ephemeral limitation notice)
+    local sample_log
+    sample_log=$(ls -t "${AUDIT_LOG_DIR}/"*.jsonl 2>/dev/null | head -1)
+    if [[ -n "$sample_log" ]] && git check-ignore --quiet "$sample_log" 2>/dev/null; then
+        echo "Note: L1 (advisory) logs are not committed to git. Trend data is limited to logs still on disk."
+        echo ""
+    fi
+
+    # Use python3 to aggregate run_score events across all JSONL files
+    python3 -c "
+import json
+import os
+import glob
+import sys
+from datetime import datetime, timezone
+
+audit_log_dir = '${AUDIT_LOG_DIR}'
+n = int('${n}')
+dimension = '${dimension}'
+
+# Collect all run_score events
+score_events = []
+log_files = sorted(glob.glob(os.path.join(audit_log_dir, '*.jsonl')))
+
+for log_file in log_files:
+    try:
+        with open(log_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                    if event.get('event_type') == 'run_score':
+                        event['_log_file'] = log_file
+                        score_events.append(event)
+                except json.JSONDecodeError:
+                    continue
+    except Exception:
+        continue
+
+if not score_events:
+    print('No score data found.')
+    print('Scores are emitted by /ship v3.8.0+ on the PASS path.')
+    sys.exit(0)
+
+# Sort by timestamp and take last N
+def parse_ts(ts):
+    try:
+        return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+    except Exception:
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+score_events.sort(key=lambda e: parse_ts(e.get('timestamp', '')))
+recent = score_events[-n:]
+
+if not dimension:
+    # Show composite trend table
+    print(f\"{'Run ID':<30} {'Timestamp':<25} {'Composite':>10} {'Efficiency':>11} {'Security':>10} {'Quality':>8}\")
+    print('-' * 100)
+    for e in recent:
+        run_id = e.get('run_id', 'unknown')
+        ts = e.get('timestamp', 'unknown')
+        composite = e.get('composite', 0.5)
+        dims = {d['name']: d['score'] for d in e.get('dimensions', [])}
+        eff = dims.get('efficiency', 'N/A')
+        sec = dims.get('security', 'N/A')
+        qual = dims.get('quality', 'N/A')
+        eff_str = f'{eff:.4f}' if isinstance(eff, float) else str(eff)
+        sec_str = f'{sec:.4f}' if isinstance(sec, float) else str(sec)
+        qual_str = f'{qual:.4f}' if isinstance(qual, float) else str(qual)
+        print(f\"{run_id:<30} {ts:<25} {composite:>10.4f} {eff_str:>11} {sec_str:>10} {qual_str:>8}\")
+
+    if len(recent) >= 2:
+        composites = [e.get('composite', 0.5) for e in recent]
+        mean_c = sum(composites) / len(composites)
+        first = composites[0]
+        last = composites[-1]
+        print('')
+        print(f'Mean composite: {mean_c:.4f}  |  First: {first:.4f}  |  Last: {last:.4f}  |  Delta: {last - first:+.4f}')
+else:
+    # Show single-dimension trend
+    print(f\"{'Run ID':<30} {'Timestamp':<25} {dimension:>12}\")
+    print('-' * 72)
+    scores = []
+    for e in recent:
+        run_id = e.get('run_id', 'unknown')
+        ts = e.get('timestamp', 'unknown')
+        dim_score = None
+        for d in e.get('dimensions', []):
+            if d.get('name') == dimension:
+                dim_score = d.get('score')
+                break
+        score_str = f'{dim_score:.4f}' if dim_score is not None else 'N/A'
+        print(f\"{run_id:<30} {ts:<25} {score_str:>12}\")
+        if dim_score is not None:
+            scores.append(dim_score)
+
+    if scores:
+        mean_s = sum(scores) / len(scores)
+        print('')
+        print(f'Mean {dimension}: {mean_s:.4f}  |  Min: {min(scores):.4f}  |  Max: {max(scores):.4f}')
+
+print('')
+print('Composite scores are most useful for trend analysis across runs.')
+" 2>/dev/null || {
+        echo "Error computing score trend." >&2
+    }
+}
+
 # --- Dispatch ---
 case "$COMMAND" in
     summary)
@@ -585,6 +804,12 @@ case "$COMMAND" in
         ;;
     recent)
         cmd_recent "${1:-10}"
+        ;;
+    scores)
+        cmd_scores "${1:-}"
+        ;;
+    trend)
+        cmd_trend "$@"
         ;;
     *)
         echo "Error: Unknown command '${COMMAND}'" >&2
