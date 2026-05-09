@@ -604,7 +604,7 @@ cd ~/projects/claude-devkit
 bash scripts/test-integration.sh
 ```
 
-**Integration Test Coverage (18 tests):**
+**Integration Test Coverage (26 tests):**
 - Coordinator lifecycle (generate → validate → deploy → undeploy)
 - `validate-all.sh` health check
 - Pipeline lifecycle
@@ -642,6 +642,7 @@ claude-devkit/
 ├── configs/                   # Shared configurations
 │   ├── skill-patterns.json
 │   ├── audit-event-schema.json    # JSON Schema for audit events (OTel-aligned)
+│   ├── score-dimensions.json      # Score dimension weights and logic (machine-readable)
 │   ├── tech-stack-definitions/    # Tech stack configs (7 stacks)
 │   └── base-definitions/          # (empty - reserved for future)
 │
@@ -651,7 +652,9 @@ claude-devkit/
 │   ├── uninstall.sh           # Clean uninstallation
 │   ├── validate-all.sh        # Health check - validate all skills
 │   ├── emit-audit-event.sh    # Audit event emission helper (invoked by skills)
-│   └── audit-log-query.sh     # Query utility for JSONL audit logs
+│   ├── audit-log-query.sh     # Query utility for JSONL audit logs
+│   ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
+│   └── score-reflector.sh     # Deterministic score reflector (candidate learnings)
 │
 ├── .claude/                   # Project-specific agents
 │   └── agents/
@@ -831,5 +834,5 @@ MIT - Use freely in your projects
 ---
 
 **Version:** 1.0.0
-**Last Updated:** 2026-04-08
+**Last Updated:** 2026-05-09
 **Maintained by:** @backspace-shmackspace
