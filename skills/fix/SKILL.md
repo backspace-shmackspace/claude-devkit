@@ -60,6 +60,14 @@ If no coder agent found, stop with:
 
 **If artifact path provided:**
 
+**Artifact path validation:**
+
+Before reading the artifact, validate the path:
+- Reject paths containing `..` segments (path traversal)
+- Reject absolute paths that resolve outside the project root
+- Verify the path ends with a known artifact extension (`.code-review.md`, `.secure-review.md`, `.qa-report.md`, `.security.md`, `.performance.md`)
+- If validation fails, stop with: "Invalid artifact path. Path must be within the project directory and point to a review artifact."
+
 Tool: `Read`
 
 Read the artifact file at the resolved path. Determine finding type from artifact filename:
