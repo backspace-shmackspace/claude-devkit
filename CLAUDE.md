@@ -69,7 +69,7 @@ claude-devkit/
     ├── audit-log-query.sh     # Query utility for JSONL audit logs
     ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
     ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
-    └── test-integration.sh    # Integration smoke tests (26 tests)
+    └── test-integration.sh    # Integration smoke tests (28 tests)
 ```
 
 ### Data Flow
@@ -770,7 +770,9 @@ Tool: Bash (git worktree remove, delete temp files)
     ├── retro/
     │   └── retro-[timestamp]/             # Archived retro reports
     └── fix/
-        └── fix-[finding-id]-[timestamp].code-review.md    # Fix verification artifacts (from /fix)
+        ├── fix-[finding-id]-[timestamp].code-review.md           # Code review (from /fix)
+        ├── fix-[finding-id]-[timestamp]-reverify.secure-review.md  # Security re-scan (from /fix, security findings)
+        └── fix-[finding-id]-[timestamp]-reverify.security-review.md # Fallback security review (from /fix, no /secure-review deployed)
 ```
 
 `.claude/learnings.md` — Project-level learnings (lives outside `./plans/`, created by `/retro` and `/ship` Step 7)
@@ -869,7 +871,7 @@ Python scripts for code generation with validation and atomic writes.
 - `generate_skill.py` — Create skills from archetypes
 - `generate_senior_architect.py` — Create architect agents
 - `validate_skill.py` — Validate skill definitions
-- `test_skill_generator.sh` — Test suite (46 tests)
+- `test_skill_generator.sh` — Test suite (57 tests)
 
 **Capabilities:**
 - Auto-detection (project type, stack)
@@ -916,7 +918,7 @@ Deployment and utility scripts.
 - `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, overrides, verify-chain, recent, scores, trend)
 - `compute-run-score.sh` — Compute per-dimension quantitative scores from a JSONL audit log (python3, no jq)
 - `score-reflector.sh` — Deterministic score reflector for candidate learnings generation (python3, no jq)
-- `test-integration.sh` — Integration smoke tests (26 tests): emit-audit-event.sh JSONL correctness,
+- `test-integration.sh` — Integration smoke tests (28 tests): emit-audit-event.sh JSONL correctness,
   L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
   lifecycle, threat model consumption structural tests across /ship, /architect, /secure-review,
   and quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases)
@@ -1067,7 +1069,7 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Coverage (46 tests):**
+**Coverage (57 tests):**
 - Generator and validator help text
 - All 13 core skills (architect, ship, retro, audit, sync,
   receiving-code-review, verification-before-completion, compliance-check,
@@ -1227,7 +1229,7 @@ test(generators): add validation tests for scan archetype
 - [x] Agent generator (unified)
 - [x] Skill validator + agent validator
 - [x] Deployment scripts (core + contrib)
-- [x] Test suite (46 tests, all 13 core + 3 contrib skills validated)
+- [x] Test suite (57 tests, all 13 core + 3 contrib skills validated)
 - [x] Security maturity levels (L1/L2/L3)
 - [x] validate-all health check command
 - [x] Deploy-time validation (--validate flag)
