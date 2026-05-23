@@ -9,10 +9,11 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 26 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+# 28 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
 #           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
 #           threat model consumption structural tests (10 tests),
-#           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases), cleanup
+#           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
+#           fix skill structural tests (2 tests), cleanup
 
 set -e
 
@@ -418,6 +419,16 @@ run_test 27 "audit-log-query.sh trend with 0 scored runs shows no score data mes
      mkdir -p \"\$EMPTY_DIR\" && \
      AUDIT_LOG_DIR=\"\$EMPTY_DIR\" '$REPO_DIR/scripts/audit-log-query.sh' trend 2>/dev/null | grep -q 'No score data' && \
      rm -rf \"\$EMPTY_DIR\"" \
+    0
+
+# Test 28: fix SKILL.md version is 1.0.0
+run_test 28 "fix SKILL.md version is 1.0.0" \
+    "grep -q 'version: 1.0.0' '$REPO_DIR/skills/fix/SKILL.md'" \
+    0
+
+# Test 29: fix SKILL.md contains Pipeline archetype steps
+run_test 29 "fix SKILL.md contains Pipeline archetype steps" \
+    "grep -q 'Step 0' '$REPO_DIR/skills/fix/SKILL.md' && grep -q 'Step 4' '$REPO_DIR/skills/fix/SKILL.md'" \
     0
 
 # Test 9: Cleanup

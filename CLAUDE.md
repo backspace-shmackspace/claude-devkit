@@ -11,7 +11,7 @@
 Claude Devkit is the complete toolkit for building with Claude Code. It combines skill definitions, agent generators, templates, and reusable configurations into a single, version-controlled repository.
 
 **What's Inside:**
-- **Skills** — 12 core reusable Claude Code workflows including `/architect`, `/ship`, `/retro`, `/audit`, `/sync`, and security skills
+- **Skills** — 13 core reusable Claude Code workflows including `/architect`, `/ship`, `/retro`, `/audit`, `/sync`, `/fix`, and security skills
 - **Generators** — Scripts to create agents, skills, and project structures
 - **Templates** — Reusable templates for agents and skills
 - **Configs** — Shared configurations and patterns
@@ -33,7 +33,8 @@ claude-devkit/
 │   ├── dependency-audit/      # Supply chain security
 │   ├── secrets-scan/          # Pre-commit secrets detection
 │   ├── secure-review/         # Deep semantic security review
-│   └── threat-model-gate/     # Security planning reference
+│   ├── threat-model-gate/     # Security planning reference
+│   └── fix/                   # Targeted finding remediation
 │
 ├── contrib/             # Tier 1b: Optional/personal skills (opt-in)
 │   ├── journal/         # Obsidian journal writing
@@ -110,6 +111,7 @@ Deploy and use in Claude Code
 | **secrets-scan** | 1.0.0 | Pre-commit secrets detection with pattern-based scanning for API keys, tokens, passwords, private keys, and connection strings. Self-contained — no external tools required. | claude-sonnet-4-6 | 6 |
 | **secure-review** | 1.1.0 | Deep semantic security review of code changes with data flow tracing, taint analysis, and trust boundary validation. When invoked with plan context (e.g., by /ship Step 4d), includes a `## Threat Model Coverage` section mapping findings against threat model requirements. Composable building block invoked by /audit when deployed. | opus-4-6 | 5 |
 | **threat-model-gate** | 1.0.0 | Use when planning security-sensitive features — authentication, authorization, data handling, API design, cryptography, or network configuration — requires explicit threat modeling before implementation decisions are made. Reference archetype. | claude-sonnet-4-6 | Reference |
+| **fix** | 1.0.0 | Targeted finding remediation — parse a specific finding from a review artifact (/ship or /audit), dispatch a scoped coder, run focused verification (security re-scan, code review, or tests), and commit with traceability back to the source finding. Supports `--dry-run`. Lightweight alternative to full /architect → /ship for single-finding fixes. | opus-4-6 | 5 |
 
 ### Contrib Skills (contrib/)
 
@@ -765,8 +767,10 @@ Tool: Bash (git worktree remove, delete temp files)
     │   └── sync-[timestamp].review.md     # Archived sync reviews
     ├── audit/
     │   └── audit-[timestamp]/             # Archived audit reports
-    └── retro/
-        └── retro-[timestamp]/             # Archived retro reports
+    ├── retro/
+    │   └── retro-[timestamp]/             # Archived retro reports
+    └── fix/
+        └── fix-[finding-id]-[timestamp].code-review.md    # Fix verification artifacts (from /fix)
 ```
 
 `.claude/learnings.md` — Project-level learnings (lives outside `./plans/`, created by `/retro` and `/ship` Step 7)
@@ -818,7 +822,8 @@ skills/
 ├── dependency-audit/SKILL.md
 ├── secrets-scan/SKILL.md
 ├── secure-review/SKILL.md
-└── threat-model-gate/SKILL.md
+├── threat-model-gate/SKILL.md
+└── fix/SKILL.md
 ```
 
 **Frontmatter Format:**
@@ -1064,9 +1069,9 @@ bash generators/test_skill_generator.sh
 
 **Coverage (46 tests):**
 - Generator and validator help text
-- All 12 core skills (architect, ship, retro, audit, sync,
+- All 13 core skills (architect, ship, retro, audit, sync,
   receiving-code-review, verification-before-completion, compliance-check,
-  dependency-audit, secrets-scan, secure-review, threat-model-gate)
+  dependency-audit, secrets-scan, secure-review, threat-model-gate, fix)
 - All 3 contrib skills (journal, journal-recall, journal-review)
 - All archetypes (coordinator, pipeline, scan)
 - Input validation (names, descriptions, paths)
@@ -1222,7 +1227,7 @@ test(generators): add validation tests for scan archetype
 - [x] Agent generator (unified)
 - [x] Skill validator + agent validator
 - [x] Deployment scripts (core + contrib)
-- [x] Test suite (46 tests, all 12 core + 3 contrib skills validated)
+- [x] Test suite (46 tests, all 13 core + 3 contrib skills validated)
 - [x] Security maturity levels (L1/L2/L3)
 - [x] validate-all health check command
 - [x] Deploy-time validation (--validate flag)

@@ -6,7 +6,7 @@
 #   bash test_skill_generator.sh
 #   bash -x test_skill_generator.sh  # verbose mode
 #
-# Test inventory (runtime count: up to 56 tests; numbering gaps noted below):
+# Test inventory (runtime count: up to 57 tests; numbering gaps noted below):
 #   Tests 1-25:   Core generator/validator tests
 #   Test 26:      SKIPPED (never created)
 #   Test 27:      Validate Reference skill (no model field)
@@ -563,6 +563,11 @@ run_test 53 "Audit log query utility help" \
 # Test 54: Audit event helper script help (Test F from plan)
 run_test 54 "Audit event helper script help" \
     "bash '$SKILLS_DIR/scripts/emit-audit-event.sh' --help" \
+    0
+
+# Test 57: Validate fix skill
+run_test 57 "Validate fix skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/fix/SKILL.md'" \
     0
 
 # Test 50: Cleanup
