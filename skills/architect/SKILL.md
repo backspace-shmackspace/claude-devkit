@@ -106,6 +106,36 @@ Tool: `Glob`, `Read` (direct — coordinator does this)
 
 3. **Archived plans:** Glob `./plans/archive/*/*.md` (exclude `*.code-review.md`, `*.qa-report.md`). Sort by modification time (newest first). Read up to 2 most recent archived plan files.
 
+**4. Codebase structure:** Run codebase scanner to extract structural facts.
+
+Tool: `Bash`
+
+```bash
+# Run codebase scanner (degrades gracefully if tree-sitter not installed)
+SCANNER_PYTHON="${HOME}/.claude-devkit/scanner-venv/bin/python3"
+SCANNER_SCRIPT="${CLAUDE_DEVKIT:-./}/scripts/codebase-scanner.py"
+if [ ! -f "$SCANNER_SCRIPT" ]; then
+  SCANNER_SCRIPT="./scripts/codebase-scanner.py"
+fi
+if [ -x "$SCANNER_PYTHON" ]; then
+  SCANNER_OUTPUT=$("$SCANNER_PYTHON" "$SCANNER_SCRIPT" --format summary --quiet 2>/dev/null || echo "")
+else
+  SCANNER_OUTPUT=$(python3 "$SCANNER_SCRIPT" --format summary --quiet 2>/dev/null || echo "")
+fi
+echo "$SCANNER_OUTPUT"
+
+# Emit scanner_invocation audit event
+if [ -n "$SCANNER_OUTPUT" ]; then
+  SCANNER_HASH=$(printf '%s' "$SCANNER_OUTPUT" | python3 -c "import sys,hashlib; print(hashlib.sha256(sys.stdin.read().encode()).hexdigest())" 2>/dev/null || echo "unknown")
+  SCANNER_VERSION=$(python3 "$SCANNER_SCRIPT" --version 2>/dev/null | awk '{print $NF}' || echo "unknown")
+  SCANNER_FILE_COUNT=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Files scanned:\s*\K[0-9]+' 2>/dev/null || echo "unknown")
+  SCANNER_SYMBOL_COUNT=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Total symbols:\s*\K[0-9]+' 2>/dev/null || echo "unknown")
+  SCANNER_PARSER_MODE=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Parser:\s*\K\S+' 2>/dev/null || echo "unknown")
+  bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
+    "{\"event_type\":\"scanner_invocation\",\"scanner_version\":\"${SCANNER_VERSION}\",\"parser_mode\":\"${SCANNER_PARSER_MODE}\",\"file_count\":\"${SCANNER_FILE_COUNT}\",\"symbol_count\":\"${SCANNER_SYMBOL_COUNT}\",\"output_sha256\":\"${SCANNER_HASH}\"}"
+fi
+```
+
 **Construct `$CONTEXT_BLOCK`:**
 
 Assemble the discovered context into a structured block:
@@ -124,6 +154,9 @@ Assemble the discovered context into a structured block:
 ### Historical Plans (Archived)
 [For each of up to 2 archived plans: filename, title/goal line]
 [If no archived plans found: "No archived plans found."]
+
+### Codebase Structure (auto-generated)
+[Scanner output from step 4, or "Scanner not available. Agent will discover structure during planning."]
 ---end context block format---
 
 **If CLAUDE.md does not exist:** Set patterns section to "No CLAUDE.md found." Continue to Step 2 (do not block).

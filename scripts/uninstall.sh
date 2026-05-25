@@ -74,6 +74,13 @@ for RC_FILE in "${RC_FILES[@]}"; do
     echo "✅ Cleaned $RC_FILE"
 done
 
+# Clean up scanner venv and cache
+echo "Cleaning up scanner virtual environment and cache..."
+rm -rf "$HOME/.claude-devkit/scanner-venv" 2>/dev/null || true
+rm -rf "$HOME/.claude-devkit/cache" 2>/dev/null || true
+rmdir "$HOME/.claude-devkit" 2>/dev/null || true
+echo "✅ Scanner venv and cache removed (if present)"
+
 echo ""
 echo "✅ Uninstallation complete!"
 echo ""

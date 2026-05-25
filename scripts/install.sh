@@ -111,6 +111,7 @@ for RC_FILE in "${RC_FILES[@]}"; do
     cat >> "$RC_FILE" << EOF
 
 # claude-devkit PATH
+export CLAUDE_DEVKIT="$REPO_DIR"
 export PATH="\$PATH:$GENERATORS_DIR"
 
 # claude-devkit aliases
@@ -118,6 +119,7 @@ alias generate-skill="$PYTHON_CMD $GENERATORS_DIR/generate_skill.py"
 alias generate-agent="$PYTHON_CMD $GENERATORS_DIR/generate_senior_architect.py"
 alias generate-agents="$PYTHON_CMD $GENERATORS_DIR/generate_agents.py"
 alias validate-skill="$PYTHON_CMD $GENERATORS_DIR/validate_skill.py"
+alias validate-agent="$PYTHON_CMD $GENERATORS_DIR/validate_agent.py"
 alias gen-skill="$PYTHON_CMD $GENERATORS_DIR/generate_skill.py"
 alias gen-agent="$PYTHON_CMD $GENERATORS_DIR/generate_senior_architect.py"
 alias gen-agents="$PYTHON_CMD $GENERATORS_DIR/generate_agents.py"
@@ -127,6 +129,33 @@ EOF
     UPDATED_FILES+=("$RC_FILE")
     echo "✅ Updated $RC_FILE"
 done
+
+# Scanner virtual environment (optional -- scanner falls back to regex without it)
+SCANNER_VENV="$HOME/.claude-devkit/scanner-venv"
+SCANNER_REQS="$HOME/.claude-devkit/scanner-requirements.txt"
+mkdir -p "$HOME/.claude-devkit"
+chmod 700 "$HOME/.claude-devkit"
+
+# Write pinned requirements
+cat > "$SCANNER_REQS" << 'REQS'
+tree-sitter>=0.25.0,<0.26
+tree-sitter-python>=0.23,<1.0
+tree-sitter-typescript>=0.23,<1.0
+tree-sitter-java>=0.23,<1.0
+tree-sitter-go>=0.23,<1.0
+REQS
+
+echo "Setting up codebase scanner virtual environment..."
+if $PYTHON_CMD -m venv "$SCANNER_VENV" 2>/dev/null; then
+    if [ -f "$SCANNER_VENV/bin/pip" ]; then
+        "$SCANNER_VENV/bin/pip" install --quiet -r "$SCANNER_REQS" 2>/dev/null || true
+        echo "✅ Scanner venv created at $SCANNER_VENV (tree-sitter mode enabled)"
+    else
+        echo "⚠️  Scanner venv created but pip not found. Scanner will use regex fallback."
+    fi
+else
+    echo "⚠️  Could not create scanner venv. Scanner will use regex fallback."
+fi
 
 echo ""
 echo "✅ Installation complete!"

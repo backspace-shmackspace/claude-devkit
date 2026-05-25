@@ -56,6 +56,7 @@ claude-devkit/
 ├── configs/             # Shared configurations
 │   ├── skill-patterns.json
 │   ├── audit-event-schema.json
+│   ├── scanner-languages.json  # Language grammar config for codebase scanner
 │   └── base-definitions/
 │
 ├── plans/audit-logs/    # JSONL audit event logs (L1: gitignored, L2/L3: committed)
@@ -65,11 +66,12 @@ claude-devkit/
     ├── install.sh       # Automated installation
     ├── uninstall.sh     # Clean uninstallation
     ├── validate-all.sh  # Health check - validate all skills
+    ├── codebase-scanner.py    # Deterministic codebase symbol index (tree-sitter + regex fallback)
     ├── emit-audit-event.sh    # Audit event emission helper (invoked by skills)
     ├── audit-log-query.sh     # Query utility for JSONL audit logs
     ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
     ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
-    └── test-integration.sh    # Integration smoke tests (28 tests)
+    └── test-integration.sh    # Integration smoke tests (37 tests)
 ```
 
 ### Data Flow
@@ -84,6 +86,8 @@ Customize from templates/
 Validate with validate_skill.py
        ↓
 Deploy and use in Claude Code
+       ↓
+Skill invocation → codebase-scanner.py (pre-scan) → structured symbol index → agent context
 ```
 
 **Core vs Contrib:**
@@ -902,6 +906,7 @@ Shared configurations and pattern definitions.
 
 **Contents:**
 - `skill-patterns.json` — Validation patterns
+- `scanner-languages.json` — Language grammar configuration for codebase scanner (extensions, tree-sitter queries, package versions for Python, TypeScript, Java, Go)
 - `tech-stack-definitions/` — Stack-specific configs (7 stacks: python, fastapi, typescript, react, nextjs, astro, security)
 - `base-definitions/` — Reserved for future use (currently empty)
 
@@ -914,14 +919,16 @@ Deployment and utility scripts.
 - `install.sh` — Automated installation (PATH, aliases, shell config)
 - `uninstall.sh` — Clean uninstallation with backup restoration
 - `validate-all.sh` — Health check - validate all skills in one pass
+- `codebase-scanner.py` — Deterministic codebase symbol index for agent context. Extracts functions, classes, methods, and import graph. Uses tree-sitter (>=0.25.0) when available in `~/.claude-devkit/scanner-venv/`, falls back to regex. Invoked by `/architect` Step 1 and `/ship` Step 1. Tree-sitter venv created by `install.sh`.
 - `emit-audit-event.sh` — Standalone helper script for skill audit event emission (invoked by `/ship`, `/architect`, `/audit`)
 - `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, overrides, verify-chain, recent, scores, trend)
 - `compute-run-score.sh` — Compute per-dimension quantitative scores from a JSONL audit log (python3, no jq)
 - `score-reflector.sh` — Deterministic score reflector for candidate learnings generation (python3, no jq)
-- `test-integration.sh` — Integration smoke tests (28 tests): emit-audit-event.sh JSONL correctness,
+- `test-integration.sh` — Integration smoke tests (37 tests): emit-audit-event.sh JSONL correctness,
   L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
   lifecycle, threat model consumption structural tests across /ship, /architect, /secure-review,
-  and quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases)
+  quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
+  and codebase-scanner integration tests (8 tests)
 
 **Usage:**
 ```bash
@@ -1137,6 +1144,28 @@ model: claude-opus-4-6  # Must be exactly this
 
 **Solution:** Never edit skills in `~/.claude/skills/`. Always edit in `~/projects/claude-devkit/skills/` and redeploy.
 
+### Scanner venv or cache issues
+
+**Issue:** Scanner fails to use tree-sitter, or cache appears stale/corrupted
+
+**Solution:**
+```bash
+# Remove scanner venv and cache (will be recreated on next install)
+rm -rf ~/.claude-devkit/scanner-venv
+rm -rf ~/.claude-devkit/cache
+
+# Or use uninstall.sh which handles cleanup automatically
+./scripts/uninstall.sh
+
+# Re-run install to recreate scanner venv
+./scripts/install.sh
+```
+
+The scanner falls back to regex-based extraction when tree-sitter is unavailable — skill execution is never blocked.
+
+**Scanner venv location:** `~/.claude-devkit/scanner-venv/`
+**Cache location:** `~/.claude-devkit/cache/<project-hash>/index.json`
+
 ## Syncing Across Machines
 
 If you work on multiple machines:
@@ -1237,6 +1266,7 @@ test(generators): add validation tests for scan archetype
 
 ### v1.1 (Next)
 
+- [x] Codebase symbol index (deterministic scanner for agent context — tree-sitter + regex fallback)
 - [ ] CLAUDE.md template generator (broader than security section)
 - [ ] Project initializer (full project setup)
 - [ ] Skill version upgrade tool

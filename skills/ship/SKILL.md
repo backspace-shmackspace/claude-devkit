@@ -324,6 +324,38 @@ If no `## Work Groups` section exists, treat the entire Task Breakdown as a sing
 
 Store these as the `scoped_files` for the single implicit work group. This list is used in Step 3d (boundary validation) and Step 3e (merge).
 
+**Run codebase scanner:**
+
+Tool: `Bash`
+
+```bash
+# Run codebase scanner (degrades gracefully if tree-sitter not installed)
+SCANNER_PYTHON="${HOME}/.claude-devkit/scanner-venv/bin/python3"
+SCANNER_SCRIPT="${CLAUDE_DEVKIT:-./}/scripts/codebase-scanner.py"
+if [ ! -f "$SCANNER_SCRIPT" ]; then
+  SCANNER_SCRIPT="./scripts/codebase-scanner.py"
+fi
+if [ -x "$SCANNER_PYTHON" ]; then
+  SCANNER_OUTPUT=$("$SCANNER_PYTHON" "$SCANNER_SCRIPT" --format summary --quiet 2>/dev/null || echo "")
+else
+  SCANNER_OUTPUT=$(python3 "$SCANNER_SCRIPT" --format summary --quiet 2>/dev/null || echo "")
+fi
+echo "$SCANNER_OUTPUT"
+
+# Emit scanner_invocation audit event
+if [ -n "$SCANNER_OUTPUT" ]; then
+  SCANNER_HASH=$(printf '%s' "$SCANNER_OUTPUT" | python3 -c "import sys,hashlib; print(hashlib.sha256(sys.stdin.read().encode()).hexdigest())" 2>/dev/null || echo "unknown")
+  SCANNER_VERSION=$(python3 "$SCANNER_SCRIPT" --version 2>/dev/null | awk '{print $NF}' || echo "unknown")
+  SCANNER_FILE_COUNT=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Files scanned:\s*\K[0-9]+' 2>/dev/null || echo "unknown")
+  SCANNER_SYMBOL_COUNT=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Total symbols:\s*\K[0-9]+' 2>/dev/null || echo "unknown")
+  SCANNER_PARSER_MODE=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Parser:\s*\K\S+' 2>/dev/null || echo "unknown")
+  bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+    "{\"event_type\":\"scanner_invocation\",\"scanner_version\":\"${SCANNER_VERSION}\",\"parser_mode\":\"${SCANNER_PARSER_MODE}\",\"file_count\":\"${SCANNER_FILE_COUNT}\",\"symbol_count\":\"${SCANNER_SYMBOL_COUNT}\",\"output_sha256\":\"${SCANNER_HASH}\"}"
+fi
+```
+
+Include `$SCANNER_OUTPUT` in coder dispatch prompts (Step 3c) under the heading `### Codebase Structure (auto-generated)`. If scanner output is empty, include "Scanner not available. Coder should discover structure via file reads."
+
 **Emit step_end for Step 1:**
 
 Tool: `Bash`
@@ -801,6 +833,60 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
 
 ## Step 4 — Parallel verification
 
+**Pre-step: Compute import graph for blast radius (runs before parallel dispatch):**
+
+Tool: `Bash`
+
+```bash
+# Extract import graph for files changed in this ship run, for blast radius assessment
+SCANNER_PYTHON="${HOME}/.claude-devkit/scanner-venv/bin/python3"
+SCANNER_SCRIPT="${CLAUDE_DEVKIT:-./}/scripts/codebase-scanner.py"
+if [ ! -f "$SCANNER_SCRIPT" ]; then
+  SCANNER_SCRIPT="./scripts/codebase-scanner.py"
+fi
+
+# Get list of changed files
+CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null || echo "")
+
+IMPORT_GRAPH_DATA=""
+if [ -n "$CHANGED_FILES" ] && [ -f "$SCANNER_SCRIPT" ]; then
+  # Run scanner in JSON mode to get full import graph
+  if [ -x "$SCANNER_PYTHON" ]; then
+    SCANNER_JSON=$("$SCANNER_PYTHON" "$SCANNER_SCRIPT" --format json --quiet 2>/dev/null || echo "")
+  else
+    SCANNER_JSON=$(python3 "$SCANNER_SCRIPT" --format json --quiet 2>/dev/null || echo "")
+  fi
+
+  if [ -n "$SCANNER_JSON" ]; then
+    # Extract import edges where source_file is one of the changed files
+    IMPORT_GRAPH_DATA=$(SCANNER_JSON_VAR="$SCANNER_JSON" CHANGED_FILES_VAR="$CHANGED_FILES" \
+      python3 -c "
+import json, os
+scanner_json = os.environ.get('SCANNER_JSON_VAR', '')
+changed_files_str = os.environ.get('CHANGED_FILES_VAR', '')
+try:
+    data = json.loads(scanner_json)
+    changed = set(f.strip() for f in changed_files_str.splitlines() if f.strip())
+    imports = data.get('imports', [])
+    relevant = [i for i in imports if i.get('source_file', '') in changed]
+    if not relevant:
+        print('No import edges found for changed files.')
+    else:
+        lines = ['| Source File | Imports | Kind |', '|---|---|---|']
+        for imp in relevant:
+            lines.append(f\"| {imp.get('source_file','')} | {imp.get('target','')} | {imp.get('kind','')} |\")
+        print('\n'.join(lines))
+except Exception as e:
+    print(f'Import graph extraction failed: {e}')
+" 2>/dev/null || echo "Import graph unavailable.")
+  fi
+fi
+
+echo "Import graph data computed (${#IMPORT_GRAPH_DATA} chars)"
+```
+
+Retain `$IMPORT_GRAPH_DATA` in coordinator context for inclusion in the Step 4a code reviewer prompt.
+
 Tool: `Task` (code review, QA), `Bash` (tests) — **Run all three checks in parallel in a single message**
 
 Run these verification tasks in parallel (3 or 4 tasks depending on security skill deployment):
@@ -816,6 +902,14 @@ Follow that agent's review standards.
 
 Review all files listed in the plan's task breakdown. Compare the current file contents
 against the plan's requirements.
+
+**Import graph (blast radius):**
+
+The following import relationships were detected by the codebase scanner for files changed
+in this ship run. Use this data to assess blast radius — which other modules depend on
+the changed files and may be affected by this change.
+
+$IMPORT_GRAPH_DATA
 
 Write your review to `./plans/[name].code-review.md` with this structure:
 - **Verdict:** PASS / REVISION_NEEDED / FAIL

@@ -9,11 +9,12 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 28 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+# 37 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
 #           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
 #           threat model consumption structural tests (10 tests),
 #           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
-#           fix skill structural tests (2 tests), cleanup
+#           fix skill structural tests (2 tests),
+#           codebase-scanner integration tests (8 tests), cleanup
 
 set -e
 
@@ -429,6 +430,39 @@ run_test 28 "fix SKILL.md version is 1.0.0" \
 # Test 29: fix SKILL.md contains Pipeline archetype steps
 run_test 29 "fix SKILL.md contains Pipeline archetype steps" \
     "grep -q 'Step 0' '$REPO_DIR/skills/fix/SKILL.md' && grep -q 'Step 4' '$REPO_DIR/skills/fix/SKILL.md'" \
+    0
+
+# Tests 30-37: codebase-scanner integration tests
+run_test 30 "Scanner runs on project root without errors" \
+    "python3 '$REPO_DIR/scripts/codebase-scanner.py' --format summary --quiet '$REPO_DIR'" \
+    0
+
+run_test 31 "Scanner JSON output is valid JSON" \
+    "python3 '$REPO_DIR/scripts/codebase-scanner.py' --format json --quiet '$REPO_DIR' | python3 -m json.tool > /dev/null" \
+    0
+
+run_test 32 "Scanner handles empty directory" \
+    "mkdir -p /tmp/scanner-test-empty && python3 '$REPO_DIR/scripts/codebase-scanner.py' --format summary --quiet /tmp/scanner-test-empty; STATUS=\$?; rm -rf /tmp/scanner-test-empty 2>/dev/null || true; exit \$STATUS" \
+    0
+
+run_test 33 "Scanner respects --max-files limit" \
+    "python3 '$REPO_DIR/scripts/codebase-scanner.py' --format json --max-files 3 --no-cache --quiet '$REPO_DIR' | python3 -c 'import json,sys; d=json.load(sys.stdin); fc=d[\"file_count\"]; assert fc<=3, f\"Expected <=3 files, got {fc}\"; print(\"PASS\")'" \
+    0
+
+run_test 34 "Scanner summary contains expected structure header" \
+    "python3 '$REPO_DIR/scripts/codebase-scanner.py' --format summary --quiet '$REPO_DIR' | grep -q '## Codebase Structure'" \
+    0
+
+run_test 35 "Scanner rejects symlink escape" \
+    "mkdir -p /tmp/scanner-symlink-test && ln -sf /etc/passwd /tmp/scanner-symlink-test/escape.py && python3 '$REPO_DIR/scripts/codebase-scanner.py' --format json --quiet /tmp/scanner-symlink-test | python3 -c 'import json,sys; d=json.load(sys.stdin); fc=d[\"file_count\"]; assert fc==0, f\"Expected 0 files, got {fc}\"; print(\"PASS\")'; STATUS=\$?; rm -rf /tmp/scanner-symlink-test 2>/dev/null || true; exit \$STATUS" \
+    0
+
+run_test 36 "Scanner --self-test passes" \
+    "python3 '$REPO_DIR/scripts/codebase-scanner.py' --self-test" \
+    0
+
+run_test 37 "Scanner --max-tokens truncates output to reasonable size" \
+    "OUTPUT=\$(python3 '$REPO_DIR/scripts/codebase-scanner.py' --format summary --max-tokens 200 --quiet '$REPO_DIR') && CHARS=\$(printf '%s' \"\$OUTPUT\" | wc -c) && test \"\$CHARS\" -lt 2000" \
     0
 
 # Test 9: Cleanup
