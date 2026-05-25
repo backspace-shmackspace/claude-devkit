@@ -1,7 +1,7 @@
 # Claude Devkit
 
 **Version:** 1.0.0
-**Last Updated:** 2026-05-09
+**Last Updated:** 2026-05-25
 **Purpose:** Unified development toolkit for Claude Code - skills, agents, generators, and templates
 
 **New to Claude Devkit?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a 15-minute tutorial.
@@ -196,6 +196,7 @@ The `/ship` skill runs four security gates when the corresponding skills are dep
 | `file_modification` | When files are merged from worktrees (per work group) |
 | `error` | When a step fails unexpectedly |
 | `run_score` | When a skill run completes and scores are computed (emitted immediately before `run_end`, on PASS path only) |
+| `scanner_invocation` | When codebase-scanner.py runs during Step 1 context discovery |
 
 **Log File Locations:**
 
@@ -367,10 +368,12 @@ which gen-skill gen-agent validate-skill
 
 **What install.sh Does:**
 - Auto-detects shell (zsh or bash)
-- Adds `CLAUDE_DEVKIT` environment variable
+- Exports `CLAUDE_DEVKIT` environment variable (also used by skills to locate `codebase-scanner.py`)
 - Adds generators to your PATH
 - Creates convenient aliases (gen-skill, gen-agent, validate-skill, etc.)
 - Backs up your shell config before making changes
+- Creates optional tree-sitter venv at `~/.claude-devkit/scanner-venv/` for high-fidelity symbol
+  extraction (falls back to regex if unavailable)
 
 **Manual Installation (Alternative):**
 ```bash
@@ -1235,6 +1238,8 @@ plans/audit-logs/*.jsonl
 
 # Audit HMAC key files (L3 only — never commit to shared repos)
 .ship-audit-key-*
+
+# Scanner cache (outside repo, at ~/.claude-devkit/cache/) — no repo entry needed
 ```
 
 ### Commit Messages

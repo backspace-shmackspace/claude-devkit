@@ -43,7 +43,7 @@ cd ~/projects/claude-devkit
 
 ## What's Included
 
-### Skills (12)
+### Skills (13)
 
 Pre-built workflows for common development tasks:
 
@@ -61,6 +61,7 @@ Pre-built workflows for common development tasks:
 | `/secrets-scan` | Pre-commit secrets detection for API keys, tokens, credentials | `/secrets-scan staged` |
 | `/secure-review` | Deep semantic security review with data flow tracing, taint analysis, and trust boundary validation. When invoked with threat model context, produces a `## Threat Model Coverage` section mapping STRIDE threats to implementation status. | `/secure-review changes` |
 | `/threat-model-gate` | Security planning reference for authentication, authorization, data handling | `/threat-model-gate` |
+| `/fix` | Targeted finding remediation — parse a finding from a review artifact, dispatch a scoped coder, run focused verification, and commit with traceability. Supports `--dry-run`. | `/fix plans/audit-findings.md --finding SEC-01` |
 
 **Audit Logging:** `/ship`, `/architect`, and `/audit` emit structured JSONL events to `plans/audit-logs/`
 on every run. At L2/L3, logs are committed to git. Query with `./scripts/audit-log-query.sh`.
@@ -489,6 +490,8 @@ cd ~/projects/claude-devkit
 - Adds environment variables and PATH
 - Creates aliases (gen-skill, gen-agent, validate-skill, etc.)
 - Backs up shell config before changes
+- Creates optional tree-sitter venv at `~/.claude-devkit/scanner-venv/` for high-fidelity symbol
+  extraction (falls back to regex if unavailable)
 - Safe to run multiple times (idempotent)
 
 ### Verify Installation
@@ -571,11 +574,11 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Test Coverage (46 tests):**
+**Test Coverage (57 tests):**
 - Generator and validator help text (2 tests)
-- All 12 core skills validation (architect, ship, retro, audit, sync,
+- All 13 core skills validation (architect, ship, retro, audit, sync,
   receiving-code-review, verification-before-completion, compliance-check,
-  dependency-audit, secrets-scan, secure-review, threat-model-gate)
+  dependency-audit, secrets-scan, secure-review, threat-model-gate, fix)
 - All 3 contrib skills validation (journal, journal-recall, journal-review)
 - All 3 archetypes (coordinator, pipeline, scan)
 - Input validation (names, descriptions, paths)
@@ -588,8 +591,8 @@ bash generators/test_skill_generator.sh
 ```
 Test Summary
 ========================================
-Total:  46
-Pass:   46
+Total:  57
+Pass:   57
 Fail:   0
 
 ✅ All tests passed!
@@ -604,7 +607,7 @@ cd ~/projects/claude-devkit
 bash scripts/test-integration.sh
 ```
 
-**Integration Test Coverage (26 tests):**
+**Integration Test Coverage (37 tests):**
 - Coordinator lifecycle (generate → validate → deploy → undeploy)
 - `validate-all.sh` health check
 - Pipeline lifecycle
@@ -614,6 +617,8 @@ bash scripts/test-integration.sh
 - 10+ call state persistence
 - Cleanup
 - Threat model consumption structural tests across /ship, /architect, /secure-review (10 tests)
+- Codebase-scanner integration tests (8 tests)
+- Fix skill structural tests (2 tests)
 
 ## Structure
 
@@ -643,6 +648,7 @@ claude-devkit/
 │   ├── skill-patterns.json
 │   ├── audit-event-schema.json    # JSON Schema for audit events (OTel-aligned)
 │   ├── score-dimensions.json      # Score dimension weights and logic (machine-readable)
+│   ├── scanner-languages.json     # Language grammar config for codebase scanner
 │   ├── tech-stack-definitions/    # Tech stack configs (7 stacks)
 │   └── base-definitions/          # (empty - reserved for future)
 │
@@ -651,10 +657,12 @@ claude-devkit/
 │   ├── install.sh             # Automated installation
 │   ├── uninstall.sh           # Clean uninstallation
 │   ├── validate-all.sh        # Health check - validate all skills
+│   ├── codebase-scanner.py    # Deterministic codebase symbol index (tree-sitter + regex fallback)
 │   ├── emit-audit-event.sh    # Audit event emission helper (invoked by skills)
 │   ├── audit-log-query.sh     # Query utility for JSONL audit logs
 │   ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
-│   └── score-reflector.sh     # Deterministic score reflector (candidate learnings)
+│   ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
+│   └── test-integration.sh    # Integration smoke tests (37 tests)
 │
 ├── .claude/                   # Project-specific agents
 │   └── agents/
@@ -834,5 +842,5 @@ MIT - Use freely in your projects
 ---
 
 **Version:** 1.0.0
-**Last Updated:** 2026-05-09
+**Last Updated:** 2026-05-25
 **Maintained by:** @backspace-shmackspace
