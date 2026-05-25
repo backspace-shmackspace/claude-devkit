@@ -2,7 +2,7 @@
 name: architect
 description: Research and create a technical blueprint for a new feature.
 model: claude-opus-4-6
-version: 3.3.0
+version: 3.4.0
 ---
 # /architect Workflow
 
@@ -206,7 +206,30 @@ Use this context to:
 
 Hard requirements for the plan:
 - Must be self-contained and runnable by an Engineer without follow-ups.
-- Must include: Goals, Non-Goals, Assumptions, Proposed Design, Interfaces/Schema changes, Data migration (if any), Rollout plan, Risks, Test plan (including the exact test command to run), Acceptance criteria, Task breakdown (listing every file to create or modify).
+- Must include: Goals, Non-Goals, Assumptions, Proposed Design, Interfaces/Schema changes, Data migration (if any), Rollout plan, Risks, Test plan (including the exact test command to run), Acceptance criteria, Task breakdown (listing every file to create or modify, organized into Work Groups for parallel execution).
+- The `## Task Breakdown` section MUST include a `## Work Groups` subsection that organizes files into independent parallel units. Use this exact format:
+
+```markdown
+## Work Groups
+
+### Shared Dependencies
+- src/types.ts (modify — shared types needed by both groups)
+
+### Work Group 1: [descriptive name]
+- src/feature/component-a.ts (create)
+- src/feature/component-a.test.ts (create)
+
+### Work Group 2: [descriptive name]
+- src/api/endpoint-b.ts (modify)
+- src/api/endpoint-b.test.ts (modify)
+```
+
+Work group rules:
+- Each work group runs in an isolated git worktree with its own coder agent — files in different work groups MUST be independent (no cross-group file modifications).
+- `### Shared Dependencies` lists files that must be implemented BEFORE work groups start (e.g., shared types, interfaces, config). This section is optional — omit it if there are no shared prerequisites.
+- If the entire task is inherently sequential (all files depend on each other), use a single work group. Do NOT force artificial parallelism.
+- Every file in the plan must appear in exactly one work group or in Shared Dependencies.
+- Annotate each file as `(create)` or `(modify)` to clarify intent.
 - Must include a `## Context Alignment` section documenting:
   - Which CLAUDE.md patterns this plan follows
   - Which prior plans (if any) this relates to or builds upon
