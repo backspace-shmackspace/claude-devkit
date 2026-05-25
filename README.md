@@ -607,7 +607,7 @@ cd ~/projects/claude-devkit
 bash scripts/test-integration.sh
 ```
 
-**Integration Test Coverage (37 tests):**
+**Integration Test Coverage (42 tests):**
 - Coordinator lifecycle (generate → validate → deploy → undeploy)
 - `validate-all.sh` health check
 - Pipeline lifecycle
@@ -619,6 +619,7 @@ bash scripts/test-integration.sh
 - Threat model consumption structural tests across /ship, /architect, /secure-review (10 tests)
 - Codebase-scanner integration tests (8 tests)
 - Fix skill structural tests (2 tests)
+- Scanner value instrumentation tests (5 tests: `compute-run-score.sh scanner_mode extraction`, `scanner_mode absent default`, `scanner-value-report.sh empty dir`, `scanner-value-report.sh cohort table`, `scanner_invocation schema registration`)
 
 ## Structure
 
@@ -646,11 +647,12 @@ claude-devkit/
 │
 ├── configs/                   # Shared configurations
 │   ├── skill-patterns.json
-│   ├── audit-event-schema.json    # JSON Schema for audit events (OTel-aligned)
-│   ├── score-dimensions.json      # Score dimension weights and logic (machine-readable)
-│   ├── scanner-languages.json     # Language grammar config for codebase scanner
-│   ├── tech-stack-definitions/    # Tech stack configs (7 stacks)
-│   └── base-definitions/          # (empty - reserved for future)
+│   ├── audit-event-schema.json        # JSON Schema for audit events (OTel-aligned)
+│   ├── score-dimensions.json          # Score dimension weights and logic (machine-readable)
+│   ├── scanner-languages.json         # Language grammar config for codebase scanner
+│   ├── scanner-value-thresholds.json  # Thresholds for scanner value cohort analysis
+│   ├── tech-stack-definitions/        # Tech stack configs (7 stacks)
+│   └── base-definitions/              # (empty - reserved for future)
 │
 ├── scripts/                   # Deployment and utilities
 │   ├── deploy.sh              # Deploy skills to ~/.claude/skills/
@@ -660,9 +662,10 @@ claude-devkit/
 │   ├── codebase-scanner.py    # Deterministic codebase symbol index (tree-sitter + regex fallback)
 │   ├── emit-audit-event.sh    # Audit event emission helper (invoked by skills)
 │   ├── audit-log-query.sh     # Query utility for JSONL audit logs
-│   ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
-│   ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
-│   └── test-integration.sh    # Integration smoke tests (37 tests)
+│   ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log (includes scanner_mode and scanner_tokens fields)
+│   ├── score-reflector.sh     # Deterministic score reflector (candidate learnings, scanner-aware cohort analysis)
+│   ├── scanner-value-report.sh  # Scanner value cohort analysis report
+│   └── test-integration.sh    # Integration smoke tests (42 tests)
 │
 ├── .claude/                   # Project-specific agents
 │   └── agents/

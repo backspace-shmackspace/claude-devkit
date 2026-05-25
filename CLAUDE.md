@@ -198,7 +198,7 @@ The `/ship` skill runs four security gates when the corresponding skills are dep
 | `file_modification` | When files are merged from worktrees (per work group) |
 | `error` | When a step fails unexpectedly |
 | `run_score` | When a skill run completes and scores are computed (emitted immediately before `run_end`, on PASS path only) |
-| `scanner_invocation` | When codebase-scanner.py runs during Step 1 context discovery |
+| `scanner_invocation` | When codebase-scanner.py runs during Step 1 context discovery; includes `output_token_count` field |
 
 **Log File Locations:**
 
@@ -241,8 +241,8 @@ Requirements: `jq` (required for all commands), `openssl` (required for `verify-
 **Implementation:**
 
 - `scripts/emit-audit-event.sh` — Standalone helper script invoked by each skill step. Reads state from a per-run state file (shell variables don't persist across Bash tool calls). Uses `python3 json.dumps()` for RFC 8259 compliant escaping. Exits 0 on all error paths (never blocks `/ship`).
-- `scripts/compute-run-score.sh` — Reads a run's JSONL audit log, computes per-dimension scores (efficiency, security, quality, velocity), outputs partial event JSON for `emit-audit-event.sh`. Exits 0 on all paths; handles empty, incomplete, and malformed logs gracefully (neutral 0.5 scores). No jq dependency.
-- `scripts/score-reflector.sh` — Deterministic score reflector. Reads all `run_score` events from `plans/audit-logs/`, computes statistics and trends, outputs candidate learnings entries to stdout for human review. Tiered analysis: 5-9 runs = summary stats, 10+ runs = trends. No jq dependency.
+- `scripts/compute-run-score.sh` — Reads a run's JSONL audit log, computes per-dimension scores (efficiency, security, quality, velocity), outputs partial event JSON for `emit-audit-event.sh`. Now includes `scanner_mode` and `scanner_tokens` fields in the output JSON (consumed by `scanner-value-report.sh`). Exits 0 on all paths; handles empty, incomplete, and malformed logs gracefully (neutral 0.5 scores). No jq dependency.
+- `scripts/score-reflector.sh` — Deterministic score reflector. Reads all `run_score` events from `plans/audit-logs/`, computes statistics and trends, correlates run scores with scanner mode cohorts, outputs candidate learnings entries to stdout for human review. Tiered analysis: 5-9 runs = summary stats, 10+ runs = trends. No jq dependency.
 - `configs/audit-event-schema.json` — JSON Schema defining all event types with OTel field mapping documentation.
 - `plans/audit-logs/` — Dedicated directory for audit logs (separate lifecycle from `plans/archive/`).
 
