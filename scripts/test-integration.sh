@@ -9,12 +9,13 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 37 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+# 42 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
 #           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
 #           threat model consumption structural tests (10 tests),
 #           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
 #           fix skill structural tests (2 tests),
-#           codebase-scanner integration tests (8 tests), cleanup
+#           codebase-scanner integration tests (8 tests),
+#           scanner value instrumentation tests (5 tests), cleanup
 
 set -e
 
@@ -274,9 +275,9 @@ run_test 16 "ship SKILL.md version is 3.8.0" \
     "grep -q 'version: 3.8.0' '$REPO_DIR/skills/ship/SKILL.md'" \
     0
 
-# Test 17: /architect version bumped to 3.3.0
-run_test 17 "architect SKILL.md version is 3.3.0" \
-    "grep -q 'version: 3.3.0' '$REPO_DIR/skills/architect/SKILL.md'" \
+# Test 17: /architect version bumped to 3.4.0
+run_test 17 "architect SKILL.md version is 3.4.0" \
+    "grep -q 'version: 3.4.0' '$REPO_DIR/skills/architect/SKILL.md'" \
     0
 
 # Test 18: /secure-review version bumped to 1.1.0
@@ -463,6 +464,76 @@ run_test 36 "Scanner --self-test passes" \
 
 run_test 37 "Scanner --max-tokens truncates output to reasonable size" \
     "OUTPUT=\$(python3 '$REPO_DIR/scripts/codebase-scanner.py' --format summary --max-tokens 200 --quiet '$REPO_DIR') && CHARS=\$(printf '%s' \"\$OUTPUT\" | wc -c) && test \"\$CHARS\" -lt 2000" \
+    0
+
+# --- Scanner value instrumentation tests ---
+
+# Test 38: compute-run-score.sh extracts scanner_mode from scanner_invocation event
+run_test 38 "compute-run-score.sh extracts scanner_mode from scanner_invocation event" \
+    "SCORE_LOG=\"/tmp/integration-smoke-test/score-test-scanner-mode.jsonl\" && \
+     mkdir -p /tmp/integration-smoke-test && \
+     printf '{\"event_type\":\"run_start\",\"timestamp\":\"2026-05-25T10:00:00.000Z\",\"run_id\":\"test-scanner-mode-1\"}\n' > \"\$SCORE_LOG\" && \
+     printf '{\"event_type\":\"scanner_invocation\",\"parser_mode\":\"tree-sitter-partial\",\"output_token_count\":1500,\"scanner_version\":\"1.0.0\",\"file_count\":6,\"symbol_count\":112,\"output_sha256\":\"abc123\"}\n' >> \"\$SCORE_LOG\" && \
+     printf '{\"event_type\":\"verdict\",\"verdict\":\"PASS\",\"verdict_source\":\"code_review\"}\n' >> \"\$SCORE_LOG\" && \
+     OUTPUT=\$(bash '$REPO_DIR/scripts/compute-run-score.sh' \"\$SCORE_LOG\") && \
+     python3 -c \"
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get('scanner_mode') == 'tree-sitter-partial', f'expected scanner_mode tree-sitter-partial, got {data.get(\\\"scanner_mode\\\")}'
+assert data.get('scanner_tokens') == 1500, f'expected scanner_tokens 1500, got {data.get(\\\"scanner_tokens\\\")}'
+print('PASS: scanner_mode and scanner_tokens extracted from scanner_invocation')
+\" \"\$OUTPUT\" && \
+     rm -f \"\$SCORE_LOG\"" \
+    0
+
+# Test 39: compute-run-score.sh defaults scanner_mode to "absent" when no scanner_invocation
+run_test 39 "compute-run-score.sh defaults scanner_mode to absent when no scanner_invocation" \
+    "SCORE_LOG=\"/tmp/integration-smoke-test/score-test-scanner-absent.jsonl\" && \
+     mkdir -p /tmp/integration-smoke-test && \
+     printf '{\"event_type\":\"run_start\",\"timestamp\":\"2026-05-25T10:00:00.000Z\",\"run_id\":\"test-scanner-absent-1\"}\n' > \"\$SCORE_LOG\" && \
+     printf '{\"event_type\":\"verdict\",\"verdict\":\"PASS\",\"verdict_source\":\"code_review\"}\n' >> \"\$SCORE_LOG\" && \
+     OUTPUT=\$(bash '$REPO_DIR/scripts/compute-run-score.sh' \"\$SCORE_LOG\") && \
+     python3 -c \"
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get('scanner_mode') == 'absent', f'expected scanner_mode absent, got {data.get(\\\"scanner_mode\\\")}'
+assert data.get('scanner_tokens') == 0, f'expected scanner_tokens 0, got {data.get(\\\"scanner_tokens\\\")}'
+print('PASS: scanner_mode defaults to absent and scanner_tokens to 0 when no scanner_invocation')
+\" \"\$OUTPUT\" && \
+     rm -f \"\$SCORE_LOG\"" \
+    0
+
+# Test 40: scanner-value-report.sh runs without errors on empty audit-logs directory
+run_test 40 "scanner-value-report.sh exits 0 on empty audit-logs directory" \
+    "EMPTY_LOGS=\"/tmp/integration-smoke-test/empty-scanner-logs-\$(date +%s)\" && \
+     mkdir -p \"\$EMPTY_LOGS\" && \
+     OUTPUT=\$(bash '$REPO_DIR/scripts/scanner-value-report.sh' --audit-log-dir \"\$EMPTY_LOGS\" 2>/dev/null) && \
+     echo \"\$OUTPUT\" | grep -iq 'No ship' && \
+     rm -rf \"\$EMPTY_LOGS\"" \
+    0
+
+# Test 41: scanner-value-report.sh produces markdown output for synthetic scored runs
+run_test 41 "scanner-value-report.sh produces cohort table for synthetic run_score events" \
+    "SYNTH_LOGS=\"/tmp/integration-smoke-test/synth-scanner-logs-\$(date +%s)\" && \
+     mkdir -p \"\$SYNTH_LOGS\" && \
+     for i in 1 2 3; do \
+       RUN_ID=\"synth-ts-\${i}-\$(date +%s)\${i}\" && \
+       LOG=\"\${SYNTH_LOGS}/ship-\${RUN_ID}.jsonl\" && \
+       printf '{\"event_type\":\"run_score\",\"run_id\":\"%s\",\"timestamp\":\"2026-05-25T10:0%s:00.000Z\",\"skill\":\"ship\",\"skill_version\":\"3.8.0\",\"security_maturity\":\"advisory\",\"sequence\":1,\"dimensions\":[{\"name\":\"efficiency\",\"score\":0.9,\"weight\":0.3333,\"details\":\"test\"},{\"name\":\"security\",\"score\":0.9,\"weight\":0.3333,\"details\":\"test\"},{\"name\":\"quality\",\"score\":0.9,\"weight\":0.3333,\"details\":\"test\"}],\"composite\":0.9,\"scanner_mode\":\"tree-sitter-partial\",\"scanner_tokens\":1500}\n' \"\$RUN_ID\" \"\$i\" > \"\$LOG\"; \
+     done && \
+     for i in 1 2 3; do \
+       RUN_ID=\"synth-rf-\${i}-\$(date +%s)\${i}\" && \
+       LOG=\"\${SYNTH_LOGS}/ship-\${RUN_ID}.jsonl\" && \
+       printf '{\"event_type\":\"run_score\",\"run_id\":\"%s\",\"timestamp\":\"2026-05-25T10:0%s:00.000Z\",\"skill\":\"ship\",\"skill_version\":\"3.8.0\",\"security_maturity\":\"advisory\",\"sequence\":1,\"dimensions\":[{\"name\":\"efficiency\",\"score\":0.7,\"weight\":0.3333,\"details\":\"test\"},{\"name\":\"security\",\"score\":0.7,\"weight\":0.3333,\"details\":\"test\"},{\"name\":\"quality\",\"score\":0.7,\"weight\":0.3333,\"details\":\"test\"}],\"composite\":0.7,\"scanner_mode\":\"regex-fallback\",\"scanner_tokens\":1000}\n' \"\$RUN_ID\" \"\$i\" > \"\$LOG\"; \
+     done && \
+     OUTPUT=\$(bash '$REPO_DIR/scripts/scanner-value-report.sh' --audit-log-dir \"\$SYNTH_LOGS\" 2>/dev/null) && \
+     echo \"\$OUTPUT\" | grep -q 'Cohort' && \
+     rm -rf \"\$SYNTH_LOGS\"" \
+    0
+
+# Test 42: scanner_invocation is registered in audit-event-schema.json
+run_test 42 "scanner_invocation is in audit-event-schema.json event_type enum" \
+    "grep -q '\"scanner_invocation\"' '$REPO_DIR/configs/audit-event-schema.json'" \
     0
 
 # Test 9: Cleanup

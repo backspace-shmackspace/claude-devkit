@@ -346,11 +346,12 @@ echo "$SCANNER_OUTPUT"
 if [ -n "$SCANNER_OUTPUT" ]; then
   SCANNER_HASH=$(printf '%s' "$SCANNER_OUTPUT" | python3 -c "import sys,hashlib; print(hashlib.sha256(sys.stdin.read().encode()).hexdigest())" 2>/dev/null || echo "unknown")
   SCANNER_VERSION=$(python3 "$SCANNER_SCRIPT" --version 2>/dev/null | awk '{print $NF}' || echo "unknown")
-  SCANNER_FILE_COUNT=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Files scanned:\s*\K[0-9]+' 2>/dev/null || echo "unknown")
-  SCANNER_SYMBOL_COUNT=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Total symbols:\s*\K[0-9]+' 2>/dev/null || echo "unknown")
+  SCANNER_FILE_COUNT=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Files:\s*\K[0-9]+' 2>/dev/null || echo "0")
+  SCANNER_SYMBOL_COUNT=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Symbols:\s*\K[0-9]+' 2>/dev/null || echo "0")
   SCANNER_PARSER_MODE=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Parser:\s*\K\S+' 2>/dev/null || echo "unknown")
+  SCANNER_TOKEN_COUNT=$(printf '%s' "$SCANNER_OUTPUT" | wc -c | awk '{printf "%.0f", $1 / 4}')
   bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
-    "{\"event_type\":\"scanner_invocation\",\"scanner_version\":\"${SCANNER_VERSION}\",\"parser_mode\":\"${SCANNER_PARSER_MODE}\",\"file_count\":\"${SCANNER_FILE_COUNT}\",\"symbol_count\":\"${SCANNER_SYMBOL_COUNT}\",\"output_sha256\":\"${SCANNER_HASH}\"}"
+    "{\"event_type\":\"scanner_invocation\",\"scanner_version\":\"${SCANNER_VERSION}\",\"parser_mode\":\"${SCANNER_PARSER_MODE}\",\"file_count\":${SCANNER_FILE_COUNT},\"symbol_count\":${SCANNER_SYMBOL_COUNT},\"output_sha256\":\"${SCANNER_HASH}\",\"output_token_count\":${SCANNER_TOKEN_COUNT}}"
 fi
 ```
 

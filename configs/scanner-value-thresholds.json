@@ -1,0 +1,41 @@
+{
+  "title": "Scanner Value Analysis Thresholds",
+  "version": "1.0.0",
+  "description": "Configuration for scanner-value-report.sh confidence tiers and effect size thresholds.",
+  "confidence_tiers": {
+    "INSUFFICIENT": {
+      "min_total_runs": 0,
+      "max_total_runs": 4,
+      "min_per_cohort": 0,
+      "label": "Insufficient data"
+    },
+    "PRELIMINARY": {
+      "min_total_runs": 5,
+      "max_total_runs": 14,
+      "min_per_cohort": 3,
+      "label": "Preliminary signal"
+    },
+    "RELIABLE": {
+      "min_total_runs": 15,
+      "max_total_runs": 29,
+      "min_per_cohort": 8,
+      "label": "Reliable comparison"
+    },
+    "HIGH_CONFIDENCE": {
+      "min_total_runs": 30,
+      "min_per_cohort": 15,
+      "label": "High confidence"
+    }
+  },
+  "effect_size_thresholds": {
+    "small": 0.10,
+    "medium": 0.15,
+    "large": 0.20
+  },
+  "notes": {
+    "token_approximation": "1 token ~= 4 characters. This is a rough estimate for comparative purposes, not an exact tokenizer count.",
+    "confounders": "Scanner mode is not randomly assigned. Cohort comparisons are observational, not experimental. Correlations do not imply causation. Confounders include developer skill, project type, plan complexity, and time/learning effects.",
+    "scope": "Analysis covers /ship runs only. /architect emits scanner_invocation but has no scoring, so architect runs are excluded from correlation analysis.",
+    "existing_reflector_thresholds": "score-reflector.sh uses 5/10 thresholds for single-population trend analysis. Scanner value assessment uses higher thresholds (15/30) because cohort comparison requires more data than single-group analysis."
+  }
+}

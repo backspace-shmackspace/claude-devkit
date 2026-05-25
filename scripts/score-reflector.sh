@@ -446,6 +446,89 @@ else:
                 )
             })
 
+    # --- Scanner mode correlation check (10+ runs path) ---
+    # Correlate scanner_mode with dimension scores when data is available.
+    # Only /ship run_score events carry scanner_mode (from compute-run-score.sh).
+    # Pre-instrumentation events (missing scanner_mode) default to "absent".
+    # Correlational language only -- never causal framing.
+    VALID_SCANNER_MODES = ('tree-sitter-partial', 'regex-fallback', 'absent')
+
+    def get_scanner_mode_field(event):
+        mode = event.get('scanner_mode', 'absent')
+        return mode if mode in VALID_SCANNER_MODES else 'absent'
+
+    # Group events by scanner_mode
+    scanner_cohorts = {m: [] for m in VALID_SCANNER_MODES}
+    for e in score_events:
+        scanner_cohorts[get_scanner_mode_field(e)].append(e)
+
+    # Only compare cohorts with at least 3 runs each (minimum for a directional signal)
+    MIN_COHORT_SIZE_FOR_CORRELATION = 3
+
+    def mean_dim(events, dim_name):
+        scores = []
+        for ev in events:
+            for d in ev.get('dimensions', []):
+                if d.get('name') == dim_name:
+                    scores.append(d.get('score', 0.5))
+                    break
+        return sum(scores) / len(scores) if scores else None
+
+    def mean_composite(events):
+        vals = [e.get('composite') for e in events if e.get('composite') is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    # Compare tree-sitter-partial vs regex-fallback (the most natural pairing)
+    ts_events = scanner_cohorts['tree-sitter-partial']
+    rx_events = scanner_cohorts['regex-fallback']
+
+    if len(ts_events) >= MIN_COHORT_SIZE_FOR_CORRELATION and len(rx_events) >= MIN_COHORT_SIZE_FOR_CORRELATION:
+        for dim in ['efficiency', 'quality']:
+            ts_mean = mean_dim(ts_events, dim)
+            rx_mean = mean_dim(rx_events, dim)
+            if ts_mean is not None and rx_mean is not None:
+                diff = ts_mean - rx_mean
+                # Only surface a finding when difference >= 0.10 (small effect threshold)
+                if abs(diff) >= 0.10:
+                    direction = "higher" if diff > 0 else "lower"
+                    total_compared = len(ts_events) + len(rx_events)
+                    severity = "Medium" if abs(diff) >= 0.15 else "Low"
+                    findings.append({
+                        'section': 'Scanner Patterns',
+                        'text': (
+                            f"**[{today}] Scanner mode correlates with {dim}** [{severity}] -- "
+                            f"tree-sitter-partial /ship runs have {abs(diff):.2f} {direction} mean {dim} "
+                            f"than regex-fallback runs "
+                            f"({ts_mean:.2f} vs {rx_mean:.2f} across {total_compared} runs, "
+                            f"n={len(ts_events)} vs n={len(rx_events)}). "
+                            f"Correlation only -- confounders not controlled. "
+                            f"Investigate whether tree-sitter venv presence is a factor."
+                            f"\n  #scanner #{dim} ({today})"
+                        )
+                    })
+
+        # Composite comparison
+        ts_comp = mean_composite(ts_events)
+        rx_comp = mean_composite(rx_events)
+        if ts_comp is not None and rx_comp is not None:
+            diff = ts_comp - rx_comp
+            if abs(diff) >= 0.10:
+                direction = "higher" if diff > 0 else "lower"
+                total_compared = len(ts_events) + len(rx_events)
+                severity = "Medium" if abs(diff) >= 0.15 else "Low"
+                findings.append({
+                    'section': 'Scanner Patterns',
+                    'text': (
+                        f"**[{today}] Scanner mode correlates with composite score** [{severity}] -- "
+                        f"tree-sitter-partial /ship runs have {abs(diff):.2f} {direction} mean composite score "
+                        f"than regex-fallback runs "
+                        f"({ts_comp:.2f} vs {rx_comp:.2f} across {total_compared} runs, "
+                        f"n={len(ts_events)} vs n={len(rx_events)}). "
+                        f"Correlation only -- confounders not controlled."
+                        f"\n  #scanner #composite ({today})"
+                    )
+                })
+
     if not findings:
         print("No significant patterns detected.")
         print("")

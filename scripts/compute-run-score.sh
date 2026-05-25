@@ -283,11 +283,30 @@ else:
     composite = 0.5
 composite = round(composite, 4)
 
-# 7. Output partial event JSON for emit-audit-event.sh
+# 7. Extract scanner metadata from scanner_invocation event (if present)
+scanner_events = [e for e in events if e.get('event_type') == 'scanner_invocation']
+if scanner_events:
+    scanner_evt = scanner_events[0]
+    scanner_mode = scanner_evt.get('parser_mode', 'absent')
+    # M2: Sanitize parser_mode — map any value outside the valid enum to 'absent'
+    if scanner_mode not in ('tree-sitter-partial', 'regex-fallback'):
+        scanner_mode = 'absent'
+    # Secure M-1: Guard against non-numeric output_token_count (e.g., string from old emit)
+    try:
+        scanner_tokens = int(scanner_evt.get('output_token_count', 0))
+    except (TypeError, ValueError):
+        scanner_tokens = 0
+else:
+    scanner_mode = 'absent'
+    scanner_tokens = 0
+
+# 8. Output partial event JSON for emit-audit-event.sh
 result = {
     "event_type": "run_score",
     "dimensions": dimensions,
-    "composite": composite
+    "composite": composite,
+    "scanner_mode": scanner_mode,
+    "scanner_tokens": scanner_tokens
 }
 if velocity_minutes is not None:
     result["velocity_minutes"] = velocity_minutes

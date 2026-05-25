@@ -33,7 +33,8 @@
             "security_decision",
             "file_modification",
             "error",
-            "run_score"
+            "run_score",
+            "scanner_invocation"
           ]
         },
         "skill": {
@@ -379,9 +380,64 @@
             "velocity_minutes": {
               "type": "number",
               "description": "Wall-clock run duration in minutes (informational only, not included in composite). Computed from run_start.timestamp to time of run_score emission (before run_end)."
+            },
+            "scanner_mode": {
+              "type": "string",
+              "description": "Scanner parser mode active during this run, extracted from the scanner_invocation event in the same log. 'absent' means no scanner_invocation event was found (scanner not invoked or pre-instrumentation run).",
+              "enum": ["tree-sitter-partial", "regex-fallback", "absent"]
+            },
+            "scanner_tokens": {
+              "type": "integer",
+              "description": "Approximate token count of the scanner's summary output for this run (output_token_count from scanner_invocation). 0 if no scanner_invocation event found.",
+              "minimum": 0
             }
           },
           "required": ["event_type", "dimensions", "composite"]
+        }
+      ]
+    },
+    {
+      "title": "scanner_invocation",
+      "description": "Emitted when the codebase scanner (codebase-scanner.py) is invoked during Step 1 of /architect or /ship. Records scanner metadata and output characteristics for value instrumentation.",
+      "allOf": [
+        { "$ref": "#/definitions/common_fields" },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": { "const": "scanner_invocation" },
+            "scanner_version": {
+              "type": "string",
+              "description": "Version string of codebase-scanner.py at invocation time.",
+              "examples": ["1.0.0"]
+            },
+            "parser_mode": {
+              "type": "string",
+              "description": "Parser mode used by the scanner. 'tree-sitter-partial' means tree-sitter was available and used for supported languages; 'regex-fallback' means the tree-sitter venv was unavailable and regex extraction was used for all languages.",
+              "enum": ["tree-sitter-partial", "regex-fallback"]
+            },
+            "file_count": {
+              "type": "integer",
+              "description": "Number of files scanned. Extracted from the scanner summary header ('Files:' line). 0 if extraction failed.",
+              "minimum": 0
+            },
+            "symbol_count": {
+              "type": "integer",
+              "description": "Number of symbols extracted. Extracted from the scanner summary header ('Symbols:' line). 0 if extraction failed.",
+              "minimum": 0
+            },
+            "output_sha256": {
+              "type": "string",
+              "description": "SHA-256 hex digest of the scanner's full output. Used to detect when scanner output is identical across runs (cache hit or unchanged codebase).",
+              "pattern": "^[a-f0-9]{64}$",
+              "examples": ["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]
+            },
+            "output_token_count": {
+              "type": "integer",
+              "description": "Approximate token count of the scanner's summary output, computed as character count / 4 (rounded). Used to measure context budget consumed by the scanner.",
+              "minimum": 0
+            }
+          },
+          "required": ["event_type", "scanner_version", "parser_mode", "file_count", "symbol_count", "output_sha256", "output_token_count"]
         }
       ]
     }

@@ -57,6 +57,7 @@ claude-devkit/
 │   ├── skill-patterns.json
 │   ├── audit-event-schema.json
 │   ├── scanner-languages.json  # Language grammar config for codebase scanner
+│   ├── scanner-value-thresholds.json  # Confidence tiers for scanner value analysis
 │   └── base-definitions/
 │
 ├── plans/audit-logs/    # JSONL audit event logs (L1: gitignored, L2/L3: committed)
@@ -71,7 +72,8 @@ claude-devkit/
     ├── audit-log-query.sh     # Query utility for JSONL audit logs
     ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
     ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
-    └── test-integration.sh    # Integration smoke tests (37 tests)
+    ├── scanner-value-report.sh # Scanner value analysis: cohort comparison by scanner mode
+    └── test-integration.sh    # Integration smoke tests (42 tests)
 ```
 
 ### Data Flow
@@ -285,6 +287,18 @@ bash scripts/score-reflector.sh
 # With options
 bash scripts/score-reflector.sh --min-runs 10 --format json
 ```
+
+**Scanner value analysis (manual invocation):**
+
+```bash
+# Compare /ship run scores by scanner mode cohort (tree-sitter-partial vs regex-fallback vs absent)
+bash scripts/scanner-value-report.sh
+
+# JSON output
+bash scripts/scanner-value-report.sh --format json
+```
+
+Thresholds and confidence tiers are configured in `configs/scanner-value-thresholds.json`. Analysis covers `/ship` runs only (the only skill that emits `run_score`). Reports require L2 or L3 maturity for meaningful cross-session data (L1 logs are ephemeral).
 
 **Sample size thresholds for reflector analysis:**
 
@@ -910,6 +924,7 @@ Shared configurations and pattern definitions.
 **Contents:**
 - `skill-patterns.json` — Validation patterns
 - `scanner-languages.json` — Language grammar configuration for codebase scanner (extensions, tree-sitter queries, package versions for Python, TypeScript, Java, Go)
+- `scanner-value-thresholds.json` — Confidence tier configuration for scanner value analysis (INSUFFICIENT/PRELIMINARY/RELIABLE/HIGH_CONFIDENCE thresholds)
 - `tech-stack-definitions/` — Stack-specific configs (7 stacks: python, fastapi, typescript, react, nextjs, astro, security)
 - `base-definitions/` — Reserved for future use (currently empty)
 
@@ -927,11 +942,13 @@ Deployment and utility scripts.
 - `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, overrides, verify-chain, recent, scores, trend)
 - `compute-run-score.sh` — Compute per-dimension quantitative scores from a JSONL audit log (python3, no jq)
 - `score-reflector.sh` — Deterministic score reflector for candidate learnings generation (python3, no jq)
-- `test-integration.sh` — Integration smoke tests (37 tests): emit-audit-event.sh JSONL correctness,
+- `scanner-value-report.sh` — Scanner value analysis: cohort comparison of /ship run scores by scanner mode (tree-sitter-partial vs regex-fallback vs absent). No jq dependency.
+- `test-integration.sh` — Integration smoke tests (42 tests): emit-audit-event.sh JSONL correctness,
   L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
   lifecycle, threat model consumption structural tests across /ship, /architect, /secure-review,
   quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
-  and codebase-scanner integration tests (8 tests)
+  codebase-scanner integration tests (8 tests),
+  and scanner value instrumentation tests (5 tests)
 
 **Usage:**
 ```bash
