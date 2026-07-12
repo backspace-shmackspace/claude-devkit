@@ -347,15 +347,16 @@ def validate_target_dir(path: str) -> tuple:
         if not os.access(resolved, os.W_OK):
             return False, f"Target directory is not writable: {resolved}"
         home_workspaces = Path.home() / "workspaces"
+        home_projects = Path.home() / "projects"
         tmp = Path("/tmp").resolve()
         devkit_root = Path(__file__).resolve().parent.parent
-        for allowed_parent in [home_workspaces, tmp, devkit_root]:
+        for allowed_parent in [home_workspaces, home_projects, tmp, devkit_root]:
             try:
                 resolved.relative_to(allowed_parent)
                 return True, ""
             except ValueError:
                 pass
-        return False, f"Target directory must be under ~/workspaces/, {devkit_root}, or /tmp/"
+        return False, f"Target directory must be under ~/workspaces/, ~/projects/, {devkit_root}, or /tmp/"
     except Exception as e:
         return False, f"Invalid target directory: {e}"
 
