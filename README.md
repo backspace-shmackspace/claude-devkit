@@ -43,7 +43,7 @@ cd ~/projects/claude-devkit
 
 ## What's Included
 
-### Skills (13)
+### Skills (20)
 
 Pre-built workflows for common development tasks:
 
@@ -62,6 +62,18 @@ Pre-built workflows for common development tasks:
 | `/secure-review` | Deep semantic security review with data flow tracing, taint analysis, and trust boundary validation. When invoked with threat model context, produces a `## Threat Model Coverage` section mapping STRIDE threats to implementation status. | `/secure-review changes` |
 | `/threat-model-gate` | Security planning reference for authentication, authorization, data handling | `/threat-model-gate` |
 | `/fix` | Targeted finding remediation — parse a finding from a review artifact, dispatch a scoped coder, run focused verification, and commit with traceability. Supports `--dry-run`. | `/fix plans/audit-findings.md --finding SEC-01` |
+
+**Knowledge-base skills** (reference guides invoked on demand, no multi-step workflow):
+
+| Skill | Purpose | Usage |
+|-------|---------|-------|
+| `/input-validation-injection` | Injection prevention: SQL, LDAP, OS command, prototype pollution, ReDoS | `/input-validation-injection` |
+| `/client-side-security` | Browser security: XSS (5 contexts), CSP, CSRF, XS-Leaks, Trusted Types | `/client-side-security` |
+| `/ai-code-review` | AI-generated code review: hallucinated APIs, plausible-but-wrong logic, pattern drift | `/ai-code-review` |
+| `/semgrep` | Semgrep static analysis: auto-language detection, 30+ rulesets, SARIF output | `/semgrep` |
+| `/build-yaml-misconfiguration` | CI/CD pipeline security: GitLab CI, Tekton, Containerfile hardening | `/build-yaml-misconfiguration` |
+| `/container-hardening` | Container security: non-root, read-only filesystem, capability restrictions | `/container-hardening` |
+| `/threat-model` | Full STRIDE+DREAD threat modeling with OTM v0.2.0 JSON output, MITRE ATT&CK mapping | `/threat-model` |
 
 **Audit Logging:** `/ship`, `/architect`, and `/audit` emit structured JSONL events to `plans/audit-logs/`
 on every run. At L2/L3, logs are committed to git. Query with `./scripts/audit-log-query.sh`.
@@ -574,11 +586,14 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Test Coverage (57 tests):**
+**Test Coverage (69 tests):**
 - Generator and validator help text (2 tests)
-- All 13 core skills validation (architect, ship, retro, audit, sync,
+- All 20 core skills validation (architect, ship, retro, audit, sync,
   receiving-code-review, verification-before-completion, compliance-check,
-  dependency-audit, secrets-scan, secure-review, threat-model-gate, fix)
+  dependency-audit, secrets-scan, secure-review, threat-model-gate, fix,
+  input-validation-injection, client-side-security, ai-code-review, semgrep,
+  build-yaml-misconfiguration, container-hardening, threat-model)
+- Knowledge-base archetype positive/negative tests (valid, empty body, missing attribution)
 - All 3 contrib skills validation (journal, journal-recall, journal-review)
 - All 3 archetypes (coordinator, pipeline, scan)
 - Input validation (names, descriptions, paths)
@@ -591,8 +606,8 @@ bash generators/test_skill_generator.sh
 ```
 Test Summary
 ========================================
-Total:  57
-Pass:   57
+Total:  69
+Pass:   69
 Fail:   0
 
 ✅ All tests passed!
@@ -845,5 +860,5 @@ MIT - Use freely in your projects
 ---
 
 **Version:** 1.0.0
-**Last Updated:** 2026-05-25
+**Last Updated:** 2026-07-15
 **Maintained by:** @backspace-shmackspace
