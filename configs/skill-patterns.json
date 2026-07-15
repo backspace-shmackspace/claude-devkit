@@ -137,6 +137,18 @@
       "requires_inputs_section": false,
       "requires_workflow_header": false,
       "requires_model": false
+    },
+    "knowledge-base": {
+      "description": "Domain-specific knowledge, checklists, and reference materials. Tool-agnostic content imported from external skill repositories.",
+      "required_frontmatter": ["name", "description", "version", "type", "attribution"],
+      "requires_numbered_steps": false,
+      "requires_tool_declarations": false,
+      "requires_verdict_gates": false,
+      "requires_artifacts": false,
+      "requires_inputs_section": false,
+      "requires_workflow_header": false,
+      "requires_model": false,
+      "requires_core_principle_heading": false
     }
   }
 }

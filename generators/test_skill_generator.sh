@@ -6,7 +6,7 @@
 #   bash test_skill_generator.sh
 #   bash -x test_skill_generator.sh  # verbose mode
 #
-# Test inventory (runtime count: up to 57 tests; numbering gaps noted below):
+# Test inventory (runtime count: up to 69 tests; numbering gaps noted below):
 #   Tests 1-25:   Core generator/validator tests
 #   Test 26:      SKIPPED (never created)
 #   Test 27:      Validate Reference skill (no model field)
@@ -21,6 +21,11 @@
 #   Tests 47-49:  deploy.sh --validate flag tests (Test 49 is conditional)
 #   Test 50:      Cleanup
 #   Tests 51-56:  Audit logging infrastructure tests (Tests B and C added: 55-56)
+#   Test 57:      Validate fix skill
+#   Tests 58-64:  Prodsec knowledge-base skill validation
+#   Tests 65-67:  Knowledge-base archetype positive/negative tests
+#   Test 68:      deploy.sh reference/ directory copy test
+#   Test 69:      secrets-scan grep pattern syntax validation
 
 set -e
 
@@ -568,6 +573,134 @@ run_test 54 "Audit event helper script help" \
 # Test 57: Validate fix skill
 run_test 57 "Validate fix skill" \
     "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/fix/SKILL.md'" \
+    0
+
+# ============================================================
+# Prodsec knowledge-base skill validation tests
+# ============================================================
+
+# Test 58: Validate input-validation-injection skill
+run_test 58 "Validate input-validation-injection skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/input-validation-injection/SKILL.md'" \
+    0
+
+# Test 59: Validate client-side-security skill
+run_test 59 "Validate client-side-security skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/client-side-security/SKILL.md'" \
+    0
+
+# Test 60: Validate ai-code-review skill
+run_test 60 "Validate ai-code-review skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/ai-code-review/SKILL.md'" \
+    0
+
+# Test 61: Validate semgrep skill
+run_test 61 "Validate semgrep skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/semgrep/SKILL.md'" \
+    0
+
+# Test 62: Validate build-yaml-misconfiguration skill
+run_test 62 "Validate build-yaml-misconfiguration skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/build-yaml-misconfiguration/SKILL.md'" \
+    0
+
+# Test 63: Validate container-hardening skill
+run_test 63 "Validate container-hardening skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/container-hardening/SKILL.md'" \
+    0
+
+# Test 64: Validate threat-model skill
+run_test 64 "Validate threat-model skill" \
+    "python3 '$VALIDATE_PY' '$SKILLS_DIR/skills/threat-model/SKILL.md'" \
+    0
+
+# Test 65: Knowledge-base archetype validates with minimal frontmatter
+mkdir -p "$TEST_DIR/skills/test-kb"
+cat > "$TEST_DIR/skills/test-kb/SKILL.md" << 'KBEOF'
+---
+name: test-kb
+description: Test fixture for knowledge-base archetype validation
+type: knowledge-base
+version: 1.0.0
+attribution: "Test fixture"
+---
+
+# Test Knowledge Base
+
+This is a test knowledge-base skill with reference content.
+
+## Section One
+
+Some guidance content here.
+KBEOF
+run_test 65 "Knowledge-base archetype validates" \
+    "python3 '$VALIDATE_PY' '$TEST_DIR/skills/test-kb/SKILL.md'" \
+    0
+rm -rf "$TEST_DIR/skills/test-kb"
+
+# Test 66: Knowledge-base rejects empty body
+mkdir -p "$TEST_DIR/skills/test-kb-empty"
+cat > "$TEST_DIR/skills/test-kb-empty/SKILL.md" << 'KBEOF2'
+---
+name: test-kb-empty
+description: Test fixture with empty body
+type: knowledge-base
+version: 1.0.0
+attribution: "Test fixture"
+---
+KBEOF2
+run_test 66 "Knowledge-base rejects empty body" \
+    "python3 '$VALIDATE_PY' '$TEST_DIR/skills/test-kb-empty/SKILL.md'" \
+    1
+rm -rf "$TEST_DIR/skills/test-kb-empty"
+
+# Test 67: Knowledge-base rejects missing attribution field
+mkdir -p "$TEST_DIR/skills/test-kb-no-attr"
+cat > "$TEST_DIR/skills/test-kb-no-attr/SKILL.md" << 'KBEOF3'
+---
+name: test-kb-no-attr
+description: Test fixture missing attribution field
+type: knowledge-base
+version: 1.0.0
+---
+
+# Test Knowledge Base
+
+Content without attribution field in frontmatter.
+KBEOF3
+run_test 67 "Knowledge-base rejects missing attribution" \
+    "python3 '$VALIDATE_PY' '$TEST_DIR/skills/test-kb-no-attr/SKILL.md'" \
+    1
+rm -rf "$TEST_DIR/skills/test-kb-no-attr"
+
+# Test 68: deploy.sh copies reference/ directory
+# Create a temp skill with reference/ dir, deploy it, verify reference/ copied
+mkdir -p "$SKILLS_DIR/skills/test-ref-deploy/reference"
+cat > "$SKILLS_DIR/skills/test-ref-deploy/SKILL.md" << 'REFEOF'
+---
+name: test-ref-deploy
+description: Test fixture for reference directory deployment
+type: knowledge-base
+version: 1.0.0
+attribution: "Test fixture"
+---
+
+# Test Reference Deploy
+
+Skill with a reference subdirectory.
+REFEOF
+echo "# Test reference file" > "$SKILLS_DIR/skills/test-ref-deploy/reference/test-ref.md"
+run_test 68 "deploy.sh copies reference/ directory" \
+    "cd '$SKILLS_DIR' && bash scripts/deploy.sh test-ref-deploy && test -f ~/.claude/skills/test-ref-deploy/reference/test-ref.md" \
+    0
+rm -rf "$SKILLS_DIR/skills/test-ref-deploy"
+rm -rf ~/.claude/skills/test-ref-deploy
+
+# Test 69: Enhanced skill grep patterns are syntactically valid
+# Smoke-test that the insecure-defaults grep patterns added to secrets-scan
+# are valid grep -E syntax (exit 0 or 1, not exit 2 which indicates syntax error)
+run_test 69 "secrets-scan grep patterns are valid syntax" \
+    "grep -rnE '(environ\\.get|getenv|ENV\\[|process\\.env)' --include='*.py' /dev/null; test \$? -ne 2" \
     0
 
 # Test 50: Cleanup

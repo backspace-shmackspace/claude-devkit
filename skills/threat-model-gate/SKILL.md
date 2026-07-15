@@ -1,7 +1,7 @@
 ---
 name: threat-model-gate
 description: Use when planning security-sensitive features — authentication, authorization, data handling, API design, cryptography, or network configuration — requires explicit threat modeling before implementation decisions are made
-version: 1.0.0
+version: 1.1.0
 type: reference
 attribution: Original work, claude-devkit project
 model: claude-sonnet-4-6
@@ -120,16 +120,38 @@ MITIGATIONS TO SPECIFY:
 
 ## STRIDE Quick Reference
 
-| Letter | Threat | What It Targets | Example Mitigation |
-|--------|--------|-----------------|-------------------|
-| **S** — Spoofing | Impersonating an identity | Authentication | Strong authentication, signed tokens, certificate pinning |
-| **T** — Tampering | Modifying data without authorization | Integrity | Digital signatures, HMAC, TLS, input validation |
-| **R** — Repudiation | Denying an action was performed | Non-repudiation | Audit logs, signed transactions, tamper-evident logs |
-| **I** — Information Disclosure | Exposing data to unauthorized parties | Confidentiality | Encryption at rest/transit, authorization checks, data minimization |
-| **D** — Denial of Service | Making a resource unavailable | Availability | Rate limiting, circuit breakers, resource quotas, graceful degradation |
-| **E** — Elevation of Privilege | Gaining unauthorized capabilities | Authorization | Least privilege, role enforcement, capability checks, input sanitization |
+| Category | Threat Target | Standard Mitigation | DREAD Focus |
+|----------|--------------|--------------------|----|
+| **S**poofing | Identity, authentication | MFA, strong auth, certificate pinning | Reproducibility: how reliably can credentials be forged? |
+| **T**ampering | Data integrity, code | Input validation, signing, checksums | Damage Potential: what is the blast radius of tampered data? |
+| **R**epudiation | Audit trails, logging | Comprehensive audit logs, timestamps | Discoverability: how visible is the logging gap? |
+| **I**nfo Disclosure | Confidentiality | Encryption at rest/transit, access controls | Affected Users: how many users' data is exposed? |
+| **D**enial of Service | Availability | Rate limiting, auto-scaling, circuit breakers | Exploitability: how easily can the DoS be triggered? |
+| **E**levation of Privilege | Authorization | Least privilege, RBAC, input validation | Damage Potential: what can the attacker do with elevated access? |
 
 **STRIDE is a starting point, not a complete threat model.** Use it to ensure you have covered all six threat categories, then go deeper on the categories most relevant to the feature.
+
+## DREAD Risk Rating Reference
+
+When threat modeling identifies specific threats, score each using DREAD
+(5 dimensions, each 0-10). The average determines severity classification.
+
+| Dimension | Question | 0 (Low) | 5 (Medium) | 10 (High) |
+|-----------|---------|---------|-----------|----------|
+| Damage Potential | How bad if exploited? | Minor inconvenience | Single user data loss | Full system compromise |
+| Reproducibility | How reliably exploitable? | Race condition, rare | Requires specific config | Every time, automated |
+| Exploitability | How much skill needed? | Nation-state capability | Security professional | Script kiddie, public exploit |
+| Affected Users | How many impacted? | Single user, edge case | Subset of users | All users / tenants |
+| Discoverability | How easy to find? | Requires source code access | Findable by scanning | Obvious from public interface |
+
+**Severity bands:**
+- **CRITICAL:** DREAD average >= 8.0
+- **HIGH:** DREAD average >= 6.0 and < 8.0
+- **MEDIUM:** DREAD average >= 4.0 and < 6.0
+- **LOW:** DREAD average < 4.0
+
+**Calibration rule:** When a score falls within 0.5 of a boundary (e.g., 5.5-6.4),
+check Damage Potential. If DP >= 7, round UP. If DP <= 3, round DOWN.
 
 ## Security Requirements Template for Plans
 
@@ -221,6 +243,14 @@ WRONG: Including actual API keys, connection strings, or credentials in plan doc
 RIGHT: Reference secrets by name only. Actual values belong in secrets managers, not in plans.
 ```
 
+9. **Incomplete trust boundary analysis**
+   - WRONG: "The API talks to the database" (no trust boundary identified)
+   - RIGHT: "Data flow DF-003 crosses from TZ-DMZ to TZ-Internal at the API-to-DB boundary, carrying user credentials over PostgreSQL wire protocol"
+
+10. **Skipping DREAD calibration**
+    - WRONG: DREAD average 5.8, classified as MEDIUM
+    - RIGHT: DREAD average 5.8 with Damage Potential 8 -> calibrate UP to HIGH (DP >= 7 near boundary)
+
 ## How to Apply During Planning
 
 When drafting or reviewing a plan for a security-sensitive feature:
@@ -243,6 +273,25 @@ When drafting or reviewing a plan for a security-sensitive feature:
 - **Before `/ship` implementation:** If a plan passed `/architect` but the Security Requirements section is missing or shallow, raise it before implementation begins. It is cheaper to fix the design than the code.
 - **After `/secure-review`:** If `/secure-review` finds issues that the threat model should have caught, update the threat model section of the plan and the `.claude/learnings.md` file. Threat model gaps are learning opportunities.
 - **In conjunction with `receiving-code-review`:** When reviewing security-related code, apply both skills. `receiving-code-review` governs how you evaluate the reviewer's feedback; `threat-model-gate` governs whether the implementation addresses the correct threats.
+
+## Full Threat Modeling Methodology
+
+This skill provides a **planning gate** -- it ensures threat modeling happens
+before implementation. For the **full threat modeling methodology** with
+three-phase STRIDE+DREAD analysis and OTM JSON output, load the standalone
+`threat-model` knowledge-base skill:
+
+```
+Using skills/threat-model/SKILL.md: perform a threat model for this system.
+```
+
+The `threat-model` skill provides:
+- Three-phase workflow: System Decomposition, Per-Subsystem Threat Analysis, Cross-Cutting Synthesis
+- DREAD scoring with calibration and consistency checks
+- MITRE ATT&CK technique mapping
+- OTM v0.2.0 JSON output (machine-readable)
+- Structured markdown report (human-readable)
+- Reference materials in `reference/otm-schema.md` and `reference/report-template.md`
 
 ## The Bottom Line
 

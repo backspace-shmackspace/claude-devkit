@@ -2,7 +2,7 @@
 name: secrets-scan
 description: Pre-commit secrets detection with pattern-based scanning for API keys, tokens, passwords, private keys, and connection strings. Self-contained — no external tools required.
 model: claude-sonnet-4-6
-version: 1.0.0
+version: 1.1.0
 ---
 # /secrets-scan Workflow
 
@@ -113,7 +113,7 @@ Tool: `Bash` (direct — coordinator does this)
 
 Run pattern-based detection across the collected scan target. Each pattern targets a distinct secret type.
 
-**Note:** No entropy analysis in v1.0.0. Pattern-based detection only. Entropy analysis deferred to v1.1.0 after false-positive calibration against real codebases.
+**Note:** Pattern-based detection only. Entropy analysis not yet included; planned for a future release after false-positive calibration against real codebases.
 
 ```bash
 FINDINGS_FILE="./plans/secrets-scan-${TIMESTAMP}.raw-findings.txt"
@@ -184,6 +184,61 @@ echo "Raw matches found: $FINDING_LINES"
 rm -f "$SCAN_TARGET_FILE"
 ```
 
+### Insecure Default Patterns
+
+In addition to secret patterns above, scan for fail-open insecure defaults
+that allow the application to run with weak security in production.
+
+**Patterns to detect:**
+
+11. **Fallback secrets in env var handling:**
+    Matches: `os.environ.get("SECRET_KEY", "my-default-secret")`
+    Excludes: Empty strings, `None`, short placeholder values
+
+12. **Hardcoded default credentials:**
+    Matches common default credentials (`admin:admin`, `password: changeme`, etc.)
+
+13. **Fail-open security toggles:**
+    Named security controls explicitly set to disabled/off.
+
+14. **Weak cryptographic defaults:**
+    Only flag when used in security contexts (hashing passwords, encrypting data, signing tokens). Do NOT flag when used in checksums, cache keys, or non-security file hashing.
+
+15. **Permissive access defaults:**
+    CORS wildcards, world-readable permissions, and allow-all access controls.
+
+16. **Debug/development mode flags:**
+    Only flag in production configuration files and application defaults. Do NOT flag in test fixtures, development-only configs, or CI configurations.
+
+```bash
+echo "" >> "$FINDINGS_FILE"
+echo "=== INSECURE DEFAULT PATTERNS ===" >> "$FINDINGS_FILE"
+
+# Pattern 11: Fallback secrets in env var handling
+echo "--- Fallback Secrets in Env Var Handling ---" >> "$FINDINGS_FILE"
+grep -rnE "(environ\.get|getenv|ENV\[|process\.env)\s*\(?\s*['\"][^'\"]+['\"]\s*,\s*['\"][^'\"]{4,}['\"]" --include="*.py" --include="*.rb" --include="*.js" --include="*.ts" . >> "$FINDINGS_FILE" || true
+
+# Pattern 12: Hardcoded default credentials
+echo "--- Hardcoded Default Credentials ---" >> "$FINDINGS_FILE"
+grep -rnEi "(admin[:/]admin|password\s*[:=]\s*['\"]?(password|changeme|default|admin|root|test123)['\"]?)" --include="*.py" --include="*.js" --include="*.ts" --include="*.yaml" --include="*.yml" --include="*.json" --include="*.rb" --include="*.go" --include="*.java" . >> "$FINDINGS_FILE" || true
+
+# Pattern 13: Fail-open security toggles
+echo "--- Fail-Open Security Toggles ---" >> "$FINDINGS_FILE"
+grep -rnEi "(AUTH_REQUIRED|VERIFY_SSL|CSRF_ENABLED|SECURE_COOKIES|REQUIRE_AUTH|ENABLE_AUTH)\s*[:=]\s*\b(False|false|0|no|off)\b" --include="*.py" --include="*.js" --include="*.ts" --include="*.yaml" --include="*.yml" --include="*.env" --include="*.rb" --include="*.go" . >> "$FINDINGS_FILE" || true
+
+# Pattern 14: Weak cryptographic defaults
+echo "--- Weak Cryptographic Defaults ---" >> "$FINDINGS_FILE"
+grep -rnEi "\b(md5|sha1(?!_)|des[^cir]|rc4|ecb|blowfish)\b" --include="*.py" --include="*.js" --include="*.ts" --include="*.java" --include="*.go" --include="*.rb" --include="*.cs" . >> "$FINDINGS_FILE" || true
+
+# Pattern 15: Permissive access defaults
+echo "--- Permissive Access Defaults ---" >> "$FINDINGS_FILE"
+grep -rnE "(Access-Control-Allow-Origin.*\*|cors.*origin.*\*|0\.0\.0\.0|chmod\s+0?777|ALLOW_ALL|allow_any)" --include="*.py" --include="*.js" --include="*.ts" --include="*.yaml" --include="*.yml" --include="*.go" --include="*.java" --include="*.rb" . >> "$FINDINGS_FILE" || true
+
+# Pattern 16: Debug/development mode flags
+echo "--- Debug/Development Mode Flags ---" >> "$FINDINGS_FILE"
+grep -rnEi "(DEBUG\s*[:=]\s*(True|true|1|yes|on)|FLASK_DEBUG|DJANGO_DEBUG|NODE_ENV.*development)" --include="*.py" --include="*.js" --include="*.ts" --include="*.yaml" --include="*.yml" --include="*.env" . >> "$FINDINGS_FILE" || true
+```
+
 ## Step 3 — False positive filtering
 
 Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
@@ -214,6 +269,14 @@ Review each finding and classify as CONFIRMED or FALSE_POSITIVE.
 - The match appears in a Dockerfile or docker-compose file
 - The value appears to be a real credential format (not a placeholder)
 - The match appears in a git diff as an added line (lines starting with '+' in staged scope)
+
+**Insecure default classification rules:**
+- **CONFIRMED** if the fallback/default value would be used in production
+  (no environment variable override required for the app to start)
+- **FALSE_POSITIVE** if the pattern is in a test file, example/sample config,
+  documentation, or has a comment indicating it is intentionally a placeholder
+- **FALSE_POSITIVE** if the "weak crypto" match is for non-security use
+  (cache keys, file checksums, ETag generation)
 
 **CRITICAL REDACTION RULE:** Your output must NEVER include actual secret values. The raw findings file already has patterns redacted. Do NOT attempt to reconstruct or show the original value. Report type, file path, and line number only.
 
@@ -334,7 +397,7 @@ For production use, consider also deploying:
 - `gitleaks` (https://github.com/zricethezax/gitleaks) — pre-commit hook integration
 - A secrets manager (AWS Secrets Manager, HashiCorp Vault, etc.) to eliminate secrets from code entirely
 
-Note: v1.0.0 uses pattern-based detection. Entropy-based detection (for unstructured secrets) is planned for v1.1.0.
+Note: Pattern-based detection only. Entropy-based detection (for unstructured secrets) is not yet implemented.
 ```"
 
 **Archive artifacts:**

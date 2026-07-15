@@ -2,7 +2,7 @@
 name: secure-review
 description: Deep semantic security review of code changes with data flow tracing, taint analysis, and trust boundary validation. Composable building block invoked by /audit when deployed.
 model: claude-opus-4-6
-version: 1.1.0
+version: 1.2.0
 ---
 # /secure-review Workflow
 
@@ -41,6 +41,24 @@ Derive timestamp: `[timestamp]` = current ISO datetime (e.g., `2026-03-25T14-30-
 - If scope is `changes`: Run `git diff HEAD` to identify changed files. If no uncommitted changes, run `git diff HEAD~1` against the last commit.
 - If scope is `pr`: Run `git diff main...HEAD` (or `git diff origin/main...HEAD`) to get the PR diff.
 - If scope is `full`: Target the entire codebase root.
+
+**Codebase size classification (controls analysis depth):**
+
+After determining the diff, classify the change size:
+- **SMALL** (<500 changed lines): Full line-by-line analysis of every change.
+  Trace every data flow end-to-end. Check git blame for regression patterns.
+- **MEDIUM** (500-2000 changed lines): Focus on security-relevant files first
+  (auth, crypto, input handling, config). Sample non-security files at 50%.
+  Git blame on modified security-critical files only.
+- **LARGE** (>2000 changed lines): Prioritize files by risk score (see below).
+  Analyze top-risk files in full, remainder by function signature and
+  data flow entry/exit points only. Skip git blame (too noisy at this scale).
+
+Determine size by running:
+```
+git diff --stat HEAD | tail -1
+```
+Parse the "N insertions, M deletions" line. Changed lines = insertions + deletions.
 
 ## Step 1 — Parallel security scans (vulnerability, data flow, auth/authz)
 
@@ -81,6 +99,32 @@ Check for:
 - Insecure use of cryptographic primitives (MD5, SHA1, ECB mode, weak key sizes)
 - Known dangerous function calls (eval, exec, os.system, raw SQL string concatenation)
 
+**Blast radius assessment (for each modified function/method):**
+
+For every function/method that has security-relevant changes, estimate blast radius:
+1. Count direct callers: `grep -rn "function_name" --include="*.{ext}" | wc -l`
+2. Check if function is exported/public (broader blast radius)
+3. Check if function handles external input (trust boundary crossing)
+Report format: `function_name: N callers, exported={yes/no}, handles_input={yes/no}`
+
+**Git blame regression detection:**
+
+For SMALL and MEDIUM codebases, check if modifications reintroduce patterns
+that were previously fixed:
+1. Run `git log --oneline --all -20 -- <modified-file>` to see recent history
+2. Look for commit messages containing "fix", "vuln", "CVE", "security", "patch"
+3. If a security fix commit exists, compare the current change against that fix
+   to detect regression (re-opening a previously closed vulnerability)
+
+**Common vulnerability pattern checklist (check each modified file for):**
+
+- Double accounting: two code paths that both modify the same state (e.g., balance)
+- TOCTOU race: check-then-use with no lock between check and use
+- Integer overflow / type coercion: arithmetic on user-controlled values without bounds
+- Unchecked error returns: function returns error but caller ignores it
+- DoS via unbounded operations: loops, allocations, or queries controlled by user input
+- Sensitive data in logs: PII, tokens, or secrets passed to log/print functions
+
 Rate each finding: Critical / High / Medium / Low.
 Write findings to `./plans/secure-review-[timestamp].vulnerability.md`"
 
@@ -102,6 +146,32 @@ Check for:
 - Hardcoded credentials or secrets (redact per rules above)
 - Insecure use of cryptographic primitives (MD5, SHA1, ECB mode, weak key sizes)
 - Known dangerous function calls (eval, exec, os.system, raw SQL string concatenation)
+
+**Blast radius assessment (for each modified function/method):**
+
+For every function/method that has security-relevant changes, estimate blast radius:
+1. Count direct callers: `grep -rn "function_name" --include="*.{ext}" | wc -l`
+2. Check if function is exported/public (broader blast radius)
+3. Check if function handles external input (trust boundary crossing)
+Report format: `function_name: N callers, exported={yes/no}, handles_input={yes/no}`
+
+**Git blame regression detection:**
+
+For SMALL and MEDIUM codebases, check if modifications reintroduce patterns
+that were previously fixed:
+1. Run `git log --oneline --all -20 -- <modified-file>` to see recent history
+2. Look for commit messages containing "fix", "vuln", "CVE", "security", "patch"
+3. If a security fix commit exists, compare the current change against that fix
+   to detect regression (re-opening a previously closed vulnerability)
+
+**Common vulnerability pattern checklist (check each modified file for):**
+
+- Double accounting: two code paths that both modify the same state (e.g., balance)
+- TOCTOU race: check-then-use with no lock between check and use
+- Integer overflow / type coercion: arithmetic on user-controlled values without bounds
+- Unchecked error returns: function returns error but caller ignores it
+- DoS via unbounded operations: loops, allocations, or queries controlled by user input
+- Sensitive data in logs: PII, tokens, or secrets passed to log/print functions
 
 Rate each finding: Critical / High / Medium / Low.
 Write findings to `./plans/secure-review-[timestamp].vulnerability.md`"
@@ -232,6 +302,21 @@ Generate `./plans/secure-review-[timestamp].summary.md` with this structure:
 All secret values in findings have been redacted (first 4 / last 4 characters shown).
 Actual values are never included in security reports.
 ```
+
+**Per-file risk score (0-10):**
+
+Score each modified file on a 0-10 risk scale based on:
+- +3 if file handles external/untrusted input (request handlers, parsers, API endpoints)
+- +2 if file implements authentication or authorization logic
+- +2 if file uses cryptographic operations
+- +1 if file accesses databases or external services
+- +1 if file handles file I/O or process execution
+- +1 if file sits on a trust boundary (crosses zones in the architecture)
+- +0 for test files, documentation, static assets
+
+Include the per-file risk table in the synthesis report:
+| File | Risk Score | Risk Factors |
+|------|-----------|-------------|
 
 **Threat Model Coverage (conditional):**
 

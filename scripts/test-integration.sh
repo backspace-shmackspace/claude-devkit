@@ -280,9 +280,9 @@ run_test 17 "architect SKILL.md version is 3.4.0" \
     "grep -q 'version: 3.4.0' '$REPO_DIR/skills/architect/SKILL.md'" \
     0
 
-# Test 18: /secure-review version bumped to 1.1.0
-run_test 18 "secure-review SKILL.md version is 1.1.0" \
-    "grep -q 'version: 1.1.0' '$REPO_DIR/skills/secure-review/SKILL.md'" \
+# Test 18: /secure-review version bumped to 1.2.0
+run_test 18 "secure-review SKILL.md version is 1.2.0" \
+    "grep -q 'version: 1.2.0' '$REPO_DIR/skills/secure-review/SKILL.md'" \
     0
 
 # Test 19: /ship SKILL.md does NOT contain the removed SECURITY CONTEXT marker

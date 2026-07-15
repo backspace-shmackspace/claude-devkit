@@ -108,7 +108,7 @@ def validate_frontmatter(frontmatter: Dict[str, str], patterns_config: Dict, is_
 
     # Validate model field value (if present, for any skill type)
     if "model" in frontmatter:
-        valid_models = ["claude-opus-4-6", "claude-sonnet-4-5", "claude-haiku-4-0"]
+        valid_models = ["claude-opus-4-6", "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-4-0"]
         if frontmatter["model"] not in valid_models:
             issues.append({
                 "severity": "warning",
@@ -118,7 +118,7 @@ def validate_frontmatter(frontmatter: Dict[str, str], patterns_config: Dict, is_
 
     # Validate type field (if present)
     if "type" in frontmatter:
-        valid_types = ["pipeline", "coordinator", "scan", "reference"]
+        valid_types = ["pipeline", "coordinator", "scan", "reference", "knowledge-base"]
         if frontmatter["type"] not in valid_types:
             issues.append({
                 "severity": "warning",
@@ -334,6 +334,43 @@ def validate_reference_skill(frontmatter: Dict[str, str], body: str, patterns_co
     return issues
 
 
+def validate_knowledge_base_skill(frontmatter: Dict[str, str], body: str, patterns_config: Dict) -> List[Dict]:
+    """
+    Validate Knowledge-Base archetype skills.
+
+    Knowledge-base skills are domain-specific reference materials (checklists,
+    methodologies, detection guidance) imported from external skill repositories
+    such as Red Hat Product Security's prodsec-skills. They are tool-agnostic
+    and are loaded as context rather than executed as workflows.
+
+    Unlike Reference skills, they do NOT require a core principle heading
+    (no Iron Law / Core Principle / Fundamental Rule / The Gate).
+    Unlike executable skills, they do NOT require model, steps, tools, or verdicts.
+    """
+    issues = []
+
+    # Check required frontmatter fields specific to Knowledge-Base skills
+    # (name and description are already checked by validate_frontmatter)
+    kb_required = ["version", "type", "attribution"]
+    for field in kb_required:
+        if field not in frontmatter or not frontmatter[field]:
+            issues.append({
+                "severity": "error",
+                "pattern": "Knowledge-Base Frontmatter",
+                "message": f"Knowledge-base skill missing required field: '{field}'"
+            })
+
+    # Check body is non-empty
+    if not body.strip():
+        issues.append({
+            "severity": "error",
+            "pattern": "Knowledge-Base Body",
+            "message": "Knowledge-base skill body must not be empty. Expected domain reference content."
+        })
+
+    return issues
+
+
 def format_human_readable(skill_path: Path, frontmatter: Dict, issues: List[Dict], strict: bool) -> str:
     """Format validation results as human-readable output."""
     output = []
@@ -449,10 +486,12 @@ def main():
     # Detect archetype from frontmatter
     skill_type = frontmatter.get("type", None)
     is_reference = (skill_type == "reference")
+    is_knowledge_base = (skill_type == "knowledge-base")
 
     # Run all validations
     issues = []
-    issues.extend(validate_frontmatter(frontmatter, patterns_config, is_reference=is_reference))
+    # Both reference and knowledge-base skills are exempt from the model: requirement
+    issues.extend(validate_frontmatter(frontmatter, patterns_config, is_reference=(is_reference or is_knowledge_base)))
 
     if is_reference:
         # Reference-specific validation.
@@ -461,6 +500,13 @@ def main():
         # for numbered steps, tool declarations, verdict gates, and other
         # executable-workflow patterns that Reference skills intentionally lack.
         issues.extend(validate_reference_skill(frontmatter, body, patterns_config))
+    elif is_knowledge_base:
+        # Knowledge-base-specific validation.
+        # Knowledge-base skills are tool-agnostic reference materials -- they lack
+        # numbered steps, tool declarations, verdict gates, inputs sections,
+        # workflow headers, and core principle headings. They are loaded as context,
+        # not executed as workflows.
+        issues.extend(validate_knowledge_base_skill(frontmatter, body, patterns_config))
     else:
         # Standard skill validation (existing behavior, unchanged)
         if frontmatter.get("name"):

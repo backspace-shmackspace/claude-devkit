@@ -2,7 +2,7 @@
 name: dependency-audit
 description: Supply chain security audit — coordinates real CLI vulnerability scanners (npm audit, pip-audit, govulncheck, cargo audit, etc.) and synthesizes findings with license compliance and risk assessment.
 model: claude-sonnet-4-6
-version: 1.0.0
+version: 1.1.0
 ---
 # /dependency-audit Workflow
 
@@ -288,49 +288,74 @@ Read the manifest at `[MANIFEST]`.
 
 **Your task:**
 
-Assess supply chain health indicators using your knowledge of packages and general patterns. This is LLM heuristic analysis — flag concerns for human verification, not definitive findings.
+### Supply Chain Risk Assessment
 
-1. **Typosquatting indicators** — Check for package names that are:
-   - Very similar to popular packages (e.g., 'lodash' vs 'l0dash', 'react' vs 'reeact')
-   - Unusual character substitutions
-   - Suspicious name patterns for the ecosystem
+Evaluate each direct dependency against these structured risk criteria.
+Use `gh` CLI for GitHub metadata when available (graceful degradation if
+`gh` is not installed or not authenticated).
 
-2. **Maintenance health indicators** — For packages you know about:
-   - Packages known to be unmaintained or deprecated
-   - Packages that had ownership transfers recently
-   - Packages with known malicious versions in their history
+**Risk Criteria (check each dependency):**
 
-3. **Dependency sprawl** — Flag:
-   - Unusually large number of dependencies for the project type
-   - Dependencies that duplicate functionality of other dependencies
-   - Dependencies for trivial functionality (e.g., single-function packages)
+1. **Single/low maintainer count** (HIGH risk indicator)
+   If `gh` is available:
+   ```bash
+   gh api repos/{owner}/{repo}/contributors --jq 'length'
+   ```
+   Flag if contributor count <= 2. This is the left-pad/event-stream risk:
+   a single compromised or burned-out maintainer can affect all consumers.
 
-4. **Version pinning** — Check if:
-   - Dependencies use exact versions (good) vs. wide ranges (risk)
-   - Lock file is present (good) vs. absent (risk)
-   - Any dependency uses `*` or `latest` as version (high risk)
+2. **Unmaintained/archived** (HIGH risk indicator)
+   If `gh` is available:
+   ```bash
+   gh api repos/{owner}/{repo} --jq '{archived: .archived, pushed_at: .pushed_at, open_issues: .open_issues_count}'
+   ```
+   Flag if: repo is archived, OR last push > 12 months ago, OR open issues > 100
+   with no recent activity.
 
-**Output:** Write to `./plans/dependency-audit-[TIMESTAMP].supply-chain.md` with:
-```
-## Supply Chain Risk Assessment
+3. **Past CVE history** (MEDIUM risk indicator)
+   Cross-reference with scanner output from Step 2. If the dependency has had
+   previous CVEs (even if currently fixed), flag as elevated risk -- repeat
+   offenders indicate structural security issues in the codebase.
 
-### Typosquatting Suspects
-[Table: Package | Similar To | Risk Level | Recommendation]
-[Or: 'No typosquatting suspects identified.']
+4. **High-risk features** (MEDIUM risk indicator)
+   Check if the dependency uses:
+   - FFI / native code bindings (C extensions, node-gyp, cgo)
+   - Deserialization of untrusted data (pickle, yaml.load, JSON.parse with reviver)
+   - Code execution capabilities (eval, exec, Function constructor)
+   - Network listeners or servers (opens ports, accepts connections)
+   Flag each high-risk feature found.
 
-### Maintenance Concerns
-[Table: Package | Concern | Risk Level]
-[Or: 'No known maintenance concerns.']
+5. **Low popularity** (LOW risk indicator)
+   If `gh` is available:
+   ```bash
+   gh api repos/{owner}/{repo} --jq '.stargazers_count'
+   ```
+   Flag if stars < 100 for a non-internal package. Low popularity means fewer
+   eyes reviewing the code for security issues.
 
-### Version Pinning
-[Summary: Lock file present? Loose version ranges? Specific risky patterns found?]
+6. **Missing security contact** (LOW risk indicator)
+   If `gh` is available, check for SECURITY.md:
+   ```bash
+   gh api repos/{owner}/{repo}/contents/SECURITY.md --jq '.name' 2>/dev/null
+   ```
+   Missing SECURITY.md means no coordinated disclosure process.
 
-### Dependency Health Summary
-[Overall assessment: HEALTHY / REVIEW_NEEDED / CONCERNING]
+**Graceful degradation:** If `gh` is not available or returns errors,
+skip GitHub metadata queries and note in the report:
+"GitHub metadata unavailable -- supply chain risk assessment is based on
+manifest data and scanner output only. Install and authenticate `gh` CLI
+for full assessment."
 
-### Disclaimer
-This is LLM heuristic analysis. Findings require human verification. Check package registries (npmjs.com, PyPI, crates.io, etc.) for current status.
-```"
+**Report format for supply chain risks:**
+
+| Dependency | Version | Risk Level | Risk Factors | Suggested Alternative |
+|-----------|---------|-----------|-------------|---------------------|
+| left-pad | 1.1.3 | HIGH | 1 maintainer, archived | String.prototype.padStart (built-in) |
+
+For HIGH-risk dependencies, suggest well-maintained alternatives where known.
+Do not fabricate alternatives -- only suggest packages you can verify exist.
+
+**Output:** Write to `./plans/dependency-audit-[TIMESTAMP].supply-chain.md` with the supply chain risk table and summary findings."
 
 ## Step 6 — Generate consolidated report
 

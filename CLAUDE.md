@@ -11,7 +11,7 @@
 Claude Devkit is the complete toolkit for building with Claude Code. It combines skill definitions, agent generators, templates, and reusable configurations into a single, version-controlled repository.
 
 **What's Inside:**
-- **Skills** — 13 core reusable Claude Code workflows including `/architect`, `/ship`, `/retro`, `/audit`, `/sync`, `/fix`, and security skills
+- **Skills** — 20 core skills (13 workflows + 7 knowledge bases) including `/architect`, `/ship`, `/retro`, `/audit`, `/sync`, `/fix`, security skills, and prodsec knowledge-base references
 - **Generators** — Scripts to create agents, skills, and project structures
 - **Templates** — Reusable templates for agents and skills
 - **Configs** — Shared configurations and patterns
@@ -34,7 +34,14 @@ claude-devkit/
 │   ├── secrets-scan/          # Pre-commit secrets detection
 │   ├── secure-review/         # Deep semantic security review
 │   ├── threat-model-gate/     # Security planning reference
-│   └── fix/                   # Targeted finding remediation
+│   ├── fix/                   # Targeted finding remediation
+│   ├── input-validation-injection/  # Injection prevention reference (knowledge-base)
+│   ├── client-side-security/        # Browser security reference (knowledge-base)
+│   ├── ai-code-review/              # AI-generated code review (knowledge-base)
+│   ├── semgrep/                     # Semgrep static analysis (knowledge-base)
+│   ├── build-yaml-misconfiguration/ # CI/CD pipeline security (knowledge-base)
+│   ├── container-hardening/         # Container security (knowledge-base)
+│   └── threat-model/                # Full STRIDE+DREAD threat modeling (knowledge-base)
 │
 ├── contrib/             # Tier 1b: Optional/personal skills (opt-in)
 │   ├── journal/         # Obsidian journal writing
@@ -113,11 +120,18 @@ Skill invocation → codebase-scanner.py (pre-scan) → structured symbol index 
 | **receiving-code-review** | 1.0.0 | Code review reception discipline: 6-step response pattern (READ through IMPLEMENT), anti-performative-agreement, YAGNI enforcement, source-specific handling, pushback guidelines. Reference archetype. | claude-sonnet-4-6 | Reference |
 | **verification-before-completion** | 1.0.0 | Evidence-before-claims gate: 5-step verification (IDENTIFY, RUN, READ, VERIFY, CLAIM). Requires fresh test/build output before any completion claim. Red flags, rationalization table, key patterns for TDD and bug fixes. Reference archetype. | claude-sonnet-4-6 | Reference |
 | **compliance-check** | 1.0.0 | Validate codebase against code-level compliance signals for regulatory frameworks (FedRAMP, FIPS, OWASP, SOC 2). Scoped to source code analysis only — not a compliance certification. | opus-4-6 | 5 |
-| **dependency-audit** | 1.0.0 | Supply chain security audit — coordinates real CLI vulnerability scanners (npm audit, pip-audit, govulncheck, cargo audit, etc.) and synthesizes findings with license compliance and risk assessment. | claude-sonnet-4-6 | 8 |
-| **secrets-scan** | 1.0.0 | Pre-commit secrets detection with pattern-based scanning for API keys, tokens, passwords, private keys, and connection strings. Self-contained — no external tools required. | claude-sonnet-4-6 | 6 |
-| **secure-review** | 1.1.0 | Deep semantic security review of code changes with data flow tracing, taint analysis, and trust boundary validation. When invoked with plan context (e.g., by /ship Step 4d), includes a `## Threat Model Coverage` section mapping findings against threat model requirements. Composable building block invoked by /audit when deployed. | opus-4-6 | 5 |
-| **threat-model-gate** | 1.0.0 | Use when planning security-sensitive features — authentication, authorization, data handling, API design, cryptography, or network configuration — requires explicit threat modeling before implementation decisions are made. Reference archetype. | claude-sonnet-4-6 | Reference |
+| **dependency-audit** | 1.1.0 | Supply chain security audit — coordinates real CLI vulnerability scanners (npm audit, pip-audit, govulncheck, cargo audit, etc.) and synthesizes findings with license compliance, structured supply chain risk criteria with GitHub metadata, and risk assessment. | claude-sonnet-4-6 | 8 |
+| **secrets-scan** | 1.1.0 | Pre-commit secrets detection with pattern-based scanning for API keys, tokens, passwords, private keys, connection strings, and insecure defaults detection. Self-contained — no external tools required. | claude-sonnet-4-6 | 6 |
+| **secure-review** | 1.2.0 | Deep semantic security review of code changes with data flow tracing, taint analysis, trust boundary validation, blast radius assessment, codebase sizing, and regression detection. When invoked with plan context (e.g., by /ship Step 4d), includes a `## Threat Model Coverage` section mapping findings against threat model requirements. Composable building block invoked by /audit when deployed. | opus-4-6 | 5 |
+| **threat-model-gate** | 1.1.0 | Use when planning security-sensitive features — authentication, authorization, data handling, API design, cryptography, or network configuration — requires explicit threat modeling before implementation decisions are made. Includes DREAD reference and cross-reference to threat-model skill. Reference archetype. | claude-sonnet-4-6 | Reference |
 | **fix** | 1.0.0 | Targeted finding remediation — parse a specific finding from a review artifact (/ship or /audit), dispatch a scoped coder, run focused verification (security re-scan, code review, or tests), and commit with traceability back to the source finding. Supports `--dry-run`. Lightweight alternative to full /architect → /ship for single-finding fixes. | opus-4-6 | 5 |
+| **input-validation-injection** | 1.0.0 | Injection prevention reference: SQL, LDAP, OS command, prototype pollution, ReDoS. Knowledge-base from prodsec-skills. | N/A | Knowledge-base |
+| **client-side-security** | 1.0.0 | Browser security reference: XSS (5 contexts), CSP, CSRF, XS-Leaks, Trusted Types, security headers. Knowledge-base from prodsec-skills. | N/A | Knowledge-base |
+| **ai-code-review** | 1.0.0 | AI-generated code review: hallucinated APIs, plausible-but-wrong logic, pattern drift, stale dependencies. Knowledge-base from prodsec-skills. | N/A | Knowledge-base |
+| **semgrep** | 1.0.0 | Semgrep static analysis orchestration: auto-language detection, 30+ rulesets, SARIF output, Semgrep Pro support. Knowledge-base from prodsec-skills. | N/A | Knowledge-base |
+| **build-yaml-misconfiguration** | 1.0.0 | CI/CD pipeline security: GitLab CI, Tekton, Containerfile hardening across 18+ misconfiguration categories. Knowledge-base from prodsec-skills. | N/A | Knowledge-base |
+| **container-hardening** | 1.0.0 | Container image and runtime security: non-root, read-only filesystem, capability restrictions, UBI base images. Knowledge-base from prodsec-skills. | N/A | Knowledge-base |
+| **threat-model** | 1.0.0 | Full STRIDE+DREAD threat modeling with OTM v0.2.0 JSON output, MITRE ATT&CK mapping, three-phase methodology. Knowledge-base from prodsec-skills. Includes reference/ subdirectory. | N/A | Knowledge-base |
 
 ### Contrib Skills (contrib/)
 
@@ -758,6 +772,48 @@ Tool: Bash (git worktree remove, delete temp files)
 - Read-only operations (no conflict risk)
 - Tightly coupled files that must be modified together (use single work group instead)
 
+#### Knowledge-Base Pattern (prodsec-skills integration)
+
+**Characteristics:**
+- Tool-agnostic reference materials (not executable workflows)
+- Domain-specific security knowledge, checklists, and methodologies
+- Imported from Red Hat Product Security's prodsec-skills repository
+- Loaded as context by other skills or directly by users
+- No model, steps, tools, or verdict gates
+
+**Use Cases:**
+- Security review context (load alongside /secure-review or /audit)
+- Developer reference during implementation
+- Code review checklists
+- Standalone security analysis methodology
+
+**Frontmatter:**
+```yaml
+---
+name: skill-name
+description: Invocation condition description.
+type: knowledge-base
+version: 1.0.0
+attribution: "Red Hat Product Security, prodsec-skills repository"
+---
+```
+
+**Example usage:**
+```
+Using skills/input-validation-injection/SKILL.md: review this endpoint for injection risks.
+Using skills/threat-model/SKILL.md: perform a threat model for the authentication subsystem.
+```
+
+**`threat-model-gate` vs `threat-model`:** These serve different purposes and have different invocation patterns.
+`threat-model-gate` is a **planning gate** (behavioral discipline, `type: reference`) -- it is invoked automatically by `/architect` Stage 2 and checked by `/ship` Step 1 to ensure threat modeling happens before implementation. Users do not invoke it directly.
+`threat-model` is a **standalone methodology** (domain knowledge, `type: knowledge-base`) -- it provides full STRIDE+DREAD+OTM threat modeling methodology for hands-on threat modeling sessions.
+
+Knowledge-base skills are loaded as context, not invoked as slash commands. Use:
+```
+Using skills/threat-model/SKILL.md: perform a threat model for this system.
+```
+Do not attempt `/threat-model` -- knowledge-base skills have no workflow steps to execute.
+
 ## Artifact Locations
 
 ```
@@ -846,7 +902,14 @@ skills/
 ├── secrets-scan/SKILL.md
 ├── secure-review/SKILL.md
 ├── threat-model-gate/SKILL.md
-└── fix/SKILL.md
+├── fix/SKILL.md
+├── input-validation-injection/SKILL.md
+├── client-side-security/SKILL.md
+├── ai-code-review/SKILL.md
+├── semgrep/SKILL.md
+├── build-yaml-misconfiguration/SKILL.md
+├── container-hardening/SKILL.md
+└── threat-model/SKILL.md          # Also includes reference/ subdirectory
 ```
 
 **Frontmatter Format:**
@@ -892,7 +955,7 @@ Python scripts for code generation with validation and atomic writes.
 - `generate_skill.py` — Create skills from archetypes
 - `generate_senior_architect.py` — Create architect agents
 - `validate_skill.py` — Validate skill definitions
-- `test_skill_generator.sh` — Test suite (57 tests)
+- `test_skill_generator.sh` — Test suite (69 tests)
 
 **Capabilities:**
 - Auto-detection (project type, stack)
@@ -1096,13 +1159,18 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Coverage (57 tests):**
+**Coverage (69 tests):**
 - Generator and validator help text
-- All 13 core skills (architect, ship, retro, audit, sync,
+- All 20 core skills (architect, ship, retro, audit, sync,
   receiving-code-review, verification-before-completion, compliance-check,
-  dependency-audit, secrets-scan, secure-review, threat-model-gate, fix)
+  dependency-audit, secrets-scan, secure-review, threat-model-gate, fix,
+  input-validation-injection, client-side-security, ai-code-review,
+  semgrep, build-yaml-misconfiguration, container-hardening, threat-model)
 - All 3 contrib skills (journal, journal-recall, journal-review)
-- All archetypes (coordinator, pipeline, scan)
+- All archetypes (coordinator, pipeline, scan, knowledge-base)
+- Knowledge-base archetype positive/negative tests (valid, empty body, missing attribution)
+- deploy.sh reference/ directory copy test
+- secrets-scan grep pattern syntax validation
 - Input validation (names, descriptions, paths)
 - JSON output
 - Negative tests (missing frontmatter, empty steps)
@@ -1280,7 +1348,7 @@ test(generators): add validation tests for scan archetype
 - [x] Agent generator (unified)
 - [x] Skill validator + agent validator
 - [x] Deployment scripts (core + contrib)
-- [x] Test suite (57 tests, all 13 core + 3 contrib skills validated)
+- [x] Test suite (69 tests, all 20 core + 3 contrib skills validated)
 - [x] Security maturity levels (L1/L2/L3)
 - [x] validate-all health check command
 - [x] Deploy-time validation (--validate flag)

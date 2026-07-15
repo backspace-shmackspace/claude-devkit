@@ -46,6 +46,10 @@ deploy_skill() {
 
     mkdir -p "$dst"
     cp "$src/SKILL.md" "$dst/SKILL.md"
+    if [ -d "$src/reference" ]; then
+        rm -rf "$dst/reference"
+        cp -r "$src/reference" "$dst/reference"
+    fi
     echo "Deployed: $skill"
 }
 
@@ -70,6 +74,10 @@ deploy_contrib_skill() {
 
     mkdir -p "$dst"
     cp "$src/SKILL.md" "$dst/SKILL.md"
+    if [ -d "$src/reference" ]; then
+        rm -rf "$dst/reference"
+        cp -r "$src/reference" "$dst/reference"
+    fi
     echo "Deployed (contrib): $skill"
 }
 
