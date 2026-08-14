@@ -1,3 +1,5 @@
+
+
 # Claude Devkit
 
 Complete development toolkit for Claude Code - skills, agents, generators, and templates.
@@ -634,8 +636,10 @@ claude-devkit/
 │
 ├── generators/                # Code generation scripts
 │   ├── generate_skill.py              # Create skills
-│   ├── generate_senior_architect.py   # Create architects
+│   ├── generate_agents.py             # Create project agents
+│   ├── generate_senior_architect.py   # Create architects (legacy)
 │   ├── validate_skill.py              # Validate skills
+│   ├── validate_agent.py              # Validate agents
 │   ├── test_skill_generator.sh        # Test suite
 │   └── README.md
 │
