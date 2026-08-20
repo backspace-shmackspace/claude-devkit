@@ -16,6 +16,7 @@ Claude Devkit is the complete toolkit for building with Claude Code. It combines
 - **Templates** — Reusable templates for agents and skills
 - **Configs** — Shared configurations and patterns
 - **Scripts** — Deployment and validation utilities
+- **Meta-Harness** — `devkit` CLI for targeting and managing skill execution across multiple repositories from outside the target project (see Quick Start step 5 and Integration Patterns)
 
 ## Architecture
 
@@ -75,12 +76,14 @@ claude-devkit/
     ├── uninstall.sh     # Clean uninstallation
     ├── validate-all.sh  # Health check - validate all skills
     ├── codebase-scanner.py    # Deterministic codebase symbol index (tree-sitter + regex fallback)
+    ├── devkit_cli.py           # Meta-harness CLI implementation (stdlib only)
+    ├── devkit                  # Meta-harness entry point (thin bash wrapper)
     ├── emit-audit-event.sh    # Audit event emission helper (invoked by skills)
     ├── audit-log-query.sh     # Query utility for JSONL audit logs
     ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
     ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
     ├── scanner-value-report.sh # Scanner value analysis: cohort comparison by scanner mode
-    └── test-integration.sh    # Integration smoke tests (42 tests)
+    └── test-integration.sh    # Integration smoke tests (55 tests)
 ```
 
 ### Data Flow
@@ -445,6 +448,27 @@ gen-agent . --type all  # Generate all agents (auto-detects stack)
 /ship plans/add-user-authentication.md
 /audit
 /sync
+```
+
+### 5. Use the Meta-Harness (Optional)
+
+The `devkit` CLI lets you target and run skills against any registered git repository
+from outside that project -- no `cd` required. See Integration Patterns > With
+Meta-Harness for the full model.
+
+```bash
+# Initialize a project for devkit management
+devkit init ~/projects/my-app
+
+# Run skills from anywhere
+devkit audit ~/projects/my-app
+devkit architect ~/projects/my-app "add feature"
+
+# Open interactive session
+devkit shell ~/projects/my-app
+
+# Check status of all managed projects
+devkit status
 ```
 
 ## Complete Workflows
@@ -988,6 +1012,7 @@ Shared configurations and pattern definitions.
 - `skill-patterns.json` — Validation patterns
 - `scanner-languages.json` — Language grammar configuration for codebase scanner (extensions, tree-sitter queries, package versions for Python, TypeScript, Java, Go)
 - `scanner-value-thresholds.json` — Confidence tier configuration for scanner value analysis (INSUFFICIENT/PRELIMINARY/RELIABLE/HIGH_CONFIDENCE thresholds)
+- `devkit-defaults.json` — Default configuration for the meta-harness CLI (registry path, `.devkit/` state dir name, `allowed_roots`, `claude` command/flag, size limits). Loaded by `scripts/devkit_cli.py` at startup; hardcoded fallback defaults are used if missing or corrupt.
 - `tech-stack-definitions/` — Stack-specific configs (7 stacks: python, fastapi, typescript, react, nextjs, astro, security)
 - `base-definitions/` — Reserved for future use (currently empty)
 
@@ -1001,17 +1026,21 @@ Deployment and utility scripts.
 - `uninstall.sh` — Clean uninstallation with backup restoration
 - `validate-all.sh` — Health check - validate all skills in one pass
 - `codebase-scanner.py` — Deterministic codebase symbol index for agent context. Extracts functions, classes, methods, and import graph. Uses tree-sitter (>=0.25.0) when available in `~/.claude-devkit/scanner-venv/`, falls back to regex. Invoked by `/architect` Step 1 and `/ship` Step 1. Tree-sitter venv created by `install.sh`.
+- `devkit_cli.py` — Meta-harness CLI implementation (Python 3.8+, stdlib only). Validates target repositories and skill names, manages per-project state (`.devkit/state.json`) and the global registry (`~/.claude-devkit/registry.json`), and delegates skill execution to Claude Code via `subprocess.run(["claude", "--print", ...])` (or `os.execvp` for `devkit shell`). Reads defaults from `configs/devkit-defaults.json` with hardcoded fallback.
+- `devkit` — Thin bash entry point wrapper that execs `devkit_cli.py` with `python3`. Installed as a shell alias and added to PATH by `install.sh`.
 - `emit-audit-event.sh` — Standalone helper script for skill audit event emission (invoked by `/ship`, `/architect`, `/audit`)
 - `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, overrides, verify-chain, recent, scores, trend)
 - `compute-run-score.sh` — Compute per-dimension quantitative scores from a JSONL audit log (python3, no jq)
 - `score-reflector.sh` — Deterministic score reflector for candidate learnings generation (python3, no jq)
 - `scanner-value-report.sh` — Scanner value analysis: cohort comparison of /ship run scores by scanner mode (tree-sitter-partial vs regex-fallback vs absent). No jq dependency.
-- `test-integration.sh` — Integration smoke tests (42 tests): emit-audit-event.sh JSONL correctness,
+- `test-integration.sh` — Integration smoke tests (55 tests): emit-audit-event.sh JSONL correctness,
   L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
   lifecycle, threat model consumption structural tests across /ship, /architect, /secure-review,
   quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
   codebase-scanner integration tests (8 tests),
-  and scanner value instrumentation tests (5 tests)
+  scanner value instrumentation tests (5 tests),
+  and meta-harness tests (13 tests: 8 functional, 5 security -- symlink rejection, allowed_roots
+  enforcement, oversized state file, invalid skill name, `--`-prefixed argument injection)
 
 **Usage:**
 ```bash
@@ -1101,6 +1130,51 @@ Skills invoke many tools during execution (Read, Glob, Bash, Task, etc.), which 
 - Edit `~/.claude/settings.json` directly
 - Project-level overrides go in `.claude/settings.json` or `.claude/settings.local.json`
 - Lists merge — project settings layer on top of global settings
+
+### With Meta-Harness
+
+The `devkit` CLI (`scripts/devkit_cli.py`) is an external orchestrator layer that lets
+you target and run skills against any registered repository without first `cd`-ing
+into it. It does not replace or reimplement skills -- it is a front door that sets
+CWD correctly and delegates to Claude Code for actual execution.
+
+```
+devkit CLI  (scripts/devkit_cli.py)
+  |
+  +-- validate target path (git repo? no symlinks? under allowed_roots?)
+  +-- validate skill name and args (reject flag-injection-shaped input)
+  +-- read/create .devkit/state.json in target project
+  +-- update ~/.claude-devkit/registry.json
+  +-- check skill deployment (~/.claude/skills/<skill>/SKILL.md exists?)
+  +-- set CLAUDE_DEVKIT env var
+  |
+  v
+subprocess.run(["claude", "--print", "/<skill> <args>"], cwd=<resolved target>)
+```
+
+**Key model:**
+- Skills remain plain `SKILL.md` files executed by Claude Code -- the harness never
+  duplicates skill logic.
+- Per-project state (`.devkit/state.json`, gitignored by default) tracks the last
+  invocation. It is informational only; no skill reads it.
+- The global registry (`~/.claude-devkit/registry.json`) provides cross-project
+  visibility (`devkit status`) but is never authoritative -- every access
+  re-validates against the filesystem, and stale (deleted) paths are marked
+  `[STALE]` rather than silently pruned.
+- Existing security maturity levels (L1/L2/L3), security gates, and JSONL audit
+  logging are unchanged -- they are implemented inside skills, not the harness.
+- Target paths default to `~/projects/` and `~/workspaces/` (`allowed_roots` in
+  `configs/devkit-defaults.json`), plus the devkit root and `/tmp/`. Symlinked
+  targets and non-git directories are rejected.
+
+**Commands:** `devkit init <target>`, `devkit <skill> <target> [args]`,
+`devkit shell <target>`, `devkit status [<target>]`, `devkit deploy [--validate]`.
+
+**Known limitation:** `devkit shell` replaces the harness process via `os.execvp()`,
+so `last_invocation` is written before the interactive session starts and is never
+updated with an exit code afterward (the harness never regains control). `devkit
+status` will show a stale timestamp with `exit_code: null` for projects primarily
+accessed via `shell`.
 
 ### With Project Agents
 
@@ -1253,6 +1327,41 @@ The scanner falls back to regex-based extraction when tree-sitter is unavailable
 
 **Scanner venv location:** `~/.claude-devkit/scanner-venv/`
 **Cache location:** `~/.claude-devkit/cache/<project-hash>/index.json`
+
+### devkit CLI: permission prompts block non-interactive execution
+
+**Issue:** `devkit <skill> <target>` appears to hang indefinitely during `--print`
+mode.
+
+**Solution:** Non-interactive skill execution requires tool permission allowlists
+in `~/.claude/settings.json` (or project `.claude/settings.json`); otherwise Claude
+Code stops to prompt for permission and the non-interactive session stalls waiting
+for input that never comes. See the Tool Permissions section above. `devkit` prints
+a pre-flight warning when no allowlists are detected, but does not block the run.
+
+### devkit init rejects a valid project path
+
+**Issue:** `devkit init ~/some/path` exits 1 with a validation error even though
+the path is a real git repository.
+
+**Solution:** Check `configs/devkit-defaults.json`'s `allowed_roots` list (default:
+`~/projects/`, `~/workspaces/`, plus the devkit root and `/tmp/` which are always
+allowed). Add the parent directory to `allowed_roots`, or move the project under an
+already-allowed root. Also confirm the target is not a symlink -- symlinked targets
+are rejected regardless of `allowed_roots`.
+
+### devkit shell shows stale status afterward
+
+**Issue:** After running `devkit shell <target>` and exiting the interactive
+session, `devkit status <target>` still shows the pre-session timestamp with
+`exit_code: null`.
+
+**Solution:** This is a known limitation, not a bug. `devkit shell` uses
+`os.execvp()` to replace the harness process with `claude`, so the harness never
+regains control after the interactive session starts and cannot record an exit
+code. State is written immediately before `execvp` with `exit_code: null` to
+indicate an interactive session occurred. Use `devkit <skill> <target>` (
+non-interactive mode) if you need accurate post-run status tracking.
 
 ## Syncing Across Machines
 

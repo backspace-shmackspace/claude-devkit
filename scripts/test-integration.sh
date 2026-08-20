@@ -9,13 +9,15 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 42 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+# 55 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
 #           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
 #           threat model consumption structural tests (10 tests),
 #           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
 #           fix skill structural tests (2 tests),
 #           codebase-scanner integration tests (8 tests),
-#           scanner value instrumentation tests (5 tests), cleanup
+#           scanner value instrumentation tests (5 tests),
+#           meta-harness CLI tests (13 tests: help/version, init lifecycle,
+#           validation rejections, status, deploy delegation, security guards), cleanup
 
 set -e
 
@@ -38,18 +40,47 @@ GENERATE_PY="$REPO_DIR/generators/generate_skill.py"
 VALIDATE_PY="$REPO_DIR/generators/validate_skill.py"
 DEPLOY_DIR="$HOME/.claude/skills"
 TEST_DIR="/tmp/integration-smoke-test"
+DEVKIT_CLI="$REPO_DIR/scripts/devkit_cli.py"
+HARNESS_TEST_DIR="/tmp/devkit-harness-test"
+HARNESS_NOTGIT_DIR="/tmp/devkit-harness-notgit"
+HARNESS_NONEXISTENT_DIR="/tmp/devkit-harness-nonexistent"
+HARNESS_SYMLINK="/tmp/devkit-harness-symlink"
+HARNESS_REGISTRY_DIR="/tmp/devkit-harness-registry"
+
+# Isolate all meta-harness registry writes from the real
+# ~/.claude-devkit/registry.json -- devkit_cli.py's get_registry_path()
+# honors this env var when set (test-only hook). Without it, every run of
+# this suite would permanently register HARNESS_TEST_DIR (and friends) into
+# the developer's real registry with no way to unregister (devkit
+# prune/unregister is out of scope for the meta-harness MVP).
+export DEVKIT_REGISTRY_OVERRIDE="$HARNESS_REGISTRY_DIR/test-registry.json"
 
 # Trap handler: clean up all smoke artifacts on exit/interruption
 cleanup() {
     rm -rf "$TEST_DIR" 2>/dev/null || true
     rm -rf "$DEPLOY_DIR/smoke-coord" 2>/dev/null || true
     rm -rf "$DEPLOY_DIR/smoke-pipe" 2>/dev/null || true
+    rm -f "$HARNESS_SYMLINK" 2>/dev/null || true
+    rm -rf "$HARNESS_TEST_DIR" 2>/dev/null || true
+    rm -rf "$HARNESS_NOTGIT_DIR" 2>/dev/null || true
+    rm -rf "$HARNESS_NONEXISTENT_DIR" 2>/dev/null || true
+    rm -rf "$HARNESS_REGISTRY_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
 # Clean up test directory at start
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
+
+# Clean up and set up meta-harness test fixtures at start
+rm -f "$HARNESS_SYMLINK" 2>/dev/null || true
+rm -rf "$HARNESS_TEST_DIR" 2>/dev/null || true
+rm -rf "$HARNESS_NOTGIT_DIR" 2>/dev/null || true
+rm -rf "$HARNESS_NONEXISTENT_DIR" 2>/dev/null || true
+rm -rf "$HARNESS_REGISTRY_DIR" 2>/dev/null || true
+mkdir -p "$HARNESS_TEST_DIR"
+git -C "$HARNESS_TEST_DIR" init -q
+mkdir -p "$HARNESS_NOTGIT_DIR"
 
 # Test runner function (same pattern as test_skill_generator.sh)
 run_test() {
@@ -443,7 +474,7 @@ run_test 31 "Scanner JSON output is valid JSON" \
     0
 
 run_test 32 "Scanner handles empty directory" \
-    "mkdir -p /tmp/scanner-test-empty && python3 '$REPO_DIR/scripts/codebase-scanner.py' --format summary --quiet /tmp/scanner-test-empty; STATUS=\$?; rm -rf /tmp/scanner-test-empty 2>/dev/null || true; exit \$STATUS" \
+    "mkdir -p /tmp/scanner-test-empty && python3 '$REPO_DIR/scripts/codebase-scanner.py' --format summary --quiet /tmp/scanner-test-empty; STATUS=\$?; rm -rf /tmp/scanner-test-empty 2>/dev/null || true; [ \"\$STATUS\" -eq 0 ]" \
     0
 
 run_test 33 "Scanner respects --max-files limit" \
@@ -455,7 +486,7 @@ run_test 34 "Scanner summary contains expected structure header" \
     0
 
 run_test 35 "Scanner rejects symlink escape" \
-    "mkdir -p /tmp/scanner-symlink-test && ln -sf /etc/passwd /tmp/scanner-symlink-test/escape.py && python3 '$REPO_DIR/scripts/codebase-scanner.py' --format json --quiet /tmp/scanner-symlink-test | python3 -c 'import json,sys; d=json.load(sys.stdin); fc=d[\"file_count\"]; assert fc==0, f\"Expected 0 files, got {fc}\"; print(\"PASS\")'; STATUS=\$?; rm -rf /tmp/scanner-symlink-test 2>/dev/null || true; exit \$STATUS" \
+    "mkdir -p /tmp/scanner-symlink-test && ln -sf /etc/passwd /tmp/scanner-symlink-test/escape.py && python3 '$REPO_DIR/scripts/codebase-scanner.py' --format json --quiet /tmp/scanner-symlink-test | python3 -c 'import json,sys; d=json.load(sys.stdin); fc=d[\"file_count\"]; assert fc==0, f\"Expected 0 files, got {fc}\"; print(\"PASS\")'; STATUS=\$?; rm -rf /tmp/scanner-symlink-test 2>/dev/null || true; [ \"\$STATUS\" -eq 0 ]" \
     0
 
 run_test 36 "Scanner --self-test passes" \
@@ -536,12 +567,141 @@ run_test 42 "scanner_invocation is in audit-event-schema.json event_type enum" \
     "grep -q '\"scanner_invocation\"' '$REPO_DIR/configs/audit-event-schema.json'" \
     0
 
+# --- Meta-harness CLI tests (43-55) ---
+# Fixtures created at script startup: HARNESS_TEST_DIR (initialized git repo),
+# HARNESS_NOTGIT_DIR (plain directory, no .git), HARNESS_NONEXISTENT_DIR (never
+# created), HARNESS_SYMLINK (created inline in Test 51).
+
+# Test 43: devkit --help exits 0
+run_test 43 "devkit --help exits 0" \
+    "python3 '$DEVKIT_CLI' --help" \
+    0
+
+# Test 44: devkit --version exits 0 and matches semver format
+run_test 44 "devkit --version exits 0 and matches semver format" \
+    "python3 '$DEVKIT_CLI' --version | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'" \
+    0
+
+# Test 45: devkit init on a valid git repo creates state.json with required fields
+run_test 45 "devkit init on valid git repo creates state.json with required fields" \
+    "python3 '$DEVKIT_CLI' init '$HARNESS_TEST_DIR' && \
+     python3 -c \"
+import json
+with open('$HARNESS_TEST_DIR/.devkit/state.json') as f:
+    data = json.load(f)
+assert data.get('schema_version') == '1.0.0', 'missing/invalid schema_version'
+assert data.get('project_name') == 'devkit-harness-test', 'missing/invalid project_name'
+assert isinstance(data.get('initialized_at'), str) and data['initialized_at'], 'missing initialized_at'
+assert isinstance(data.get('devkit_version'), str) and data['devkit_version'], 'missing devkit_version'
+print('PASS: state.json schema valid')
+\"" \
+    0
+
+# Test 46: devkit init adds .devkit/ to the target's .gitignore
+run_test 46 "devkit init adds .devkit/ to target .gitignore" \
+    "grep -qF '.devkit/' '$HARNESS_TEST_DIR/.gitignore'" \
+    0
+
+# Test 47: devkit init on a non-git directory exits 1
+run_test 47 "devkit init on non-git directory exits 1" \
+    "python3 '$DEVKIT_CLI' init '$HARNESS_NOTGIT_DIR'" \
+    1
+
+# Test 48: devkit init on a nonexistent path exits 1
+run_test 48 "devkit init on nonexistent path exits 1" \
+    "python3 '$DEVKIT_CLI' init '$HARNESS_NONEXISTENT_DIR'" \
+    1
+
+# Test 49: devkit status (fleet view) shows the project registered by init
+run_test 49 "devkit status shows project registered by init" \
+    "python3 '$DEVKIT_CLI' status | grep -q 'devkit-harness-test'" \
+    0
+
+# Test 50: devkit deploy delegates to deploy.sh (exit code matches deploy.sh --help)
+run_test 50 "devkit deploy --help delegates to deploy.sh" \
+    "python3 '$DEVKIT_CLI' deploy --help" \
+    0
+
+# Test 51: devkit init on a symlink to a git repo exits 1 (symlink rejection, TB-2)
+run_test 51 "devkit init on symlink-to-git-repo exits 1" \
+    "ln -sf '$HARNESS_TEST_DIR' '$HARNESS_SYMLINK' && \
+     python3 '$DEVKIT_CLI' init '$HARNESS_SYMLINK'" \
+    1
+
+# Test 52: devkit init on a path outside allowed_roots exits 1 (STRIDE Elevation)
+run_test 52 "devkit init on path outside allowed_roots exits 1" \
+    "python3 '$DEVKIT_CLI' init /etc" \
+    1
+
+# Test 53: oversized state.json produces a warning but devkit status still exits 0 (STRIDE DoS)
+run_test 53 "oversized state.json warns on stderr; devkit status still exits 0" \
+    "python3 -c \"print('x' * 100000)\" > '$HARNESS_TEST_DIR/.devkit/state.json' && \
+     OUTPUT=\$(python3 '$DEVKIT_CLI' status '$HARNESS_TEST_DIR' 2>&1); STATUS_EXIT=\$?; \
+     echo \"\$OUTPUT\" | grep -qi warning && [ \"\$STATUS_EXIT\" -eq 0 ]" \
+    0
+
+# Test 54: invalid skill name (path traversal attempt) is rejected (TB-1)
+run_test 54 "invalid skill name (path traversal) is rejected" \
+    "python3 '$DEVKIT_CLI' ../../etc/passwd '$HARNESS_TEST_DIR'" \
+    1
+
+# Test 55: skill argument starting with -- is rejected before the "--"
+# separator (CLI flag injection guard, STRIDE Tampering), but the same
+# argument is forwarded verbatim -- not rejected -- after an explicit "--"
+# separator (mvp-meta-harness code review M-1: the pre-separator restriction
+# is real defense-in-depth, but re-applying it post-separator broke every
+# documented skill flag, e.g. `/architect --fast`, with no security benefit
+# since subprocess.run() is always list-form with the prompt as one argv
+# element). Does not invoke a real `claude` process (see file header note on
+# not testing LLM execution) -- imports devkit_cli directly to check the
+# split/validate logic that main() uses for dispatch.
+run_test 55 "pre-separator -- argument rejected; post-separator -- argument forwarded verbatim" \
+    "python3 '$DEVKIT_CLI' audit '$HARNESS_TEST_DIR' --system-prompt foo; PRE_EXIT=\$?; \
+     [ \"\$PRE_EXIT\" -eq 1 ] && \
+     python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+# No literal '--' token -> the entire arg list is pre-separator and
+# validate_args() rejects it (matches the end-to-end exit-1 check above).
+pre, post = d.split_skill_args(['audit', '$HARNESS_TEST_DIR', '--system-prompt', 'foo'])
+assert pre == ['audit', '$HARNESS_TEST_DIR', '--system-prompt', 'foo'], f'unexpected split without --: {pre}'
+assert post == [], f'expected no post-separator args without --, got: {post}'
+ok, err = d.validate_args(pre)
+assert not ok, 'pre-separator -- argument should be rejected by validate_args'
+
+# Explicit '--' separator -> args after it are excluded from validate_args
+# entirely (that omission in main()/cmd_run_skill is what makes the escape
+# hatch work -- validate_args() itself is unchanged).
+pre2, post2 = d.split_skill_args(['audit', '$HARNESS_TEST_DIR', '--', '--system-prompt', 'foo'])
+assert pre2 == ['audit', '$HARNESS_TEST_DIR'], f'unexpected pre-separator split: {pre2}'
+assert post2 == ['--system-prompt', 'foo'], f'unexpected post-separator split: {post2}'
+ok2, err2 = d.validate_args(pre2)
+assert ok2, f'pre-separator args (no -- prefix) should pass validate_args, got: {err2}'
+
+# Sanity check: validate_args() itself still rejects '--'-prefixed args when
+# called directly -- proving the escape hatch comes from dispatch not
+# calling it on post-separator args, not from a behavior change in the
+# validator.
+ok3, err3 = d.validate_args(post2)
+assert not ok3, 'sanity check failed: validate_args should still reject -- prefixed args'
+
+print('PASS: split_skill_args/validate_args separator semantics verified')
+\"" \
+    0
+
 # Test 9: Cleanup
 echo ""
 echo -e "${BLUE}Test 9: Cleanup${RESET}"
 rm -rf "$TEST_DIR" || true
 rm -rf "$DEPLOY_DIR/smoke-coord" || true
 rm -rf "$DEPLOY_DIR/smoke-pipe" || true
+rm -f "$HARNESS_SYMLINK" || true
+rm -rf "$HARNESS_TEST_DIR" || true
+rm -rf "$HARNESS_NOTGIT_DIR" || true
+rm -rf "$HARNESS_NONEXISTENT_DIR" || true
+rm -rf "$HARNESS_REGISTRY_DIR" || true
 if [[ ! -d "$TEST_DIR" ]]; then
     echo -e "${GREEN}  PASS${RESET}"
     PASS_COUNT=$((PASS_COUNT + 1))

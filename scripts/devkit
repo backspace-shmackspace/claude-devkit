@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# devkit -- Meta-harness CLI for claude-devkit
+# Thin wrapper that delegates to scripts/devkit_cli.py
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CLI_SCRIPT="$REPO_DIR/scripts/devkit_cli.py"
+
+if [[ ! -f "$CLI_SCRIPT" ]]; then
+    echo "ERROR: devkit_cli.py not found at $CLI_SCRIPT" >&2
+    echo "Is claude-devkit installed correctly?" >&2
+    exit 1
+fi
+
+exec python3 "$CLI_SCRIPT" "$@"

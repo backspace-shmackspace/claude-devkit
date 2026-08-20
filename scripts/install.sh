@@ -113,6 +113,7 @@ for RC_FILE in "${RC_FILES[@]}"; do
 # claude-devkit PATH
 export CLAUDE_DEVKIT="$REPO_DIR"
 export PATH="\$PATH:$GENERATORS_DIR"
+export PATH="\$PATH:$REPO_DIR/scripts"
 
 # claude-devkit aliases
 alias generate-skill="$PYTHON_CMD $GENERATORS_DIR/generate_skill.py"
@@ -124,6 +125,7 @@ alias gen-skill="$PYTHON_CMD $GENERATORS_DIR/generate_skill.py"
 alias gen-agent="$PYTHON_CMD $GENERATORS_DIR/generate_senior_architect.py"
 alias gen-agents="$PYTHON_CMD $GENERATORS_DIR/generate_agents.py"
 alias val-skill="$PYTHON_CMD $GENERATORS_DIR/validate_skill.py"
+alias devkit="bash $REPO_DIR/scripts/devkit"
 EOF
 
     UPDATED_FILES+=("$RC_FILE")
@@ -187,6 +189,7 @@ echo "  generate-skill (gen-skill)     - Create new Claude Code skills"
 echo "  generate-agent (gen-agent)     - Create single senior architect agent"
 echo "  generate-agents (gen-agents)   - Create full agent team (auto-detect stack)"
 echo "  validate-skill (val-skill)     - Validate skill definitions"
+echo "  devkit                         - Meta-harness CLI (run skills against any registered repo)"
 echo ""
 echo "Generator scripts are also available directly in PATH:"
 echo "  generate_skill.py"
@@ -199,4 +202,6 @@ echo "  generate-skill my-skill --description 'Does something cool'"
 echo "  generate-agent . --project-type 'Next.js TypeScript'"
 echo "  generate-agents . --type all    # Auto-detect and create full team"
 echo "  validate-skill ../claude-devkit/skills/my-skill/SKILL.md"
+echo "  devkit init ~/projects/my-app   # Initialize a project for devkit management"
+echo "  devkit audit ~/projects/my-app  # Run a skill against a target repo from anywhere"
 echo ""
