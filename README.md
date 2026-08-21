@@ -66,6 +66,11 @@ devkit shell ~/projects/my-app --with ~/projects/cve-api
 devkit plan list ~/projects/my-app
 devkit plan show ~/projects/my-app integrate-cve-api
 
+# Shared learnings: aggregate cross-project patterns and manage promotions
+devkit learnings aggregate
+devkit learnings status
+devkit learnings propose <entry-id> --type skill_rule --target skills/ship/SKILL.md --description "..."
+
 # Open an interactive session, or check status of all managed projects
 devkit shell ~/projects/my-app
 devkit status
@@ -84,7 +89,7 @@ Pre-built workflows for common development tasks:
 |-------|---------|-------|
 | `/architect` | Create implementation plans with context alignment and approval gates. Detects security-sensitive features via keyword heuristic and Stage 2 plan content scan; requires threat modeling when threat-model-gate is deployed. Does cross-repo context discovery and creates `plan-refs/` via `devkit plan sync` when invoked with multiple targets (`DEVKIT_TARGET_COUNT > 1`, e.g. via `devkit architect ... --with <target2>`). | `/architect add shopping cart` |
 | `/ship` | Execute plans with pattern validation, security gates (secrets/code/deps), testing, QA, and retro capture. Supports security maturity levels (L1/L2/L3) and `--security-override`. Validates CWD against cross-repo plan `targets:` and filters work groups by `target:` annotation for multi-repo plans. | `/ship $DEVKIT_PROJECT_DIR/plans/feature.md` |
-| `/retro` | Mine review artifacts for recurring patterns and capture learnings | `/retro` or `/retro feature-name` |
+| `/retro` | Mine review artifacts for recurring patterns and capture learnings. `mine` scope performs cross-project learnings mining via the shared learnings layer. | `/retro`, `/retro feature-name`, or `/retro mine` |
 | `/audit` | Security, performance, and anti-pattern scanning. Composable: invokes /secure-review when deployed. | `/audit` or `/audit code` |
 | `/sync` | Update documentation and CLAUDE.md | `/sync` or `/sync full` |
 | `/receiving-code-review` | Code review reception discipline | `/receiving-code-review` |
@@ -673,7 +678,7 @@ cd ~/projects/claude-devkit
 bash scripts/test-integration.sh
 ```
 
-**Integration Test Coverage (147 tests):**
+**Integration Test Coverage (165 tests):**
 - Coordinator lifecycle (generate → validate → deploy → undeploy)
 - `validate-all.sh` health check
 - Pipeline lifecycle
@@ -744,7 +749,10 @@ claude-devkit/
 │   ├── scanner-value-report.sh  # Scanner value cohort analysis report
 │   ├── ship-queue.sh          # Sequential /ship runner for unattended batch execution
 │   ├── resolve-project-dir.sh # Project artifact directory resolution helper
-│   └── test-integration.sh    # Integration smoke tests (147 tests)
+│   ├── learnings_parser.py    # Deterministic learnings.md → structured JSON parser
+│   ├── learnings_aggregator.py # Cross-project learnings discovery and aggregation
+│   ├── learnings_promotions.py # Promotion lifecycle state machine (CANDIDATE→PROMOTED)
+│   └── test-integration.sh    # Integration smoke tests (165 tests)
 │
 ├── .claude/                   # Project-specific agents
 │   └── agents/
