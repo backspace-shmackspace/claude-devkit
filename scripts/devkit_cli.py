@@ -727,6 +727,28 @@ def read_plan_refs(project_dir, config=None):
                     )
                     continue
 
+                # Validate primary_plan_path containment (TB-4 defense)
+                ppp = data.get("primary_plan_path", "")
+                if ppp:
+                    if ".." in ppp.split("/"):
+                        print(
+                            f"{Colors.YELLOW}Warning:{Colors.RESET} Skipping ref file with "
+                            f"path traversal in primary_plan_path: {ref_file}",
+                            file=sys.stderr,
+                        )
+                        continue
+                    try:
+                        ppp_resolved = Path(ppp).resolve()
+                        projects_base = Path.home() / ".claude-devkit" / "projects"
+                        ppp_resolved.relative_to(projects_base.resolve())
+                    except (ValueError, OSError):
+                        print(
+                            f"{Colors.YELLOW}Warning:{Colors.RESET} Skipping ref file with "
+                            f"primary_plan_path outside ~/.claude-devkit/projects/: {ref_file}",
+                            file=sys.stderr,
+                        )
+                        continue
+
                 refs.append(data)
             except (OSError, json.JSONDecodeError) as e:
                 print(
@@ -1861,6 +1883,21 @@ def cmd_status(target_str, config):
         except ValueError:
             log_count = 0
         print(f"Audit logs: {log_count}")
+
+        # Cross-repo plan references
+        try:
+            project_dir = get_project_dir(resolved)
+            refs = read_plan_refs(project_dir, config)
+            if refs:
+                print(f"Cross-repo plans ({len(refs)}):")
+                for ref in refs:
+                    plan_name = ref.get("plan_name", "?")
+                    role = ref.get("role", "?")
+                    primary_path = ref.get("primary_project_path", "?")
+                    print(f"  - {plan_name} (role: {role}, primary: {primary_path})")
+        except ValueError:
+            pass
+
         return 0
 
     registry = read_registry(config)
@@ -2541,6 +2578,15 @@ def _plan_resolve(uri, config):
 
 def _plan_archive(target_str, plan_name, config):
     """Archive a cross-repo plan: remove refs from all involved projects."""
+    # Reject plan names with path traversal characters
+    if ".." in plan_name or "/" in plan_name:
+        print(
+            f"{Colors.RED}Error:{Colors.RESET} Invalid plan name '{plan_name}': "
+            f"must not contain '..' or '/' characters",
+            file=sys.stderr,
+        )
+        return 1
+
     ok, result = validate_target(target_str, config)
     if not ok:
         print(f"{Colors.RED}Error:{Colors.RESET} {result}", file=sys.stderr)
@@ -2936,7 +2982,12 @@ def main():
     if detach:
         skill_args = [a for a in skill_args if a != "--detach"]
 
-    # 3. "--" separates devkit-parsed tokens (subject to validate_args()'s
+    # 3. Reject unsupported --with + --detach combination
+    if with_targets and detach:
+        print("Error: --with is not supported with --detach", file=sys.stderr)
+        sys.exit(2)
+
+    # 4. "--" separates devkit-parsed tokens (subject to validate_args()'s
     # '--'-prefix rejection) from skill arguments forwarded verbatim after
     # it -- see split_skill_args() and validate_args() docstrings.
     pre_sep_args, post_sep_args = split_skill_args(skill_args)

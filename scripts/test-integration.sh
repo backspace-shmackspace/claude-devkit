@@ -390,14 +390,14 @@ run_test 15 "secure-review SKILL.md contains Threat Model Coverage section templ
     "grep -q '## Threat Model Coverage' '$REPO_DIR/skills/secure-review/SKILL.md'" \
     0
 
-# Test 16: /ship version bumped to 3.8.0
-run_test 16 "ship SKILL.md version is 3.8.0" \
-    "grep -q 'version: 3.8.0' '$REPO_DIR/skills/ship/SKILL.md'" \
+# Test 16: /ship version bumped to 3.9.0
+run_test 16 "ship SKILL.md version is 3.9.0" \
+    "grep -q 'version: 3.9.0' '$REPO_DIR/skills/ship/SKILL.md'" \
     0
 
-# Test 17: /architect version bumped to 3.4.0
-run_test 17 "architect SKILL.md version is 3.4.0" \
-    "grep -q 'version: 3.4.0' '$REPO_DIR/skills/architect/SKILL.md'" \
+# Test 17: /architect version bumped to 3.5.0
+run_test 17 "architect SKILL.md version is 3.5.0" \
+    "grep -q 'version: 3.5.0' '$REPO_DIR/skills/architect/SKILL.md'" \
     0
 
 # Test 18: /secure-review version bumped to 1.2.0
@@ -931,7 +931,7 @@ meta = json.loads(meta_path.read_text())
 assert meta['run_id'] == '\$RUN_ID'
 assert meta['skill'] == 'test'
 assert meta['status'] == 'running'
-assert meta['devkit_version'] == '0.3.0'
+assert meta['devkit_version'] == '0.4.0'
 print('PASS: run dir created with running meta.json')
 \"" \
     0
@@ -2084,8 +2084,11 @@ print('PASS: mixed flat keys and list keys parsed correctly')
 \"" \
     0
 
-# Test 124: parse_plan_frontmatter fails atomically on malformed indentation
-run_test 124 "parse_plan_frontmatter fails atomically on malformed indentation" \
+# Test 124: parse_plan_frontmatter treats unindented key as list-to-top transition
+# The parser correctly handles unindented "role: secondary" as a top-level key,
+# ending the list. The second target ends up missing its role field, which
+# validate_plan_targets() catches downstream.
+run_test 124 "parse_plan_frontmatter handles unindented key as list-to-top transition" \
     "python3 -c \"
 import sys
 sys.path.insert(0, '$REPO_DIR/scripts')
@@ -2101,9 +2104,19 @@ role: secondary
 ---
 '''
 fm, err = d.parse_plan_frontmatter(content)
-assert fm == {}, f'should return empty dict on error, got: {fm}'
-assert err != '', 'should return error message'
-print(f'PASS: malformed indentation rejected with: {err}')
+assert err == '', f'parser should succeed, got error: {err}'
+assert fm != {}, 'parser should return non-empty dict'
+# The unindented 'role: secondary' becomes a top-level key
+assert fm.get('role') == 'secondary', f'role should be top-level key, got: {fm.get(\\\"role\\\")}'
+# Second target should be missing its role (only has path)
+targets = fm.get('targets', [])
+assert len(targets) == 2, f'expected 2 targets, got {len(targets)}'
+assert 'role' not in targets[1], f'second target should not have role, got: {targets[1]}'
+# validate_plan_targets catches the missing role downstream
+config = dict(d.FALLBACK_DEFAULTS)
+ok, verr = d.validate_plan_targets(targets, config)
+assert not ok, f'validate_plan_targets should reject target missing role, got ok={ok}'
+print(f'PASS: unindented key treated as list-to-top transition; validation catches missing role')
 \"" \
     0
 
@@ -2138,8 +2151,8 @@ import sys, os
 sys.path.insert(0, '$REPO_DIR/scripts')
 import devkit_cli as d
 
-ok, result = d.resolve_devkit_uri('devkit://test-project-abc123456789/plans/test.md')
-assert ok, f'should resolve successfully, got error: {result}'
+result, error = d.resolve_devkit_uri('devkit://test-project-abc123456789/plans/test.md')
+assert result, f'should resolve successfully, got error: {error}'
 expected_suffix = os.path.join('.claude-devkit', 'projects', 'test-project-abc123456789', 'plans', 'test.md')
 assert result.endswith(expected_suffix), f'resolved path should end with {expected_suffix}, got: {result}'
 assert '~' not in result, f'resolved path should not contain tilde: {result}'
@@ -2199,8 +2212,9 @@ targets = [
 plan_name = 'test-cross-repo-plan'
 plan_file = 'test-cross-repo-plan.md'
 primary_plan_path = str(proj_dir1 / 'plans' / plan_file)
+config = dict(d.FALLBACK_DEFAULTS)
 
-d.write_plan_refs(plan_name, plan_file, primary_plan_path, pid1, str(resolved1), targets)
+d.write_plan_refs(plan_name, plan_file, pid1, str(resolved1), primary_plan_path, targets, config)
 
 ref1 = proj_dir1 / 'plan-refs' / f'{plan_name}.ref.json'
 ref2 = proj_dir2 / 'plan-refs' / f'{plan_name}.ref.json'
@@ -2588,7 +2602,7 @@ import json
 small_data = {
     'schema_version': '1.0.0', 'plan_name': 'good-plan',
     'plan_file': 'good-plan.md', 'primary_project_id': 'test-abc123456789',
-    'primary_project_path': '/tmp/test', 'primary_plan_path': '/tmp/test/plans/good.md',
+    'primary_project_path': '/tmp/test', 'primary_plan_path': str(Path.home() / '.claude-devkit/projects/test-abc123456789/plans/good.md'),
     'role': 'primary', 'all_targets': [], 'created_at': '2026-01-01T00:00:00Z',
     'created_by': 'test'
 }
@@ -2709,7 +2723,8 @@ plans_dir.mkdir(parents=True, exist_ok=True)
 plan_path = plans_dir / plan_file
 plan_path.write_text('---\nstatus: APPROVED\n---\n# Archive test\n')
 primary_plan_path = str(plan_path)
-d.write_plan_refs(plan_name, plan_file, primary_plan_path, pid1, str(resolved1), targets)
+config = dict(d.FALLBACK_DEFAULTS)
+d.write_plan_refs(plan_name, plan_file, pid1, str(resolved1), primary_plan_path, targets, config)
 
 ref1 = proj_dir1 / 'plan-refs' / f'{plan_name}.ref.json'
 ref2 = proj_dir2 / 'plan-refs' / f'{plan_name}.ref.json'
