@@ -1,7 +1,7 @@
 # Claude Devkit
 
 **Version:** 1.0.0
-**Last Updated:** 2026-08-20
+**Last Updated:** 2026-08-21
 **Purpose:** Unified development toolkit for Claude Code - skills, agents, generators, and templates
 
 **New to Claude Devkit?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a 15-minute tutorial.
@@ -630,7 +630,7 @@ All skills follow these 10 patterns:
 | **7. Bounded iterations** | Max revision loops prevent cycles | `Max N revision` language |
 | **8. Model selection** | Right model for each task | Valid `model:` in frontmatter |
 | **9. Scope parameters** | Flexible invocation | `## Inputs` with `$ARGUMENTS` |
-| **10. Archive on success** | Move artifacts after completion | References `.devkit/.devkit/plans/archive/` |
+| **10. Archive on success** | Move artifacts after completion | References `.devkit/plans/archive/` |
 | **11. Worktree isolation** | Structural conflict prevention for parallel work | Git worktrees per work unit with validation |
 
 ### Archetype Patterns

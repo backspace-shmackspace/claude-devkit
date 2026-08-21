@@ -76,7 +76,7 @@ Pre-built workflows for common development tasks:
 | `/architect` | Create implementation plans with context alignment and approval gates. Detects security-sensitive features via keyword heuristic and Stage 2 plan content scan; requires threat modeling when threat-model-gate is deployed. | `/architect add shopping cart` |
 | `/ship` | Execute plans with pattern validation, security gates (secrets/code/deps), testing, QA, and retro capture. Supports security maturity levels (L1/L2/L3) and `--security-override`. | `/ship .devkit/plans/feature.md` |
 | `/retro` | Mine review artifacts for recurring patterns and capture learnings | `/retro` or `/retro feature-name` |
-| `/audit` | Security and performance scanning. Composable: invokes /secure-review when deployed. | `/audit` or `/audit code` |
+| `/audit` | Security, performance, and anti-pattern scanning. Composable: invokes /secure-review when deployed. | `/audit` or `/audit code` |
 | `/sync` | Update documentation and CLAUDE.md | `/sync` or `/sync full` |
 | `/receiving-code-review` | Code review reception discipline | `/receiving-code-review` |
 | `/verification-before-completion` | Evidence-before-claims gate — requires fresh test/build output before completion claims | `/verification-before-completion` |
@@ -322,18 +322,20 @@ Runs comprehensive security, performance, and QA scans.
 ```
 
 **Output:**
-- `.devkit/.devkit/plans/audit-[timestamp].summary.md` — Audit summary
-- `.devkit/.devkit/plans/audit-[timestamp].security.md` — Security findings
-- `.devkit/.devkit/plans/audit-[timestamp].performance.md` — Performance findings
-- `.devkit/.devkit/plans/audit-[timestamp].qa.md` — QA regression results
+- `.devkit/plans/audit-[timestamp].summary.md` — Audit summary
+- `.devkit/plans/audit-[timestamp].security.md` — Security findings
+- `.devkit/plans/audit-[timestamp].performance.md` — Performance findings
+- `.devkit/plans/audit-[timestamp].antipatterns.md` — Anti-pattern findings
+- `.devkit/plans/audit-[timestamp].qa.md` — QA regression results
 
 **Workflow:**
 1. Detect scope (plan/code/full)
-2. Parallel scans (security + performance)
-3. QA regression testing
-4. Synthesis with severity ratings
-5. Verdict (PASS/PASS_WITH_NOTES/BLOCKED)
-6. Archive reports
+2. Security scan (composable: invokes /secure-review when deployed)
+3. Performance scan
+4. Anti-pattern scan (code/full scope only; skipped for plan scope)
+5. QA regression testing
+6. Synthesis with severity ratings
+7. Verdict (PASS/PASS_WITH_NOTES/BLOCKED)
 
 ### `/sync` - Documentation Sync
 
@@ -346,7 +348,7 @@ Updates CLAUDE.md and documentation with current patterns.
 ```
 
 **Output:**
-- `.devkit/.devkit/plans/sync-[timestamp].review.md` — Librarian review
+- `.devkit/plans/sync-[timestamp].review.md` — Librarian review
 - Updated `CLAUDE.md`
 - Updated `README.md` (if needed)
 
@@ -646,7 +648,7 @@ cd ~/projects/claude-devkit
 bash scripts/test-integration.sh
 ```
 
-**Integration Test Coverage (54 tests):**
+**Integration Test Coverage (60 tests):**
 - Coordinator lifecycle (generate → validate → deploy → undeploy)
 - `validate-all.sh` health check
 - Pipeline lifecycle
@@ -712,7 +714,7 @@ claude-devkit/
 │   ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log (includes scanner_mode and scanner_tokens fields)
 │   ├── score-reflector.sh     # Deterministic score reflector (candidate learnings, scanner-aware cohort analysis)
 │   ├── scanner-value-report.sh  # Scanner value cohort analysis report
-│   └── test-integration.sh    # Integration smoke tests (54 tests)
+│   └── test-integration.sh    # Integration smoke tests (60 tests)
 │
 ├── .claude/                   # Project-specific agents
 │   └── agents/
@@ -892,5 +894,5 @@ MIT - Use freely in your projects
 ---
 
 **Version:** 1.0.0
-**Last Updated:** 2026-08-20
+**Last Updated:** 2026-08-21
 **Maintained by:** @backspace-shmackspace
