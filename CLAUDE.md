@@ -83,7 +83,10 @@ claude-devkit/
     ├── scanner-value-report.sh # Scanner value analysis: cohort comparison by scanner mode
     ├── ship-queue.sh          # Sequential /ship runner for unattended batch execution
     ├── resolve-project-dir.sh # Reusable shell function for project artifact directory resolution
-    └── test-integration.sh    # Integration smoke tests (147 tests)
+    ├── learnings_parser.py    # Deterministic learnings file parser (stdlib only)
+    ├── learnings_aggregator.py # Cross-project learnings aggregator (stdlib only)
+    ├── learnings_promotions.py # Promotion lifecycle manager (stdlib only)
+    └── test-integration.sh    # Integration smoke tests (165 tests)
 ```
 
 **Centralized Artifact Storage (per-project, outside target repos):**
@@ -101,6 +104,11 @@ claude-devkit/
 │   ├── scanner-value-report.sh
 │   ├── audit-log-query.sh
 │   └── resolve-project-dir.sh
+├── learnings/                       # Shared cross-project learnings store
+│   ├── index.json                   # Aggregated cross-project index
+│   ├── promotions.json              # Promotion lifecycle tracking
+│   └── reports/                     # /retro mine output reports
+│       └── mine-<timestamp>.md
 ├── runs/                            # Detached execution output
 └── projects/
     └── <project-id>/                # Per-project artifacts ($DEVKIT_PROJECT_DIR)
@@ -149,7 +157,7 @@ Skill invocation → codebase-scanner.py (pre-scan) → structured symbol index 
 |-------|---------|---------|-------|-------|
 | **architect** | 3.5.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Stage 2 plan content scan detects security-sensitive features; invokes security-analyst (Required, not Recommended) when deployed and injects threat-model-gate requirements. Plans include `## Work Groups` in Task Breakdown for /ship parallel execution. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `$DEVKIT_PROJECT_DIR/plans/audit-logs/architect-<run_id>.jsonl`. Cross-repo context discovery when `DEVKIT_TARGET_COUNT > 1` (reads CLAUDE.md and runs scanner on all targets). Plan-ref creation via `devkit plan sync` on approval. | opus-4-6 | 6 |
 | **ship** | 3.9.0 | Pre-flight check → Read plan + security requirements validation (Step 1 checks for threat model output and blocks if required gates are unmet; validates CWD against cross-repo plan targets) → Pattern validation (warnings) → Security gates (secrets-scan, secure-review with threat model context passing in Step 4d, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders (filtered by `target:` annotation for cross-repo plans) → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate (emits `run_score` before `run_end`) → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `$DEVKIT_PROJECT_DIR/plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. Quantitative scoring (efficiency, security, quality, velocity) emitted as `run_score` event. Cross-repo plan ref cleanup via `devkit plan archive` on archive step. | opus-4-6 | 8 |
-| **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
+| **retro** | 1.1.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name/mine. `mine` scope performs cross-project learnings analysis: aggregates all project learnings, detects tag-based patterns across 3+ projects, proposes promotions (LLM-assisted), and records proposals for human review. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 7 |
 | **audit** | 3.3.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan + Anti-pattern scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. JSONL audit logging to `$DEVKIT_PROJECT_DIR/plans/audit-logs/audit-<run_id>.jsonl`. | opus-4-6 | 7 |
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-6 | 6 |
 | **receiving-code-review** | 1.0.0 | Code review reception discipline: 6-step response pattern (READ through IMPLEMENT), anti-performative-agreement, YAGNI enforcement, source-specific handling, pushback guidelines. Reference archetype. | claude-sonnet-4-6 | Reference |
@@ -360,6 +368,74 @@ Thresholds and confidence tiers are configured in `configs/scanner-value-thresho
 **L1 ephemeral log limitation:** At L1 (advisory), JSONL audit logs exist only in the centralized directory (`~/.claude-devkit/projects/<id>/plans/audit-logs/`) and are not copied to the project. The `trend` command and `score-reflector.sh` can only analyze runs that still have log files on disk. For meaningful cross-session trend analysis, use L2 or L3 maturity (logs are copied to the project's `.devkit-audit-logs/` and committed to git). The tools display a notice when operating against ephemeral logs.
 
 **Dimension definitions:** `configs/score-dimensions.json` — plain JSON data file documenting dimension weights, scoring logic, and design notes. Consumed by humans and future tooling (v1 dimensions are hardcoded in `compute-run-score.sh`).
+
+## Shared Learnings Layer
+
+Cross-project learnings aggregation, pattern detection, and promotion pipeline. Aggregates per-project `.claude/learnings.md` files into a central index, identifies recurring patterns across 3+ projects via tag-based correlation, and provides a promotion workflow for escalating patterns into concrete code changes.
+
+**Architecture:**
+
+```
+~/.claude-devkit/learnings/
+├── index.json           # Aggregated cross-project index (deterministic, rebuilt each run)
+├── promotions.json      # Promotion lifecycle state (CANDIDATE -> PROPOSED -> APPROVED -> PROMOTED)
+└── reports/
+    └── mine-<timestamp>.md   # /retro mine output reports
+```
+
+**Components:**
+
+| Component | Script | Purpose |
+|-----------|--------|---------|
+| Parser | `scripts/learnings_parser.py` | Parse `.claude/learnings.md` into structured entries |
+| Aggregator | `scripts/learnings_aggregator.py` | Cross-project discovery, tag correlation, candidate detection |
+| Promotions | `scripts/learnings_promotions.py` | Promotion lifecycle management (propose/approve/promote/reject) |
+| CLI | `devkit learnings` | CLI access to aggregation and promotion pipeline |
+| Skill | `/retro mine` | LLM-assisted proposal generation from candidates |
+
+**Cross-project pattern detection (tag-based correlation):**
+
+The aggregator counts distinct projects per tag. Tags appearing in 3+ projects become promotion candidates. This is the primary detection mechanism -- more reliable than title matching because independent projects use the same tags (`#qa`, `#security`, `#injection`) even when describing root causes with different titles. Secondary: exact title matches across projects (same normalized title in 3+ projects).
+
+**Promotion types:**
+
+| Type | Target | Description |
+|------|--------|-------------|
+| `skill_rule` | `skills/*/SKILL.md` | New validation rule, gate condition, or checklist item |
+| `coder_prompt` | Agent templates or base definitions | Amendment to coder agent prompt |
+| `reviewer_prompt` | Agent templates or base definitions | Amendment to reviewer agent prompt |
+| `hook_config` | `.claude/settings.json` template | New hook or permission pattern |
+| `validation_pattern` | `generators/validate_*.py` | New validation check |
+| `learnings_template` | `templates/*.template` | New template content |
+
+**Usage:**
+
+```bash
+# Run cross-project aggregation (deterministic, no LLM)
+devkit learnings                          # Show summary
+devkit learnings --format json            # Write index.json + print path
+
+# Manage promotions
+devkit learnings promotions               # List all promotions
+devkit learnings promotions approve <promo-id>
+devkit learnings promotions promote <promo-id> --commit <sha>
+devkit learnings promotions reject <promo-id> --reason "..."
+
+# LLM-assisted proposal generation (in Claude Code session)
+/retro mine
+```
+
+**Security:**
+- Learnings files are read-only to the aggregator (never writes into project repos)
+- All writes confined to `~/.claude-devkit/learnings/` (directory 0o700, files 0o600)
+- Symlinked discovery paths rejected (same check as `validate_target()`)
+- Promo-IDs validated against `^promo-[0-9]{8}-[a-f0-9]{6}$`
+- Commit SHAs validated against `^[a-f0-9]{7,40}$`
+- Per-file read capped at 1MB
+- Prompt injection countermeasure block in `/retro mine` LLM prompt
+- Security-sensitive promotions flagged when targeting security-related files
+- Actor identity recorded at each state transition (`proposed_by`, `approved_by`, `promoted_by`)
+- `index.json` stores home-relative paths (not absolute)
 
 ## MCP Servers (Migrated)
 
@@ -1097,7 +1173,10 @@ Deployment and utility scripts.
 - `scanner-value-report.sh` — Scanner value analysis: cohort comparison of /ship run scores by scanner mode (tree-sitter-partial vs regex-fallback vs absent). No jq dependency.
 - `ship-queue.sh` — Sequential `/ship` runner for unattended batch execution via `devkit ship`. Clean-tree gates between runs prevent cascading failures.
 - `resolve-project-dir.sh` — Reusable shell function for three-tier project artifact directory resolution (`DEVKIT_PROJECT_DIR` env var > computed from CWD > deprecated `.devkit/` fallback)
-- `test-integration.sh` — Integration smoke tests (147 tests): emit-audit-event.sh JSONL correctness,
+- `learnings_parser.py` — Deterministic learnings parser (Python 3.8+, stdlib only). Parses `.claude/learnings.md` files into structured entries with date, severity (case-insensitive, two positional variants), tags, seen-in, section hierarchy, and stable SHA-256 IDs. Size limit guard (1MB). Returns `(entries, warnings)` -- never raises on parse errors.
+- `learnings_aggregator.py` — Cross-project learnings aggregator (Python 3.8+, stdlib only). Discovers learnings files via registry + allowed_roots scan (maxdepth=4), parses with `learnings_parser.py`, builds tag-based cross-project correlation, identifies promotion candidates (tags in 3+ projects). Writes `~/.claude-devkit/learnings/index.json` atomically. Skips symlinks, backup dirs, non-git dirs.
+- `learnings_promotions.py` — Promotion lifecycle manager (Python 3.8+, stdlib only). Manages `~/.claude-devkit/learnings/promotions.json` state. Subcommands: propose, approve, promote, reject, list. Records actor identity at each transition. Validates promo-IDs (`^promo-[0-9]{8}-[a-f0-9]{6}$`) and commit SHAs (`^[a-f0-9]{7,40}$`). Flags security-sensitive promotions.
+- `test-integration.sh` — Integration smoke tests (165 tests): emit-audit-event.sh JSONL correctness,
   L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
   lifecycle, threat model consumption structural tests across /ship, /architect, /secure-review,
   quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
@@ -1112,9 +1191,11 @@ Deployment and utility scripts.
   zero-project-footprint tests (38 tests: project ID determinism/uniqueness/case-normalization/
   sanitization, central storage, env var propagation, migration with rollback, helper script
   deployment with checksums, security permissions, relink/path commands, backward compatibility),
-  and cross-repo plan tests (29 tests: frontmatter parser, devkit:// URI resolution, plan refs,
+  cross-repo plan tests (29 tests: frontmatter parser, devkit:// URI resolution, plan refs,
   multi-target shell/dispatch, devkit plan subcommand, read_plan_refs, validate_plan_targets,
-  cmd_path traversal protection, plan archive)
+  cmd_path traversal protection, plan archive),
+  and shared learnings layer tests (18 tests: parser 5, aggregator 4, promotions 4, CLI 3,
+  security 2)
 
 **Usage:**
 ```bash
@@ -1248,7 +1329,8 @@ subprocess.run(["claude", "--print", "/<skill> <args>"], cwd=<resolved target>)
 `devkit deploy [--validate]`, `devkit jobs [<target>]`, `devkit result <run-id>`,
 `devkit logs <run-id>`, `devkit clean [--days N]`, `devkit migrate <target>`,
 `devkit relink <old> <new>`, `devkit path <target> [subpath]`,
-`devkit plan list|show|validate|sync|resolve|archive <target> [args]`.
+`devkit plan list|show|validate|sync|resolve|archive <target> [args]`,
+`devkit learnings [--format json|md] [promotions [approve|promote|reject <id>]]`.
 
 **Detached execution (`--detach`):** Adding `--detach` to any skill invocation
 spawns Claude Code in the background and returns a run ID immediately. A watcher
@@ -1561,6 +1643,26 @@ regains control after the interactive session starts and cannot record an exit
 code. State is written immediately before `execvp` with `exit_code: null` to
 indicate an interactive session occurred. Use `devkit <skill> <target>` (
 non-interactive mode) if you need accurate post-run status tracking.
+
+### devkit learnings shows no entries
+
+**Issue:** `devkit learnings` reports 0 entries parsed even though projects have learnings files.
+
+**Solution:** The aggregator discovers learnings files via two paths: (1) projects registered in
+`~/.claude-devkit/registry.json`, and (2) filesystem scan under `allowed_roots` from
+`configs/devkit-defaults.json`. Ensure your projects are either registered (`devkit init <target>`)
+or located under an allowed root. Also verify learnings files are at the expected path:
+`<project>/.claude/learnings.md`. The aggregator skips symlinked paths and backup directories
+(containing `_backup_`).
+
+### /retro mine proposes already-tracked promotions
+
+**Issue:** `/retro mine` keeps proposing the same patterns.
+
+**Solution:** The skill filters candidates against `~/.claude-devkit/learnings/promotions.json`.
+If this file is missing or corrupt, all candidates appear as new. Verify the file exists and is
+valid JSON: `python3 -m json.tool ~/.claude-devkit/learnings/promotions.json`. If corrupt, delete
+it and re-run -- previously proposed entries will be re-proposed but can be rejected.
 
 ## Syncing Across Machines
 

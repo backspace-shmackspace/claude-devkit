@@ -29,6 +29,11 @@ Usage:
     devkit plan sync <target>                Rebuild plan-refs/ from frontmatter
     devkit plan resolve <devkit-uri>         Resolve devkit:// URI to absolute path
     devkit plan archive <target> <plan-name> Archive cross-repo plan and remove refs
+    devkit learnings [aggregate]             Aggregate cross-project learnings
+    devkit learnings status                  Show promotion pipeline status
+    devkit learnings promote <entry-id>      Advance a candidate to PROPOSED
+    devkit learnings approve <promo-id>      Advance PROPOSED to APPROVED
+    devkit learnings reject <promo-id>       Move to REJECTED
     devkit jobs [<target>]                   List background runs (all or filtered)
     devkit result <run-id>                   Print result of a completed run
     devkit logs <run-id>                     Print stderr logs of a run
@@ -87,7 +92,7 @@ PROJECT_ID_RE = re.compile(r'^[a-zA-Z0-9._-]+-[0-9a-f]{12}$')
 
 KNOWN_COMMANDS = (
     "init", "shell", "status", "deploy", "jobs", "result", "logs", "clean",
-    "migrate", "relink", "path", "plan",
+    "migrate", "relink", "path", "plan", "learnings",
 )
 
 
@@ -2789,6 +2794,64 @@ def cmd_clean(max_age_days, config):
     return 0
 
 
+def cmd_learnings(args, config):
+    """Cross-project learnings aggregation and promotion pipeline.
+
+    Delegates to learnings_aggregator.py and learnings_promotions.py scripts.
+    Does not support --detach (deterministic, completes in seconds).
+    """
+    scripts_dir = get_devkit_root() / "scripts"
+
+    def _run_script(script_name, script_args):
+        script = scripts_dir / script_name
+        if not script.exists():
+            print(f"{Colors.RED}Error:{Colors.RESET} {script} not found",
+                  file=sys.stderr)
+            return 1
+        try:
+            return subprocess.run(
+                [sys.executable, str(script)] + script_args
+            ).returncode
+        except OSError as e:
+            print(f"{Colors.RED}Error:{Colors.RESET} Cannot run {script_name}: {e}",
+                  file=sys.stderr)
+            return 1
+
+    if not args or args[0] == "aggregate":
+        return _run_script("learnings_aggregator.py", ["--format", "json"])
+
+    action = args[0]
+
+    if action == "status":
+        return _run_script("learnings_promotions.py", ["list"])
+
+    if action == "promote":
+        if len(args) < 2:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit learnings promote "
+                  f"requires an entry ID", file=sys.stderr)
+            return 2
+        return _run_script("learnings_promotions.py", ["propose", args[1]])
+
+    if action == "approve":
+        if len(args) < 2:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit learnings approve "
+                  f"requires a promo ID", file=sys.stderr)
+            return 2
+        return _run_script("learnings_promotions.py", ["approve", args[1]])
+
+    if action == "reject":
+        if len(args) < 2:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit learnings reject "
+                  f"requires a promo ID", file=sys.stderr)
+            return 2
+        return _run_script("learnings_promotions.py", ["reject", args[1]])
+
+    print(f"{Colors.RED}Error:{Colors.RESET} unknown learnings action '{action}'. "
+          f"Valid actions: aggregate, status, promote, approve, reject",
+          file=sys.stderr)
+    return 2
+
+
 # --- Argument parsing / entry point ----------------------------------------
 
 def print_help():
@@ -2811,6 +2874,11 @@ Usage:
   devkit plan sync <target>                Rebuild plan-refs/ from plan frontmatter
   devkit plan resolve <devkit-uri>         Resolve a devkit:// URI to absolute path
   devkit plan archive <target> <plan-name> Archive cross-repo plan and remove refs
+  devkit learnings [aggregate]             Aggregate cross-project learnings (write index.json)
+  devkit learnings status                  Show promotion pipeline status
+  devkit learnings promote <entry-id>      Advance a candidate to PROPOSED
+  devkit learnings approve <promo-id>      Advance PROPOSED to APPROVED
+  devkit learnings reject <promo-id>       Move to REJECTED
   devkit jobs [<target>]                   List background runs (all or filtered)
   devkit result <run-id>                   Print result of a completed run
   devkit logs <run-id>                     Print stderr logs of a run
@@ -2965,6 +3033,9 @@ def main():
                 print(f"{Colors.RED}Error:{Colors.RESET} --days requires a value", file=sys.stderr)
                 return 2
         return cmd_clean(max_age_days, config)
+
+    if command == "learnings":
+        return cmd_learnings(rest, config)
 
     # Dynamic skill dispatch.
     skill = command

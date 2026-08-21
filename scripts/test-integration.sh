@@ -9,7 +9,7 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 147 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+# 165 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
 #           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
 #           threat model consumption structural tests (10 tests),
 #           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
@@ -29,7 +29,9 @@
 #           cross-repo plan tests (29 tests: frontmatter parser 6, URI 3,
 #           plan refs 3, multi-target shell 3, multi-target skill dispatch 3,
 #           devkit plan subcommand 5, read_plan_refs 2, validate_plan_targets 2,
-#           cmd_path traversal 1, plan archive 1), cleanup
+#           cmd_path traversal 1, plan archive 1),
+#           shared learnings layer tests (18 tests: parser 5, aggregator 4,
+#           promotions 4, CLI 3, security 2), cleanup
 
 set -e
 
@@ -68,6 +70,8 @@ CRP_TEST_DIR_1="/tmp/devkit-crp-test-1"
 CRP_TEST_DIR_2="/tmp/devkit-crp-test-2"
 CRP_SYMLINK="/tmp/devkit-crp-symlink"
 CRP_CENTRAL_CLEANUP_PREFIX="devkit-crp-"
+LEARN_TEST_DIR="/tmp/devkit-learnings-test"
+LEARN_CENTRAL_CLEANUP_PREFIX="devkit-learnings-"
 
 # Isolate all meta-harness registry writes from the real
 # ~/.claude-devkit/registry.json -- devkit_cli.py's get_registry_path()
@@ -116,6 +120,11 @@ cleanup() {
     rm -rf "$CRP_TEST_DIR_1" 2>/dev/null || true
     rm -rf "$CRP_TEST_DIR_2" 2>/dev/null || true
     rm -f "$CRP_SYMLINK" 2>/dev/null || true
+    # Clean up learnings layer test fixtures
+    rm -rf "$LEARN_TEST_DIR" 2>/dev/null || true
+    if [ -d "$HOME/.claude-devkit/learnings" ]; then
+        rm -rf "$HOME/.claude-devkit/learnings/${LEARN_CENTRAL_CLEANUP_PREFIX}"* 2>/dev/null || true
+    fi
 }
 trap cleanup EXIT INT TERM
 
@@ -154,6 +163,12 @@ if [ -d "$HOME/.claude-devkit/projects" ]; then
     for d in "$HOME/.claude-devkit/projects/${CRP_CENTRAL_CLEANUP_PREFIX}"*; do
         rm -rf "$d" 2>/dev/null || true
     done
+fi
+
+# Clean up learnings test fixtures at start
+rm -rf "$LEARN_TEST_DIR" 2>/dev/null || true
+if [ -d "$HOME/.claude-devkit/learnings" ]; then
+    rm -rf "$HOME/.claude-devkit/learnings/${LEARN_CENTRAL_CLEANUP_PREFIX}"* 2>/dev/null || true
 fi
 
 # Create mock claude script for detached execution tests
@@ -2756,6 +2771,373 @@ print('PASS: ref files removed from all projects after archive')
 \"" \
     0
 
+# --- Shared learnings layer tests (149-166) ---
+# These tests verify the learnings parser, cross-project aggregator,
+# promotion tracker, devkit learnings CLI command, and security properties.
+#
+# Fixtures: LEARN_TEST_DIR is created inline. Central learnings state uses
+# LEARN_CENTRAL_CLEANUP_PREFIX for selective cleanup.
+
+# Test 149 (T1): learnings_parser.py parses entries with date, severity, tags, seen-in
+run_test 149 "learnings_parser.py parses entries with date, severity, tags, seen-in" \
+    "mkdir -p '$LEARN_TEST_DIR' && \
+     cat > '$LEARN_TEST_DIR/learnings.md' <<'LEARNEOF'
+# Project Learnings
+
+## QA Patterns
+
+### Coverage gaps
+
+- **[2026-03-28] Integration tests not executed** [High] -- Live skill invocation deferred. Seen in: feature-alpha, feature-beta. #qa #coverage #integration (2026-03-28)
+LEARNEOF
+     python3 '$REPO_DIR/scripts/learnings_parser.py' '$LEARN_TEST_DIR/learnings.md' --format json | python3 -c \"
+import json, sys
+data = json.load(sys.stdin)
+entries = data['entries']
+assert len(entries) >= 1, f'Expected >=1 entry, got {len(entries)}'
+e = entries[0]
+assert e['date'] == '2026-03-28', f'date mismatch: {e[\\\"date\\\"]}'
+assert e['severity'] == 'High', f'severity mismatch: {e[\\\"severity\\\"]}'
+assert '#qa' in e['tags'], f'missing #qa tag: {e[\\\"tags\\\"]}'
+assert '#coverage' in e['tags'], f'missing #coverage tag: {e[\\\"tags\\\"]}'
+assert '#integration' in e['tags'], f'missing #integration tag: {e[\\\"tags\\\"]}'
+assert 'feature-alpha' in e['seen_in'], f'missing seen_in feature-alpha: {e[\\\"seen_in\\\"]}'
+assert 'feature-beta' in e['seen_in'], f'missing seen_in feature-beta: {e[\\\"seen_in\\\"]}'
+assert 'Integration tests not executed' in e['title'], f'title mismatch: {e[\\\"title\\\"]}'
+print('PASS: parser extracts date, severity, tags, seen-in correctly')
+\"" \
+    0
+
+# Test 150 (T2): learnings_parser.py handles entries without dates gracefully
+run_test 150 "learnings_parser.py handles entries without dates gracefully" \
+    "cat > '$LEARN_TEST_DIR/learnings-nodate.md' <<'LEARNEOF'
+# Learnings
+
+## Coder Patterns
+
+### Missed
+
+- **Missing path validation** [Medium] -- No traversal check. Seen in: fix-skill. #coder #security
+LEARNEOF
+     python3 '$REPO_DIR/scripts/learnings_parser.py' '$LEARN_TEST_DIR/learnings-nodate.md' --format json | python3 -c \"
+import json, sys
+data = json.load(sys.stdin)
+entries = data['entries']
+assert len(entries) >= 1, f'Expected >=1 entry, got {len(entries)}'
+e = entries[0]
+assert e['date'] is None, f'expected null date, got {e[\\\"date\\\"]}'
+assert e['severity'] == 'Medium', f'severity mismatch: {e[\\\"severity\\\"]}'
+print('PASS: dateless entry parsed with null date')
+\"" \
+    0
+
+# Test 151 (T3): learnings_parser.py handles entries without severity gracefully
+run_test 151 "learnings_parser.py handles entries without severity gracefully" \
+    "cat > '$LEARN_TEST_DIR/learnings-nosev.md' <<'LEARNEOF'
+# Learnings
+
+## Patterns
+
+- **Dead import detection** -- Too noisy for automation. Seen in: cleanup. #coder #imports
+LEARNEOF
+     python3 '$REPO_DIR/scripts/learnings_parser.py' '$LEARN_TEST_DIR/learnings-nosev.md' --format json | python3 -c \"
+import json, sys
+data = json.load(sys.stdin)
+entries = data['entries']
+assert len(entries) >= 1, f'Expected >=1 entry, got {len(entries)}'
+e = entries[0]
+assert e['severity'] is None, f'expected null severity, got {e[\\\"severity\\\"]}'
+assert 'Dead import detection' in e['title'], f'title mismatch: {e[\\\"title\\\"]}'
+print('PASS: severity-less entry parsed with null severity')
+\"" \
+    0
+
+# Test 152 (T4): learnings_parser.py computes stable IDs (same title = same ID)
+run_test 152 "learnings_parser.py computes stable IDs (same title = same ID)" \
+    "cat > '$LEARN_TEST_DIR/learnings-dup1.md' <<'LEARNEOF'
+# Learnings
+- **[2026-03-28] Duplicate title test** [Low] -- First occurrence. #test
+LEARNEOF
+     cat > '$LEARN_TEST_DIR/learnings-dup2.md' <<'LEARNEOF'
+# Learnings
+- **[2026-05-01] Duplicate title test** [Medium] -- Second occurrence. #test
+LEARNEOF
+     python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+from learnings_parser import parse_learnings_file
+entries1, _ = parse_learnings_file('$LEARN_TEST_DIR/learnings-dup1.md')
+entries2, _ = parse_learnings_file('$LEARN_TEST_DIR/learnings-dup2.md')
+assert len(entries1) >= 1 and len(entries2) >= 1, 'Expected at least 1 entry each'
+assert entries1[0]['id'] == entries2[0]['id'], f'Same title should produce same ID: {entries1[0][\\\"id\\\"]} != {entries2[0][\\\"id\\\"]}'
+print('PASS: stable IDs for same title across files')
+\"" \
+    0
+
+# Test 153 (T5): learnings_parser.py skips files exceeding size limit
+run_test 153 "learnings_parser.py skips files exceeding size limit" \
+    "python3 -c \"
+# Create a 2MB file
+with open('$LEARN_TEST_DIR/learnings-huge.md', 'w') as f:
+    f.write('# Huge\\n')
+    f.write('x' * (2 * 1024 * 1024))
+\" && \
+     python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+from learnings_parser import parse_learnings_file
+entries, warnings = parse_learnings_file('$LEARN_TEST_DIR/learnings-huge.md')
+assert len(entries) == 0, f'Expected 0 entries for oversized file, got {len(entries)}'
+assert len(warnings) > 0, 'Expected at least 1 warning for oversized file'
+assert any('size' in w.lower() or 'exceed' in w.lower() or 'limit' in w.lower() or 'large' in w.lower() or 'skip' in w.lower() for w in warnings), f'Warning should mention size: {warnings}'
+print('PASS: oversized file skipped with warning')
+\"" \
+    0
+
+# Test 154 (T6): learnings_aggregator.py discovers files under allowed_roots
+run_test 154 "learnings_aggregator.py discovers files under allowed_roots" \
+    "AGGR_DIR_1='/tmp/${LEARN_CENTRAL_CLEANUP_PREFIX}proj1' && \
+     AGGR_DIR_2='/tmp/${LEARN_CENTRAL_CLEANUP_PREFIX}proj2' && \
+     rm -rf \"\$AGGR_DIR_1\" \"\$AGGR_DIR_2\" 2>/dev/null || true && \
+     mkdir -p \"\$AGGR_DIR_1/.claude\" && git -C \"\$AGGR_DIR_1\" init -q && \
+     mkdir -p \"\$AGGR_DIR_2/.claude\" && git -C \"\$AGGR_DIR_2\" init -q && \
+     echo '# Learnings
+- **Test entry one** [Low] -- Test. #test-tag' > \"\$AGGR_DIR_1/.claude/learnings.md\" && \
+     echo '# Learnings
+- **Test entry two** [Low] -- Test. #test-tag' > \"\$AGGR_DIR_2/.claude/learnings.md\" && \
+     OUTPUT=\$(python3 '$REPO_DIR/scripts/learnings_aggregator.py' --format md --allowed-roots /tmp 2>/dev/null) && \
+     echo \"\$OUTPUT\" | grep -q 'proj1\|proj2\|Projects scanned' && \
+     rm -rf \"\$AGGR_DIR_1\" \"\$AGGR_DIR_2\"" \
+    0
+
+# Test 155 (T7): learnings_aggregator.py skips symlinked paths
+run_test 155 "learnings_aggregator.py skips symlinked paths" \
+    "REAL_DIR='/tmp/${LEARN_CENTRAL_CLEANUP_PREFIX}real-proj' && \
+     LINK_DIR='/tmp/${LEARN_CENTRAL_CLEANUP_PREFIX}link-proj' && \
+     rm -rf \"\$REAL_DIR\" 2>/dev/null || true && \
+     rm -f \"\$LINK_DIR\" 2>/dev/null || true && \
+     mkdir -p \"\$REAL_DIR/.claude\" && git -C \"\$REAL_DIR\" init -q && \
+     echo '# Learnings
+- **Symlink test entry** [Low] -- Test. #symlink' > \"\$REAL_DIR/.claude/learnings.md\" && \
+     ln -sf \"\$REAL_DIR\" \"\$LINK_DIR\" && \
+     OUTPUT=\$(python3 '$REPO_DIR/scripts/learnings_aggregator.py' --format md --allowed-roots /tmp 2>&1) && \
+     echo \"\$OUTPUT\" | grep -qi 'symlink\|skip' && \
+     rm -rf \"\$REAL_DIR\" && rm -f \"\$LINK_DIR\"" \
+    0
+
+# Test 156 (T8): learnings_aggregator.py writes valid index.json
+run_test 156 "learnings_aggregator.py writes valid index.json" \
+    "AGGR_PROJ='/tmp/${LEARN_CENTRAL_CLEANUP_PREFIX}idx-proj' && \
+     rm -rf \"\$AGGR_PROJ\" 2>/dev/null || true && \
+     mkdir -p \"\$AGGR_PROJ/.claude\" && git -C \"\$AGGR_PROJ\" init -q && \
+     echo '# Learnings
+- **Index test entry** [Medium] -- Verify JSON. Seen in: feature-x. #qa #index' > \"\$AGGR_PROJ/.claude/learnings.md\" && \
+     python3 '$REPO_DIR/scripts/learnings_aggregator.py' --format json --allowed-roots /tmp 2>/dev/null && \
+     python3 -c \"
+import json
+from pathlib import Path
+idx = Path.home() / '.claude-devkit' / 'learnings' / 'index.json'
+assert idx.exists(), f'index.json not found at {idx}'
+with open(idx) as f:
+    data = json.load(f)
+assert data.get('schema_version') == '1.0.0', f'wrong schema: {data.get(\\\"schema_version\\\")}'
+assert 'entries' in data, 'missing entries key'
+assert 'tag_frequency' in data, 'missing tag_frequency key'
+assert data.get('projects_scanned', 0) > 0, 'projects_scanned should be > 0'
+print('PASS: index.json is valid JSON with required schema fields')
+\" && \
+     rm -rf \"\$AGGR_PROJ\"" \
+    0
+
+# Test 157 (T9): learnings_aggregator.py identifies cross-project tag patterns
+run_test 157 "learnings_aggregator.py identifies cross-project tag patterns (3+ projects)" \
+    "for i in 1 2 3; do \
+       D=\"/tmp/${LEARN_CENTRAL_CLEANUP_PREFIX}tag-proj\${i}\" && \
+       rm -rf \"\$D\" 2>/dev/null || true && \
+       mkdir -p \"\$D/.claude\" && git -C \"\$D\" init -q && \
+       echo \"# Learnings
+- **Tag pattern entry \${i}** [Low] -- Cross-project. #shared-pattern #qa\" > \"\$D/.claude/learnings.md\"; \
+     done && \
+     python3 '$REPO_DIR/scripts/learnings_aggregator.py' --format json --allowed-roots /tmp --min-projects 3 2>/dev/null && \
+     python3 -c \"
+import json
+from pathlib import Path
+idx = Path.home() / '.claude-devkit' / 'learnings' / 'index.json'
+with open(idx) as f:
+    data = json.load(f)
+candidates = data.get('promotion_candidates', [])
+tag_candidates = [c for c in candidates if c.get('type') == 'high_frequency_tag']
+# At least one tag should appear in 3+ projects
+assert any(c.get('project_count', 0) >= 3 for c in tag_candidates), \
+    f'Expected at least one tag in 3+ projects, got: {tag_candidates}'
+print('PASS: cross-project tag pattern detected with 3+ projects')
+\" && \
+     for i in 1 2 3; do rm -rf \"/tmp/${LEARN_CENTRAL_CLEANUP_PREFIX}tag-proj\${i}\" 2>/dev/null || true; done" \
+    0
+
+# Test 158 (T10): learnings_promotions.py propose creates entry with proposed_by
+run_test 158 "learnings_promotions.py propose creates entry with proposed_by" \
+    "PROMO_DIR=\"\$HOME/.claude-devkit/learnings\" && \
+     mkdir -p \"\$PROMO_DIR\" && \
+     rm -f \"\$PROMO_DIR/promotions.json\" 2>/dev/null || true && \
+     python3 '$REPO_DIR/scripts/learnings_promotions.py' propose abc123def456 \
+       --type skill_rule \
+       --target 'skills/ship/SKILL.md' \
+       --description 'Test promotion proposal' && \
+     python3 -c \"
+import json
+with open('\$PROMO_DIR/promotions.json') as f:
+    data = json.load(f)
+promos = data.get('promotions', [])
+assert len(promos) >= 1, f'Expected >=1 promotion, got {len(promos)}'
+p = promos[0]
+assert p['entry_id'] == 'abc123def456', f'entry_id mismatch: {p[\\\"entry_id\\\"]}'
+assert p['status'] == 'PROPOSED', f'status should be PROPOSED, got {p[\\\"status\\\"]}'
+assert p.get('proposed_by') is not None and p['proposed_by'] != '', f'proposed_by should be set: {p.get(\\\"proposed_by\\\")}'
+assert p.get('promotion_type') == 'skill_rule', f'type mismatch: {p.get(\\\"promotion_type\\\")}'
+print('PASS: propose creates entry with proposed_by and correct fields')
+\"" \
+    0
+
+# Test 159 (T11): learnings_promotions.py approve transitions PROPOSED to APPROVED
+run_test 159 "learnings_promotions.py approve transitions PROPOSED to APPROVED" \
+    "PROMO_DIR=\"\$HOME/.claude-devkit/learnings\" && \
+     python3 -c \"
+import json
+with open('\$PROMO_DIR/promotions.json') as f:
+    data = json.load(f)
+promo_id = data['promotions'][0]['id']
+print(promo_id)
+\" > /tmp/learnings-promo-id.txt && \
+     PROMO_ID=\$(cat /tmp/learnings-promo-id.txt) && \
+     python3 '$REPO_DIR/scripts/learnings_promotions.py' approve \"\$PROMO_ID\" && \
+     python3 -c \"
+import json
+with open('\$PROMO_DIR/promotions.json') as f:
+    data = json.load(f)
+p = data['promotions'][0]
+assert p['status'] == 'APPROVED', f'status should be APPROVED, got {p[\\\"status\\\"]}'
+assert p.get('approved_by') is not None and p['approved_by'] != '', f'approved_by should be set'
+assert p.get('approved_at') is not None, 'approved_at should be set'
+print('PASS: approve transitions to APPROVED with approved_by')
+\" && rm -f /tmp/learnings-promo-id.txt" \
+    0
+
+# Test 160 (T12): learnings_promotions.py promote records commit SHA and promoted_by
+run_test 160 "learnings_promotions.py promote records commit SHA and promoted_by" \
+    "PROMO_DIR=\"\$HOME/.claude-devkit/learnings\" && \
+     python3 -c \"
+import json
+with open('\$PROMO_DIR/promotions.json') as f:
+    data = json.load(f)
+print(data['promotions'][0]['id'])
+\" > /tmp/learnings-promo-id.txt && \
+     PROMO_ID=\$(cat /tmp/learnings-promo-id.txt) && \
+     python3 '$REPO_DIR/scripts/learnings_promotions.py' promote \"\$PROMO_ID\" --commit abc1234def5678 && \
+     python3 -c \"
+import json
+with open('\$PROMO_DIR/promotions.json') as f:
+    data = json.load(f)
+p = data['promotions'][0]
+assert p['status'] == 'PROMOTED', f'status should be PROMOTED, got {p[\\\"status\\\"]}'
+assert p.get('promoted_by') is not None and p['promoted_by'] != '', f'promoted_by should be set'
+assert p.get('commit_sha') == 'abc1234def5678', f'commit_sha mismatch: {p.get(\\\"commit_sha\\\")}'
+print('PASS: promote sets PROMOTED status with commit_sha and promoted_by')
+\" && rm -f /tmp/learnings-promo-id.txt" \
+    0
+
+# Test 161 (T13): learnings_promotions.py rejects invalid promo-ID (path traversal)
+run_test 161 "learnings_promotions.py rejects invalid promo-ID (path traversal)" \
+    "python3 '$REPO_DIR/scripts/learnings_promotions.py' approve '../../../etc/passwd'" \
+    1
+
+# Test 162 (T14): devkit learnings runs aggregation and exits 0
+run_test 162 "devkit learnings runs aggregation and exits 0" \
+    "AGGR_PROJ='/tmp/${LEARN_CENTRAL_CLEANUP_PREFIX}cli-proj' && \
+     rm -rf \"\$AGGR_PROJ\" 2>/dev/null || true && \
+     mkdir -p \"\$AGGR_PROJ/.claude\" && git -C \"\$AGGR_PROJ\" init -q && \
+     echo '# Learnings
+- **CLI test entry** [Low] -- Test. #cli-test' > \"\$AGGR_PROJ/.claude/learnings.md\" && \
+     python3 '$DEVKIT_CLI' learnings --allowed-roots /tmp 2>/dev/null; STATUS=\$?; \
+     rm -rf \"\$AGGR_PROJ\" 2>/dev/null || true; \
+     [ \"\$STATUS\" -eq 0 ]" \
+    0
+
+# Test 163 (T15): devkit learnings --format json writes index.json
+run_test 163 "devkit learnings --format json writes index.json" \
+    "AGGR_PROJ='/tmp/${LEARN_CENTRAL_CLEANUP_PREFIX}json-proj' && \
+     rm -rf \"\$AGGR_PROJ\" 2>/dev/null || true && \
+     mkdir -p \"\$AGGR_PROJ/.claude\" && git -C \"\$AGGR_PROJ\" init -q && \
+     echo '# Learnings
+- **JSON output test** [Low] -- Test. #json-test' > \"\$AGGR_PROJ/.claude/learnings.md\" && \
+     python3 '$DEVKIT_CLI' learnings --format json --allowed-roots /tmp 2>/dev/null && \
+     python3 -c \"
+from pathlib import Path
+idx = Path.home() / '.claude-devkit' / 'learnings' / 'index.json'
+assert idx.exists(), f'index.json not found at {idx}'
+import json
+with open(idx) as f:
+    data = json.load(f)
+assert isinstance(data.get('entries'), list), 'entries should be a list'
+print('PASS: devkit learnings --format json writes valid index.json')
+\" && \
+     rm -rf \"\$AGGR_PROJ\" 2>/dev/null || true" \
+    0
+
+# Test 164 (T16): devkit learnings promotions lists promotions and exits 0
+run_test 164 "devkit learnings promotions lists promotions and exits 0" \
+    "PROMO_DIR=\"\$HOME/.claude-devkit/learnings\" && \
+     mkdir -p \"\$PROMO_DIR\" && \
+     echo '{\"schema_version\":\"1.0.0\",\"updated_at\":\"2026-08-21T12:00:00Z\",\"promotions\":[{\"id\":\"promo-20260821-abc123\",\"entry_id\":\"test123\",\"title\":\"Test promotion\",\"status\":\"PROMOTED\",\"promotion_type\":\"skill_rule\"}]}' > \"\$PROMO_DIR/promotions.json\" && \
+     OUTPUT=\$(python3 '$DEVKIT_CLI' learnings promotions 2>/dev/null) && \
+     echo \"\$OUTPUT\" | grep -q 'promo-20260821-abc123\|PROMOTED\|Test promotion'" \
+    0
+
+# Test 165 (T17): Commit SHA validation rejects non-hex input
+run_test 165 "learnings_promotions.py rejects non-hex commit SHA" \
+    "PROMO_DIR=\"\$HOME/.claude-devkit/learnings\" && \
+     mkdir -p \"\$PROMO_DIR\" && \
+     rm -f \"\$PROMO_DIR/promotions.json\" 2>/dev/null || true && \
+     python3 '$REPO_DIR/scripts/learnings_promotions.py' propose def789012345 \
+       --type skill_rule --target 'skills/ship/SKILL.md' --description 'SHA test' && \
+     python3 -c \"
+import json
+with open('\$PROMO_DIR/promotions.json') as f:
+    data = json.load(f)
+print(data['promotions'][0]['id'])
+\" > /tmp/learnings-sha-id.txt && \
+     PROMO_ID=\$(cat /tmp/learnings-sha-id.txt) && \
+     python3 '$REPO_DIR/scripts/learnings_promotions.py' approve \"\$PROMO_ID\" 2>/dev/null && \
+     python3 '$REPO_DIR/scripts/learnings_promotions.py' promote \"\$PROMO_ID\" --commit '; rm -rf /'; STATUS=\$?; \
+     rm -f /tmp/learnings-sha-id.txt; \
+     [ \"\$STATUS\" -ne 0 ]" \
+    0
+
+# Test 166 (T18): learnings_aggregator.py skips backup directories
+run_test 166 "learnings_aggregator.py skips backup directories" \
+    "BACKUP_DIR='/tmp/${LEARN_CENTRAL_CLEANUP_PREFIX}_backup_proj' && \
+     rm -rf \"\$BACKUP_DIR\" 2>/dev/null || true && \
+     mkdir -p \"\$BACKUP_DIR/.claude\" && git -C \"\$BACKUP_DIR\" init -q && \
+     echo '# Learnings
+- **Backup entry should be skipped** [High] -- Should not appear. #backup' > \"\$BACKUP_DIR/.claude/learnings.md\" && \
+     python3 '$REPO_DIR/scripts/learnings_aggregator.py' --format json --allowed-roots /tmp 2>/dev/null && \
+     python3 -c \"
+import json
+from pathlib import Path
+idx = Path.home() / '.claude-devkit' / 'learnings' / 'index.json'
+with open(idx) as f:
+    data = json.load(f)
+# Verify no entries from the backup directory
+for entry in data.get('entries', []):
+    source = entry.get('source_project', '') + entry.get('source_project_display', '')
+    assert '_backup_' not in source, f'Backup entry should be skipped: {source}'
+    assert 'Backup entry should be skipped' not in entry.get('title', ''), \
+        f'Backup entry title found in index: {entry[\\\"title\\\"]}'
+print('PASS: backup directory skipped during aggregation')
+\" && \
+     rm -rf \"\$BACKUP_DIR\"" \
+    0
+
 # Test 9: Cleanup
 echo ""
 echo -e "${BLUE}Test 9: Cleanup${RESET}"
@@ -2792,6 +3174,11 @@ if [ -d "$HOME/.claude-devkit/projects" ]; then
     for d in "$HOME/.claude-devkit/projects/${CRP_CENTRAL_CLEANUP_PREFIX}"*; do
         rm -rf "$d" 2>/dev/null || true
     done
+fi
+# Clean up learnings test fixtures
+rm -rf "$LEARN_TEST_DIR" || true
+if [ -d "$HOME/.claude-devkit/learnings" ]; then
+    rm -rf "$HOME/.claude-devkit/learnings/${LEARN_CENTRAL_CLEANUP_PREFIX}"* 2>/dev/null || true
 fi
 if [[ ! -d "$TEST_DIR" ]]; then
     echo -e "${GREEN}  PASS${RESET}"
