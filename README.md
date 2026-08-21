@@ -43,8 +43,9 @@ cd ~/projects/claude-devkit
 
 ### 4. Use the Meta-Harness (Optional)
 
-The `devkit` CLI lets you target and run skills against any registered git
-repository from outside that project — no `cd` required.
+The `devkit` CLI (`devkit --version` → `0.4.0`) lets you target and run skills
+against any registered git repository from outside that project — no `cd`
+required.
 
 ```bash
 # Register a project for devkit management
@@ -56,6 +57,14 @@ devkit architect ~/projects/my-app "add feature"
 
 # Pass skill flags through with `--` (bypasses the flag-injection guard)
 devkit architect ~/projects/my-app "add feature" -- --fast
+
+# Cross-repo planning: add secondary targets with --with
+devkit architect ~/projects/my-app "integrate with cve-api" --with ~/projects/cve-api
+devkit shell ~/projects/my-app --with ~/projects/cve-api
+
+# Manage cross-repo plans (list/show/validate/sync/resolve/archive)
+devkit plan list ~/projects/my-app
+devkit plan show ~/projects/my-app integrate-cve-api
 
 # Open an interactive session, or check status of all managed projects
 devkit shell ~/projects/my-app
@@ -73,8 +82,8 @@ Pre-built workflows for common development tasks:
 
 | Skill | Purpose | Usage |
 |-------|---------|-------|
-| `/architect` | Create implementation plans with context alignment and approval gates. Detects security-sensitive features via keyword heuristic and Stage 2 plan content scan; requires threat modeling when threat-model-gate is deployed. | `/architect add shopping cart` |
-| `/ship` | Execute plans with pattern validation, security gates (secrets/code/deps), testing, QA, and retro capture. Supports security maturity levels (L1/L2/L3) and `--security-override`. | `/ship $DEVKIT_PROJECT_DIR/plans/feature.md` |
+| `/architect` | Create implementation plans with context alignment and approval gates. Detects security-sensitive features via keyword heuristic and Stage 2 plan content scan; requires threat modeling when threat-model-gate is deployed. Does cross-repo context discovery and creates `plan-refs/` via `devkit plan sync` when invoked with multiple targets (`DEVKIT_TARGET_COUNT > 1`, e.g. via `devkit architect ... --with <target2>`). | `/architect add shopping cart` |
+| `/ship` | Execute plans with pattern validation, security gates (secrets/code/deps), testing, QA, and retro capture. Supports security maturity levels (L1/L2/L3) and `--security-override`. Validates CWD against cross-repo plan `targets:` and filters work groups by `target:` annotation for multi-repo plans. | `/ship $DEVKIT_PROJECT_DIR/plans/feature.md` |
 | `/retro` | Mine review artifacts for recurring patterns and capture learnings | `/retro` or `/retro feature-name` |
 | `/audit` | Security, performance, and anti-pattern scanning. Composable: invokes /secure-review when deployed. | `/audit` or `/audit code` |
 | `/sync` | Update documentation and CLAUDE.md | `/sync` or `/sync full` |
@@ -102,6 +111,12 @@ Pre-built workflows for common development tasks:
 **Audit Logging:** `/ship`, `/architect`, and `/audit` emit structured JSONL events to `$DEVKIT_PROJECT_DIR/plans/audit-logs/`
 on every run. At L2/L3, logs are committed to git. Query with `./scripts/audit-log-query.sh`.
 See [CLAUDE.md](CLAUDE.md) for full details.
+
+**Cross-repo context:** the `devkit` CLI always sets `DEVKIT_TARGET_COUNT` (and indexed
+`DEVKIT_TARGET_N_DIR`/`_PATH`/`_ID`/`_NAME` vars) for every skill invocation, even
+single-target ones (`DEVKIT_TARGET_COUNT=1`). `--with` adds secondary targets and
+raises the count, letting `/architect` and `/ship` do cross-repo work. See
+[CLAUDE.md](CLAUDE.md) for the full env var reference.
 
 ### Generators (5)
 
@@ -255,6 +270,11 @@ Creates detailed implementation plans with red team review and approval gates.
 /architect --fast create API endpoints  # Skip red team review
 ```
 
+**Cross-repo planning:** When invoked via `devkit architect <target> "..." --with <target2>`,
+`/architect` runs context discovery against every target (`DEVKIT_TARGET_COUNT > 1`) and,
+on approval, writes cross-repo `plan-refs/` via `devkit plan sync` so `devkit status` and
+`devkit plan list` show the relationship from any involved project.
+
 **Output:**
 - `$DEVKIT_PROJECT_DIR/plans/[feature].md` — Approved implementation plan
 - `$DEVKIT_PROJECT_DIR/plans/[feature].redteam.md` — Red team critique
@@ -281,6 +301,11 @@ Executes implementation plans with code review, testing, and QA validation.
 
 **Options:**
 - `--security-override "reason"` — Override security BLOCKED verdicts with logged reason
+
+**Cross-repo plans:** For plans with a `targets:` frontmatter field (created by cross-repo
+`/architect`), `/ship` validates the current working directory against the declared targets
+and filters parallel work groups by their `target:` annotation, then removes the plan's
+`plan-refs/` entries via `devkit plan archive` on archive.
 
 **Output:**
 - Implemented code changes
@@ -648,7 +673,7 @@ cd ~/projects/claude-devkit
 bash scripts/test-integration.sh
 ```
 
-**Integration Test Coverage (118 tests):**
+**Integration Test Coverage (147 tests):**
 - Coordinator lifecycle (generate → validate → deploy → undeploy)
 - `validate-all.sh` health check
 - Pipeline lifecycle
@@ -666,6 +691,7 @@ bash scripts/test-integration.sh
 - Meta-harness CLI tests (13 tests: 8 functional, 5 security)
 - Detached execution tests (20 tests: run ID, flag extraction, watcher lifecycle, jobs/result/logs, cleanup, permissions, path traversal)
 - Zero-project-footprint tests (38 tests: project ID, central storage, env vars, migration, helper scripts, security, relink/path, backward compatibility)
+- Cross-repo plan tests (29 tests: frontmatter parser, `devkit://` URI resolution, `plan-refs/` files, multi-target `shell`/skill dispatch, `devkit plan` subcommand, `read_plan_refs`, `validate_plan_targets`, path traversal, plan archive)
 
 ## Structure
 
@@ -718,7 +744,7 @@ claude-devkit/
 │   ├── scanner-value-report.sh  # Scanner value cohort analysis report
 │   ├── ship-queue.sh          # Sequential /ship runner for unattended batch execution
 │   ├── resolve-project-dir.sh # Project artifact directory resolution helper
-│   └── test-integration.sh    # Integration smoke tests (118 tests)
+│   └── test-integration.sh    # Integration smoke tests (147 tests)
 │
 ├── .claude/                   # Project-specific agents
 │   └── agents/
@@ -733,6 +759,22 @@ claude-devkit/
 ├── CLAUDE.md                  # Detailed documentation
 ├── README.md                  # This file
 └── .gitignore
+```
+
+**Centralized artifact storage** (outside target repos — zero footprint in `claude-devkit/`
+or any managed project). See [CLAUDE.md](CLAUDE.md) for the full layout:
+
+```
+~/.claude-devkit/
+├── registry.json                    # Cross-project registry
+├── scripts/                         # Deployed helper scripts
+├── runs/                            # Detached execution output
+└── projects/
+    └── <project-id>/                # Per-project artifacts ($DEVKIT_PROJECT_DIR)
+        ├── state.json
+        ├── plan-refs/                # Cross-repo plan references (JSON)
+        │   └── <plan-name>.ref.json
+        └── plans/                    # Plans, reviews, audit-logs/, archive/
 ```
 
 ## Workflow Integration
