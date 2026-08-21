@@ -9,7 +9,7 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 60 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+# 80 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
 #           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
 #           threat model consumption structural tests (10 tests),
 #           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
@@ -18,7 +18,9 @@
 #           scanner value instrumentation tests (5 tests),
 #           anti-pattern scan structural tests (6 tests),
 #           meta-harness CLI tests (13 tests: help/version, init lifecycle,
-#           validation rejections, status, deploy delegation, security guards), cleanup
+#           validation rejections, status, deploy delegation, security guards),
+#           detached execution tests (20 tests: run ID, flag parsing, watcher
+#           lifecycle, jobs, result, logs, clean, security), cleanup
 
 set -e
 
@@ -47,6 +49,8 @@ HARNESS_NOTGIT_DIR="/tmp/devkit-harness-notgit"
 HARNESS_NONEXISTENT_DIR="/tmp/devkit-harness-nonexistent"
 HARNESS_SYMLINK="/tmp/devkit-harness-symlink"
 HARNESS_REGISTRY_DIR="/tmp/devkit-harness-registry"
+MOCK_CLAUDE="/tmp/devkit-mock-claude"
+DETACH_RUNS_CLEANUP_PREFIX="test-detach-"
 
 # Isolate all meta-harness registry writes from the real
 # ~/.claude-devkit/registry.json -- devkit_cli.py's get_registry_path()
@@ -66,6 +70,13 @@ cleanup() {
     rm -rf "$HARNESS_NOTGIT_DIR" 2>/dev/null || true
     rm -rf "$HARNESS_NONEXISTENT_DIR" 2>/dev/null || true
     rm -rf "$HARNESS_REGISTRY_DIR" 2>/dev/null || true
+    rm -f "$MOCK_CLAUDE" 2>/dev/null || true
+    # Clean up detach test run directories
+    if [ -d "$HOME/.claude-devkit/runs" ]; then
+        for d in "$HOME/.claude-devkit/runs/${DETACH_RUNS_CLEANUP_PREFIX}"*; do
+            rm -rf "$d" 2>/dev/null || true
+        done
+    fi
 }
 trap cleanup EXIT INT TERM
 
@@ -82,6 +93,21 @@ rm -rf "$HARNESS_REGISTRY_DIR" 2>/dev/null || true
 mkdir -p "$HARNESS_TEST_DIR"
 git -C "$HARNESS_TEST_DIR" init -q
 mkdir -p "$HARNESS_NOTGIT_DIR"
+
+# Create mock claude script for detached execution tests
+cat > "$MOCK_CLAUDE" << 'MOCKEOF'
+#!/bin/bash
+echo '{"result":"mock output","usage":{"input_tokens":100,"output_tokens":50}}'
+echo "mock progress" >&2
+MOCKEOF
+chmod +x "$MOCK_CLAUDE"
+
+# Clean up any leftover detach test runs from prior crashes
+if [ -d "$HOME/.claude-devkit/runs" ]; then
+    for d in "$HOME/.claude-devkit/runs/${DETACH_RUNS_CLEANUP_PREFIX}"*; do
+        rm -rf "$d" 2>/dev/null || true
+    done
+fi
 
 # Test runner function (same pattern as test_skill_generator.sh)
 run_test() {
@@ -724,6 +750,348 @@ print('PASS: split_skill_args/validate_args separator semantics verified')
 \"" \
     0
 
+# --- Detached execution tests (62-81) ---
+# These tests verify the --detach flag, watcher lifecycle, jobs/result/logs
+# commands, cleanup, and security properties of detached execution.
+
+# Test 62: _generate_run_id produces valid YYYYMMDD-HHMMSS-6hex format
+run_test 62 "_generate_run_id produces valid run ID format" \
+    "python3 -c \"
+import sys, re
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+run_id = d._generate_run_id()
+assert re.match(r'^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}\$', run_id), f'Invalid format: {run_id}'
+# Generate a second to verify uniqueness
+run_id2 = d._generate_run_id()
+assert run_id != run_id2, 'Two run IDs should not be identical'
+print(f'PASS: run_id format valid: {run_id}')
+\"" \
+    0
+
+# Test 63: _validate_run_id rejects path traversal and accepts valid IDs
+run_test 63 "_validate_run_id rejects path traversal" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+ok, _ = d._validate_run_id('../../../etc/passwd')
+assert not ok, 'path traversal should be rejected'
+ok2, _ = d._validate_run_id('foo/bar')
+assert not ok2, 'slash in run ID should be rejected'
+ok3, _ = d._validate_run_id('20260821-143052-a1b2c3')
+assert ok3, 'valid run ID should pass'
+print('PASS: traversal rejected, valid IDs accepted')
+\"" \
+    0
+
+# Test 64: --detach is extracted from skill_args before validate_args runs
+run_test 64 "--detach extracted before validate_args" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+skill_args = ['feature', '--detach']
+detach = '--detach' in skill_args
+assert detach, '--detach should be detected'
+skill_args = [a for a in skill_args if a != '--detach']
+assert '--detach' not in skill_args, '--detach should be removed'
+pre, post = d.split_skill_args(skill_args)
+ok, _ = d.validate_args(pre)
+assert ok, 'pre-sep args should pass after --detach removal'
+print('PASS: --detach extracted before validation')
+\"" \
+    0
+
+# Test 65: --detach works with -- separator in various positions
+run_test 65 "--detach with -- separator" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+# devkit architect ~/foo --detach -- --fast
+skill_args = ['--detach', '--', '--fast']
+detach = '--detach' in skill_args
+skill_args = [a for a in skill_args if a != '--detach']
+pre, post = d.split_skill_args(skill_args)
+assert post == ['--fast'], f'unexpected post: {post}'
+ok, _ = d.validate_args(pre)
+assert ok, 'empty pre should pass'
+# Also test: devkit architect ~/foo feature --detach -- --fast
+skill_args2 = ['feature', '--detach', '--', '--fast']
+detach2 = '--detach' in skill_args2
+skill_args2 = [a for a in skill_args2 if a != '--detach']
+pre2, post2 = d.split_skill_args(skill_args2)
+assert pre2 == ['feature'], f'unexpected pre2: {pre2}'
+assert post2 == ['--fast'], f'unexpected post2: {post2}'
+print('PASS: --detach + separator works in all positions')
+\"" \
+    0
+
+# Test 66: _spawn_detached creates run dir with initial meta.json (status: running)
+run_test 66 "_spawn_detached creates run dir with running status" \
+    "RUN_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}create-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     python3 -c \"
+import sys, os, json
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+config = dict(d.FALLBACK_DEFAULTS)
+config['claude_command'] = '$MOCK_CLAUDE'
+config['claude_print_flag'] = '--print'
+resolved = Path('$HARNESS_TEST_DIR').resolve()
+d._spawn_detached('test', resolved, 'arg1', config, '\$RUN_ID')
+run_dir = Path.home() / '.claude-devkit' / 'runs' / '\$RUN_ID'
+assert run_dir.is_dir(), 'run dir should exist'
+meta_path = run_dir / 'meta.json'
+assert meta_path.exists(), 'meta.json should exist'
+meta = json.loads(meta_path.read_text())
+assert meta['run_id'] == '\$RUN_ID'
+assert meta['skill'] == 'test'
+assert meta['status'] == 'running'
+assert meta['devkit_version'] == '0.2.0'
+print('PASS: run dir created with running meta.json')
+\"" \
+    0
+
+# Test 67: _spawn_watcher completes run and finalizes meta.json
+run_test 67 "_spawn_watcher completes run with exit 0" \
+    "RUN_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}complete-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     RUN_DIR=\"\$HOME/.claude-devkit/runs/\$RUN_ID\" && \
+     mkdir -p \"\$RUN_DIR\" && chmod 700 \"\$RUN_DIR\" && \
+     python3 -c \"
+import json, os
+meta = {'schema_version':'1.0.0','run_id':'\$RUN_ID','skill':'test','target':'/tmp',
+        'project_name':'test','args':'','pid':None,'status':'running',
+        'started_at':'2026-01-01T00:00:00Z','completed_at':None,
+        'exit_code':None,'devkit_version':'0.2.0'}
+fd = os.open('\$RUN_DIR/meta.json', os.O_WRONLY|os.O_CREAT|os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w') as f: json.dump(meta, f, indent=2)
+\" && \
+     python3 -c \"
+import sys, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+d._spawn_watcher(Path('\$RUN_DIR'),
+    [sys.executable, '-c', 'print(42)'],
+    '/tmp', os.environ.copy())
+\" && \
+     TRIES=0 && while [ \$TRIES -lt 30 ]; do \
+       python3 -c \"
+import json
+with open('\$RUN_DIR/meta.json') as f: m = json.load(f)
+exit(0 if m.get('status') != 'running' else 1)
+\" 2>/dev/null && break; sleep 0.2; TRIES=\$((TRIES+1)); done && \
+     python3 -c \"
+import json
+with open('\$RUN_DIR/meta.json') as f: meta = json.load(f)
+assert meta['status'] == 'completed', 'got %s' % meta['status']
+assert meta['exit_code'] == 0, 'got exit %s' % meta['exit_code']
+assert meta['pid'] is not None, 'pid should be set'
+assert meta['completed_at'] is not None, 'completed_at should be set'
+print('PASS: watcher completed with exit 0')
+\"" \
+    0
+
+# Test 68: _spawn_watcher records failure for non-zero exit
+run_test 68 "_spawn_watcher records failed status" \
+    "RUN_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}fail-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     RUN_DIR=\"\$HOME/.claude-devkit/runs/\$RUN_ID\" && \
+     mkdir -p \"\$RUN_DIR\" && chmod 700 \"\$RUN_DIR\" && \
+     python3 -c \"
+import json, os
+meta = {'schema_version':'1.0.0','run_id':'\$RUN_ID','skill':'test','target':'/tmp',
+        'project_name':'test','args':'','pid':None,'status':'running',
+        'started_at':'2026-01-01T00:00:00Z','completed_at':None,
+        'exit_code':None,'devkit_version':'0.2.0'}
+fd = os.open('\$RUN_DIR/meta.json', os.O_WRONLY|os.O_CREAT|os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w') as f: json.dump(meta, f, indent=2)
+\" && \
+     python3 -c \"
+import sys, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+d._spawn_watcher(Path('\$RUN_DIR'),
+    [sys.executable, '-c', 'import sys; sys.exit(42)'],
+    '/tmp', os.environ.copy())
+\" && \
+     TRIES=0 && while [ \$TRIES -lt 30 ]; do \
+       python3 -c \"
+import json
+with open('\$RUN_DIR/meta.json') as f: m = json.load(f)
+exit(0 if m.get('status') != 'running' else 1)
+\" 2>/dev/null && break; sleep 0.2; TRIES=\$((TRIES+1)); done && \
+     python3 -c \"
+import json
+with open('\$RUN_DIR/meta.json') as f: meta = json.load(f)
+assert meta['status'] == 'failed', f'got {meta[\"status\"]}'
+assert meta['exit_code'] == 42, f'got exit {meta[\"exit_code\"]}'
+print('PASS: watcher records failed status with exit 42')
+\"" \
+    0
+
+# Test 69: _spawn_watcher handles empty stdout (no result.json)
+run_test 69 "_spawn_watcher handles empty stdout" \
+    "RUN_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}empty-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     RUN_DIR=\"\$HOME/.claude-devkit/runs/\$RUN_ID\" && \
+     mkdir -p \"\$RUN_DIR\" && chmod 700 \"\$RUN_DIR\" && \
+     python3 -c \"
+import json, os
+meta = {'schema_version':'1.0.0','run_id':'\$RUN_ID','skill':'test','target':'/tmp',
+        'project_name':'test','args':'','pid':None,'status':'running',
+        'started_at':'2026-01-01T00:00:00Z','completed_at':None,
+        'exit_code':None,'devkit_version':'0.2.0'}
+fd = os.open('\$RUN_DIR/meta.json', os.O_WRONLY|os.O_CREAT|os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w') as f: json.dump(meta, f, indent=2)
+\" && \
+     python3 -c \"
+import sys, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+d._spawn_watcher(Path('\$RUN_DIR'),
+    [sys.executable, '-c', 'pass'],
+    '/tmp', os.environ.copy())
+\" && \
+     TRIES=0 && while [ \$TRIES -lt 30 ]; do \
+       python3 -c \"
+import json
+with open('\$RUN_DIR/meta.json') as f: m = json.load(f)
+exit(0 if m.get('status') != 'running' else 1)
+\" 2>/dev/null && break; sleep 0.2; TRIES=\$((TRIES+1)); done && \
+     python3 -c \"
+import json, os
+with open('\$RUN_DIR/meta.json') as f: meta = json.load(f)
+assert meta['status'] == 'completed', f'got {meta[\"status\"]}'
+assert not os.path.exists('\$RUN_DIR/result.json'), 'result.json should not exist'
+print('PASS: empty stdout handled, no result.json')
+\"" \
+    0
+
+# Test 70: devkit jobs lists synthetic run entries
+run_test 70 "devkit jobs lists synthetic run entries" \
+    "JOBS_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}jobs-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     JOBS_DIR=\"\$HOME/.claude-devkit/runs/\$JOBS_ID\" && \
+     mkdir -p \"\$JOBS_DIR\" && \
+     echo '{\"schema_version\":\"1.0.0\",\"run_id\":\"'\$JOBS_ID'\",\"skill\":\"audit\",\"target\":\"/tmp\",\"project_name\":\"test-proj\",\"args\":\"\",\"pid\":null,\"status\":\"completed\",\"started_at\":\"2026-08-21T12:00:00Z\",\"completed_at\":\"2026-08-21T12:05:00Z\",\"exit_code\":0,\"devkit_version\":\"0.2.0\"}' > \"\$JOBS_DIR/meta.json\" && \
+     python3 '$DEVKIT_CLI' jobs 2>/dev/null | grep -q \"\$JOBS_ID\"" \
+    0
+
+# Test 71: devkit jobs detects stale PID
+run_test 71 "devkit jobs shows stale for dead PID" \
+    "STALE_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}stale-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     STALE_DIR=\"\$HOME/.claude-devkit/runs/\$STALE_ID\" && \
+     mkdir -p \"\$STALE_DIR\" && \
+     echo '{\"schema_version\":\"1.0.0\",\"run_id\":\"'\$STALE_ID'\",\"skill\":\"audit\",\"target\":\"/tmp\",\"project_name\":\"test\",\"args\":\"\",\"pid\":99999999,\"status\":\"running\",\"started_at\":\"2026-08-21T12:00:00Z\",\"completed_at\":null,\"exit_code\":null,\"devkit_version\":\"0.2.0\"}' > \"\$STALE_DIR/meta.json\" && \
+     python3 '$DEVKIT_CLI' jobs 2>/dev/null | grep -q 'stale'" \
+    0
+
+# Test 72: devkit jobs filters by target
+run_test 72 "devkit jobs filters by target" \
+    "FILTER_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}filter-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     FILTER_DIR=\"\$HOME/.claude-devkit/runs/\$FILTER_ID\" && \
+     mkdir -p \"\$FILTER_DIR\" && \
+     RESOLVED_TARGET=\$(python3 -c \"from pathlib import Path; print(Path('$HARNESS_TEST_DIR').resolve())\") && \
+     python3 -c \"
+import json, os
+meta = {'schema_version':'1.0.0','run_id':'\$FILTER_ID','skill':'audit',
+        'target':'\$RESOLVED_TARGET','project_name':'devkit-harness-test',
+        'args':'','pid':None,'status':'completed',
+        'started_at':'2026-08-21T12:00:00Z','completed_at':'2026-08-21T12:05:00Z',
+        'exit_code':0,'devkit_version':'0.2.0'}
+fd = os.open('\$FILTER_DIR/meta.json', os.O_WRONLY|os.O_CREAT|os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w') as f: json.dump(meta, f, indent=2)
+\" && \
+     python3 '$DEVKIT_CLI' jobs '$HARNESS_TEST_DIR' 2>/dev/null | grep -q \"\$FILTER_ID\"" \
+    0
+
+# Test 73: devkit result shows captured output from result.json
+run_test 73 "devkit result shows output from result.json" \
+    "RESULT_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}result-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     RESULT_DIR=\"\$HOME/.claude-devkit/runs/\$RESULT_ID\" && \
+     mkdir -p \"\$RESULT_DIR\" && \
+     echo '{\"result\":\"hello from test\"}' > \"\$RESULT_DIR/result.json\" && \
+     python3 '$DEVKIT_CLI' result \"\$RESULT_ID\" 2>/dev/null | grep -q 'hello from test'" \
+    0
+
+# Test 74: devkit logs shows captured stderr
+run_test 74 "devkit logs shows stderr content" \
+    "LOGS_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}logs-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     LOGS_DIR=\"\$HOME/.claude-devkit/runs/\$LOGS_ID\" && \
+     mkdir -p \"\$LOGS_DIR\" && \
+     echo 'mock progress output' > \"\$LOGS_DIR/stderr.log\" && \
+     python3 '$DEVKIT_CLI' logs \"\$LOGS_ID\" 2>/dev/null | grep -q 'mock progress output'" \
+    0
+
+# Test 75: devkit result with nonexistent run ID exits 1
+run_test 75 "devkit result with nonexistent run ID exits 1" \
+    "python3 '$DEVKIT_CLI' result nonexistent-run-id-99999" \
+    1
+
+# Test 76: devkit clean --days 0 removes old completed runs
+run_test 76 "devkit clean --days 0 removes completed runs" \
+    "CLEAN_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}clean-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     CLEAN_DIR=\"\$HOME/.claude-devkit/runs/\$CLEAN_ID\" && \
+     mkdir -p \"\$CLEAN_DIR\" && \
+     echo '{\"schema_version\":\"1.0.0\",\"run_id\":\"'\$CLEAN_ID'\",\"skill\":\"audit\",\"target\":\"/tmp\",\"project_name\":\"test\",\"args\":\"\",\"pid\":null,\"status\":\"completed\",\"started_at\":\"2026-08-21T12:00:00Z\",\"completed_at\":\"2026-08-21T12:05:00Z\",\"exit_code\":0,\"devkit_version\":\"0.2.0\"}' > \"\$CLEAN_DIR/meta.json\" && \
+     python3 '$DEVKIT_CLI' clean --days 0 2>/dev/null | grep -q 'Cleaned' && \
+     [ ! -d \"\$CLEAN_DIR\" ]" \
+    0
+
+# Test 77: devkit clean preserves running runs
+run_test 77 "devkit clean preserves running runs" \
+    "PRESERVE_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}preserve-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     PRESERVE_DIR=\"\$HOME/.claude-devkit/runs/\$PRESERVE_ID\" && \
+     mkdir -p \"\$PRESERVE_DIR\" && \
+     echo '{\"schema_version\":\"1.0.0\",\"run_id\":\"'\$PRESERVE_ID'\",\"skill\":\"audit\",\"target\":\"/tmp\",\"project_name\":\"test\",\"args\":\"\",\"pid\":'$$',\"status\":\"running\",\"started_at\":\"2026-08-21T12:00:00Z\",\"completed_at\":null,\"exit_code\":null,\"devkit_version\":\"0.2.0\"}' > \"\$PRESERVE_DIR/meta.json\" && \
+     python3 '$DEVKIT_CLI' clean --days 0 2>/dev/null && \
+     [ -d \"\$PRESERVE_DIR\" ]" \
+    0
+
+# Test 78: devkit clean treats dead-PID running as stale and removes it
+run_test 78 "devkit clean removes stale (dead PID) running runs" \
+    "DEAD_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}dead-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     DEAD_DIR=\"\$HOME/.claude-devkit/runs/\$DEAD_ID\" && \
+     mkdir -p \"\$DEAD_DIR\" && \
+     echo '{\"schema_version\":\"1.0.0\",\"run_id\":\"'\$DEAD_ID'\",\"skill\":\"audit\",\"target\":\"/tmp\",\"project_name\":\"test\",\"args\":\"\",\"pid\":99999999,\"status\":\"running\",\"started_at\":\"2026-08-21T12:00:00Z\",\"completed_at\":null,\"exit_code\":null,\"devkit_version\":\"0.2.0\"}' > \"\$DEAD_DIR/meta.json\" && \
+     python3 '$DEVKIT_CLI' clean --days 0 2>/dev/null && \
+     [ ! -d \"\$DEAD_DIR\" ]" \
+    0
+
+# Test 79: _spawn_detached creates run dir with 0o700 permissions
+run_test 79 "run directory has 0o700 permissions" \
+    "RUN_ID=\"${DETACH_RUNS_CLEANUP_PREFIX}perms-\$(python3 -c 'import os; print(os.urandom(3).hex())')\" && \
+     python3 -c \"
+import sys, os, stat
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+config = dict(d.FALLBACK_DEFAULTS)
+config['claude_command'] = '$MOCK_CLAUDE'
+config['claude_print_flag'] = '--print'
+resolved = Path('$HARNESS_TEST_DIR').resolve()
+d._spawn_detached('test', resolved, '', config, '\$RUN_ID')
+run_dir = Path.home() / '.claude-devkit' / 'runs' / '\$RUN_ID'
+mode = stat.S_IMODE(run_dir.stat().st_mode)
+assert mode == 0o700, f'expected 0o700, got {oct(mode)}'
+meta_mode = stat.S_IMODE((run_dir / 'meta.json').stat().st_mode)
+assert meta_mode == 0o600, f'meta.json expected 0o600, got {oct(meta_mode)}'
+print('PASS: directory 0o700, meta.json 0o600')
+\"" \
+    0
+
+# Test 80: devkit result rejects path traversal in run ID
+run_test 80 "devkit result rejects path traversal in run ID" \
+    "python3 '$DEVKIT_CLI' result '../../../etc/passwd'" \
+    1
+
+# Test 81: no shell=True in _spawn_detached or _spawn_watcher
+run_test 81 "no shell=True in spawn functions (code inspection)" \
+    "! grep -A20 'def _spawn_watcher\|def _spawn_detached' '$REPO_DIR/scripts/devkit_cli.py' | grep -q 'shell=True'" \
+    0
+
 # Test 9: Cleanup
 echo ""
 echo -e "${BLUE}Test 9: Cleanup${RESET}"
@@ -735,6 +1103,13 @@ rm -rf "$HARNESS_TEST_DIR" || true
 rm -rf "$HARNESS_NOTGIT_DIR" || true
 rm -rf "$HARNESS_NONEXISTENT_DIR" || true
 rm -rf "$HARNESS_REGISTRY_DIR" || true
+rm -f "$MOCK_CLAUDE" || true
+# Clean up detach test run directories
+if [ -d "$HOME/.claude-devkit/runs" ]; then
+    for d in "$HOME/.claude-devkit/runs/${DETACH_RUNS_CLEANUP_PREFIX}"*; do
+        rm -rf "$d" 2>/dev/null || true
+    done
+fi
 if [[ ! -d "$TEST_DIR" ]]; then
     echo -e "${GREEN}  PASS${RESET}"
     PASS_COUNT=$((PASS_COUNT + 1))

@@ -10,8 +10,13 @@ to the target project.
 Usage:
     devkit init <target>                     Initialize project for devkit management
     devkit <skill> <target> [args...]        Run a skill non-interactively in target
+    devkit <skill> <target> --detach         Run skill in background, return run ID
     devkit shell <target>                    Open interactive Claude session in target
     devkit status [<target>]                 Show status of one or all projects
+    devkit jobs [<target>]                   List background runs (all or filtered)
+    devkit result <run-id>                   Print result of a completed run
+    devkit logs <run-id>                     Print stderr logs of a run
+    devkit clean [--days N]                  Remove old runs (default: 7 days)
     devkit deploy [--validate]               Ensure skills are deployed (delegates to deploy.sh)
     devkit --version                         Show version
     devkit --help                            Show help
@@ -30,7 +35,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 STATE_SCHEMA_VERSION = "1.0.0"
 REGISTRY_SCHEMA_VERSION = "1.0.0"
@@ -49,6 +54,7 @@ FALLBACK_DEFAULTS = {
     "claude_print_flag": "--print",
     "max_state_file_bytes": 65536,
     "max_registry_file_bytes": 1048576,
+    "clean_retention_days": 7,
 }
 
 # Skill names must be lowercase, start with a letter, and contain only
@@ -56,7 +62,7 @@ FALLBACK_DEFAULTS = {
 # leading-dash flag confusion, and non-filesystem-safe characters.
 SKILL_NAME_RE = re.compile(r'^[a-z][a-z0-9-]*$')
 
-KNOWN_COMMANDS = ("init", "shell", "status", "deploy")
+KNOWN_COMMANDS = ("init", "shell", "status", "deploy", "jobs", "result", "logs", "clean")
 
 
 class Colors:
@@ -602,7 +608,176 @@ def _has_tool_allowlist(target_path):
     return False
 
 
+# --- Run ID / PID helpers -------------------------------------------------
+
+def _generate_run_id():
+    """Generate a timestamped random run ID (YYYYMMDD-HHMMSS-<6-hex>)."""
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y%m%d-%H%M%S")
+    random_suffix = os.urandom(3).hex()
+    return f"{timestamp}-{random_suffix}"
+
+
+def _validate_run_id(run_id):
+    """Validate run ID contains no path separators or traversal."""
+    if Path(run_id).name != run_id:
+        return False, f"Invalid run ID (path traversal rejected): {run_id}"
+    return True, ""
+
+
+def _is_pid_alive(pid):
+    """Check if a PID is still running (POSIX only)."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Process exists but we don't own it
+        return True
+    except OSError:
+        return False
+
+
+def _status_color(status):
+    """Return status string with ANSI color for terminal display."""
+    colors = {
+        "running": "\033[33m",   # yellow
+        "completed": "\033[32m", # green
+        "failed": "\033[31m",    # red
+        "stale": "\033[90m",     # gray
+    }
+    reset = "\033[0m"
+    color = colors.get(status, "")
+    return f"{color}{status}{reset}" if color else status
+
+
 # --- Commands -------------------------------------------------------------
+
+def _spawn_watcher(runs_dir, invocation, cwd, env):
+    """Spawn a background watcher that launches Claude and finalizes on completion.
+
+    The watcher receives all variable values via sys.argv -- no f-string
+    interpolation into source code. This prevents injection if path values
+    ever contain Python string metacharacters.
+    """
+    watcher_script = '''
+import os, json, sys, subprocess
+from pathlib import Path
+from datetime import datetime, timezone
+
+run_dir = Path(sys.argv[1])
+invocation = json.loads(sys.argv[2])
+cwd = sys.argv[3]
+meta_path = run_dir / "meta.json"
+
+def atomic_write_json(path, data):
+    """Inline atomic write (tempfile + rename). The watcher cannot import
+    _atomic_write_json() from devkit_cli since it runs as a standalone snippet."""
+    import tempfile
+    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+    os.chmod(tmp_path, 0o600)
+    os.rename(tmp_path, str(path))
+
+# Open log files with restricted permissions (0o600)
+stdout_fd = os.open(str(run_dir / "stdout.log"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+stderr_fd = os.open(str(run_dir / "stderr.log"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+stdout_log = os.fdopen(stdout_fd, "w")
+stderr_log = os.fdopen(stderr_fd, "w")
+
+# Spawn Claude as our child -- os.waitpid() works because we are its parent
+proc = subprocess.Popen(
+    invocation, cwd=cwd, env=os.environ.copy(),
+    stdout=stdout_log, stderr=stderr_log,
+)
+stdout_log.close()
+stderr_log.close()
+
+# Update meta.json with Claude PID (atomic)
+with open(meta_path) as f:
+    meta = json.load(f)
+meta["pid"] = proc.pid
+atomic_write_json(meta_path, meta)
+
+# Wait for Claude -- we ARE its parent, so waitpid succeeds
+try:
+    _, status = os.waitpid(proc.pid, 0)
+    exit_code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1
+except ChildProcessError:
+    exit_code = -1
+
+# Parse result from stdout
+try:
+    stdout_data = (run_dir / "stdout.log").read_text()
+    data = json.loads(stdout_data)
+    result_path = run_dir / "result.json"
+    result_fd = os.open(str(result_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(result_fd, "w") as f:
+        json.dump(data, f, indent=2)
+except Exception:
+    pass
+
+# Finalize meta.json (atomic)
+meta["completed_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+meta["exit_code"] = exit_code
+meta["status"] = "completed" if exit_code == 0 else "failed"
+atomic_write_json(meta_path, meta)
+'''
+    subprocess.Popen(
+        [sys.executable, "-c", watcher_script,
+         str(runs_dir), json.dumps(invocation), cwd],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+
+
+def _spawn_detached(skill, resolved, args_str, config, run_id):
+    """Spawn a detached Claude Code session with output capture."""
+    runs_dir = Path.home() / ".claude-devkit" / "runs" / run_id
+    os.makedirs(runs_dir, mode=0o700)
+
+    meta = {
+        "schema_version": "1.0.0",
+        "run_id": run_id,
+        "skill": skill,
+        "target": str(resolved),
+        "project_name": resolved.name,
+        "args": args_str[:1024],
+        "pid": None,
+        "status": "running",
+        "started_at": utc_now_iso(),
+        "completed_at": None,
+        "exit_code": None,
+        "devkit_version": VERSION,
+    }
+    _atomic_write_json(runs_dir / "meta.json", meta)
+    try:
+        os.chmod(runs_dir / "meta.json", 0o600)
+    except OSError as e:
+        print(
+            f"{Colors.YELLOW}Warning:{Colors.RESET} Cannot set permissions on "
+            f"meta.json: {e}",
+            file=sys.stderr,
+        )
+
+    claude_cmd = config.get("claude_command", FALLBACK_DEFAULTS["claude_command"])
+    print_flag = config.get("claude_print_flag", FALLBACK_DEFAULTS["claude_print_flag"])
+    prompt = f"/{skill}" + (f" {args_str}" if args_str else "")
+    invocation = [claude_cmd, print_flag, "--output-format", "json", prompt]
+
+    env = os.environ.copy()
+    env["CLAUDE_DEVKIT"] = str(get_devkit_root())
+
+    # Spawn watcher -- the watcher itself spawns Claude as its child,
+    # so it can use os.waitpid() to obtain the real exit code.
+    _spawn_watcher(runs_dir, invocation, str(resolved), env)
+
+    return run_id
+
 
 def cmd_init(target_str, config):
     ok, result = validate_target(target_str, config)
@@ -634,7 +809,8 @@ def cmd_init(target_str, config):
     return 0
 
 
-def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config):
+def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config,
+                   detach=False):
     """Run a skill non-interactively against `target_str`.
 
     `validated_args` are checked by validate_args() (pre-'--'-separator
@@ -642,6 +818,9 @@ def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config):
     tokens, see split_skill_args()). Both are joined into a single prompt
     string below -- subprocess.run() is always list-form, so neither group
     can ever reach `claude` as a separate CLI flag regardless of prefix.
+
+    When `detach` is True, spawns Claude in the background via
+    _spawn_detached() and returns immediately with a run ID.
     """
     ok, result = validate_target(target_str, config)
     if not ok:
@@ -673,6 +852,16 @@ def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config):
         return 1
 
     args_str = " ".join(args)
+
+    if detach:
+        run_id = _generate_run_id()
+        _spawn_detached(skill, resolved, args_str, config, run_id)
+        print(f"{Colors.GREEN}Detached:{Colors.RESET} {run_id}")
+        print(f"  Check status: devkit jobs")
+        print(f"  View result:  devkit result {run_id}")
+        print(f"  View logs:    devkit logs {run_id}")
+        return 0
+
     existing_state = read_state(resolved, config) or {}
     base_state = {
         "schema_version": existing_state.get("schema_version", STATE_SCHEMA_VERSION),
@@ -940,6 +1129,135 @@ def cmd_deploy(args, config):
         return 1
 
 
+def cmd_jobs(target_str, config):
+    """List all runs, optionally filtered by target project."""
+    runs_dir = Path.home() / ".claude-devkit" / "runs"
+    if not runs_dir.is_dir():
+        print("No runs found.")
+        return 0
+
+    runs = []
+    for run_dir in sorted(runs_dir.iterdir(), reverse=True):
+        meta_path = run_dir / "meta.json"
+        if not meta_path.exists():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        # Check liveness for "running" status
+        if meta.get("status") == "running":
+            pid = meta.get("pid")
+            if pid and not _is_pid_alive(pid):
+                meta["status"] = "stale"
+
+        if target_str:
+            ok, resolved = validate_target(target_str, config)
+            if ok and meta.get("target") != str(resolved):
+                continue
+
+        runs.append(meta)
+
+    if not runs:
+        print("No runs found.")
+        return 0
+
+    print(f"{'RUN ID':<28} {'SKILL':<12} {'PROJECT':<20} {'STATUS':<10} {'STARTED'}")
+    for meta in runs[:20]:
+        print(
+            f"{meta['run_id']:<28} "
+            f"{meta.get('skill','?'):<12} "
+            f"{meta.get('project_name','?'):<20} "
+            f"{_status_color(meta.get('status','?')):<10} "
+            f"{meta.get('started_at','?')}"
+        )
+    return 0
+
+
+def cmd_result(run_id, config):
+    """Print the result of a completed run."""
+    ok, err = _validate_run_id(run_id)
+    if not ok:
+        print(err)
+        return 1
+    run_dir = Path.home() / ".claude-devkit" / "runs" / run_id
+    result_path = run_dir / "result.json"
+    if result_path.exists():
+        try:
+            data = json.loads(result_path.read_text())
+            print(data.get("result", "(no result text)"))
+        except (OSError, json.JSONDecodeError):
+            print(f"Cannot parse result for run {run_id}")
+            return 1
+    elif (run_dir / "stdout.log").exists():
+        print((run_dir / "stdout.log").read_text())
+    else:
+        print(f"No result found for run {run_id}")
+        return 1
+    return 0
+
+
+def cmd_logs(run_id, config):
+    """Print stderr logs of a run."""
+    ok, err = _validate_run_id(run_id)
+    if not ok:
+        print(err)
+        return 1
+    log_path = Path.home() / ".claude-devkit" / "runs" / run_id / "stderr.log"
+    if not log_path.exists():
+        print(f"No logs found for run {run_id}")
+        return 1
+    print(log_path.read_text())
+    return 0
+
+
+def cmd_clean(max_age_days, config):
+    """Remove completed/failed runs older than max_age_days."""
+    if max_age_days is None:
+        max_age_days = config.get("clean_retention_days",
+                                  FALLBACK_DEFAULTS.get("clean_retention_days", 7))
+    if max_age_days < 0:
+        print(f"{Colors.RED}Error:{Colors.RESET} --days must be non-negative", file=sys.stderr)
+        return 2
+    runs_dir = Path.home() / ".claude-devkit" / "runs"
+    if not runs_dir.is_dir():
+        print("Cleaned 0 run(s)")
+        return 0
+    cutoff = time.time() - (max_age_days * 86400)
+    removed = 0
+    for run_dir in list(runs_dir.iterdir()):
+        ok, _ = _validate_run_id(run_dir.name)
+        if not ok:
+            continue
+        meta_path = run_dir / "meta.json"
+        if not meta_path.exists():
+            shutil.rmtree(run_dir, ignore_errors=True)
+            removed += 1
+            continue
+        try:
+            meta = json.loads(meta_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        status = meta.get("status")
+        # Check PID liveness for runs still marked "running"
+        # (handles case where watcher died before finalizing)
+        if status == "running":
+            pid = meta.get("pid")
+            if pid and not _is_pid_alive(pid):
+                status = "stale"
+        if status in ("completed", "failed", "stale"):
+            try:
+                mtime = meta_path.stat().st_mtime
+            except OSError:
+                continue
+            if mtime < cutoff:
+                shutil.rmtree(run_dir, ignore_errors=True)
+                removed += 1
+    print(f"Cleaned {removed} run(s)")
+    return 0
+
+
 # --- Argument parsing / entry point ----------------------------------------
 
 def print_help():
@@ -948,9 +1266,14 @@ def print_help():
 Usage:
   devkit init <target>                     Initialize project for devkit management
   devkit <skill> <target> [args...]        Run a skill non-interactively in target
+  devkit <skill> <target> --detach         Run skill in background, return run ID
   devkit shell <target>                    Open interactive Claude session in target
   devkit status [<target>]                 Show status of one or all projects
-  devkit deploy [--validate]               Ensure skills are deployed (delegates to deploy.sh)
+  devkit jobs [<target>]                   List background runs (all or filtered)
+  devkit result <run-id>                   Print result of a completed run
+  devkit logs <run-id>                     Print stderr logs of a run
+  devkit clean [--days N]                  Remove old runs (default: 7 days)
+  devkit deploy [--validate]               Ensure skills are deployed
   devkit --version                         Show version
   devkit --help                            Show help
 
@@ -958,17 +1281,26 @@ Examples:
   devkit init ~/projects/my-app
   devkit audit ~/projects/my-app
   devkit architect ~/projects/my-app "add user authentication"
+  devkit architect ~/projects/my-app "add feature" --detach
   devkit ship ~/projects/my-app .devkit/plans/add-user-auth.md
+  devkit jobs
+  devkit result 20260821-143052-a1b2c3
+  devkit logs 20260821-143052-a1b2c3
+  devkit clean --days 14
   devkit shell ~/projects/my-app
   devkit status
   devkit status ~/projects/my-app
 
 Notes:
+  --detach spawns the skill in the background and returns a run ID immediately.
+  Use 'devkit jobs' to check status, 'devkit result <id>' to see the output.
+
   Skill arguments starting with '--' are rejected unless they come after a
   '--' separator, which forwards everything following it verbatim (standard
   '--' semantics, as in `git` or `npm run --`). Use this to pass skill flags
   like `--fast`:
     devkit architect ~/foo -- --fast
+    devkit architect ~/foo --detach -- --fast
 
   Target paths must resolve under an allowed root (default: ~/projects/,
   ~/workspaces/, plus the devkit installation and /tmp/). Edit
@@ -1018,6 +1350,37 @@ def main():
     if command == "deploy":
         return cmd_deploy(rest, config)
 
+    if command == "jobs":
+        target = rest[0] if rest else None
+        return cmd_jobs(target, config)
+
+    if command == "result":
+        if not rest:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit result requires a run ID", file=sys.stderr)
+            return 2
+        return cmd_result(rest[0], config)
+
+    if command == "logs":
+        if not rest:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit logs requires a run ID", file=sys.stderr)
+            return 2
+        return cmd_logs(rest[0], config)
+
+    if command == "clean":
+        max_age_days = None
+        if "--days" in rest:
+            idx = rest.index("--days")
+            if idx + 1 < len(rest):
+                try:
+                    max_age_days = int(rest[idx + 1])
+                except ValueError:
+                    print(f"{Colors.RED}Error:{Colors.RESET} --days requires an integer value", file=sys.stderr)
+                    return 2
+            else:
+                print(f"{Colors.RED}Error:{Colors.RESET} --days requires a value", file=sys.stderr)
+                return 2
+        return cmd_clean(max_age_days, config)
+
     # Dynamic skill dispatch.
     skill = command
     if not rest:
@@ -1026,12 +1389,18 @@ def main():
     target = rest[0]
     skill_args = rest[1:]
 
+    # Extract --detach before the split/validate pipeline
+    detach = "--detach" in skill_args
+    if detach:
+        skill_args = [a for a in skill_args if a != "--detach"]
+
     # "--" separates devkit-parsed tokens (subject to validate_args()'s
     # '--'-prefix rejection) from skill arguments forwarded verbatim after
     # it -- see split_skill_args() and validate_args() docstrings.
     pre_sep_args, post_sep_args = split_skill_args(skill_args)
 
-    return cmd_run_skill(skill, target, pre_sep_args, post_sep_args, config)
+    return cmd_run_skill(skill, target, pre_sep_args, post_sep_args, config,
+                         detach=detach)
 
 
 if __name__ == "__main__":

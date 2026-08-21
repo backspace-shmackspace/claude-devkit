@@ -274,6 +274,52 @@ code .claude/agents/coder-python.md
 - Add project-specific context from CLAUDE.md
 - Define coding standards unique to your team
 
+## Using the Meta-Harness (Optional)
+
+The `devkit` CLI lets you run skills against any registered project without `cd`-ing into it first.
+
+### Register a Project
+
+```bash
+devkit init ~/projects/my-app
+```
+
+### Run Skills Remotely
+
+```bash
+# Run a skill against a registered project
+devkit audit ~/projects/my-app
+devkit architect ~/projects/my-app "add search feature"
+
+# Open an interactive Claude Code session in the project
+devkit shell ~/projects/my-app
+```
+
+### Detached Execution
+
+Run long-running skills in the background with `--detach`. The CLI returns a run ID immediately so you can check results later:
+
+```bash
+# Launch a skill in the background
+devkit ship ~/projects/my-app .devkit/plans/feature.md --detach
+# => Detached: run-id 20260821-143052-a1b2c3
+
+# List all background runs
+devkit jobs
+
+# View the result when complete
+devkit result 20260821-143052-a1b2c3
+
+# View stderr/diagnostic logs
+devkit logs 20260821-143052-a1b2c3
+
+# Clean up old completed runs (default: older than 7 days)
+devkit clean
+devkit clean --days 3
+```
+
+For full meta-harness documentation, see [CLAUDE.md -- With Meta-Harness](CLAUDE.md#with-meta-harness).
+
 ## Next Steps
 
 ### Learn More

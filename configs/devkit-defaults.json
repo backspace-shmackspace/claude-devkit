@@ -8,5 +8,6 @@
   "claude_command": "claude",
   "claude_print_flag": "--print",
   "max_state_file_bytes": 65536,
-  "max_registry_file_bytes": 1048576
+  "max_registry_file_bytes": 1048576,
+  "clean_retention_days": 7
 }

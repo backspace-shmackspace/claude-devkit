@@ -83,7 +83,7 @@ claude-devkit/
     ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
     ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
     ├── scanner-value-report.sh # Scanner value analysis: cohort comparison by scanner mode
-    └── test-integration.sh    # Integration smoke tests (60 tests)
+    └── test-integration.sh    # Integration smoke tests (80 tests)
 ```
 
 ### Data Flow
@@ -464,6 +464,16 @@ devkit init ~/projects/my-app
 devkit audit ~/projects/my-app
 devkit architect ~/projects/my-app "add feature"
 
+# Run a skill in the background (detached execution)
+devkit architect ~/projects/my-app "add feature" --detach
+# Returns a run ID immediately, e.g.: 20260821-143052-a1b2c3
+
+# Check background run status
+devkit jobs                         # List all runs
+devkit result 20260821-143052-a1b2c3  # Print result
+devkit logs 20260821-143052-a1b2c3    # Print stderr logs
+devkit clean --days 14              # Remove old completed runs
+
 # Open interactive session
 devkit shell ~/projects/my-app
 
@@ -473,6 +483,7 @@ devkit status
 # Pass skill flags through with the `--` separator (everything after `--` is
 # forwarded verbatim, bypassing the flag-injection guard on skill args)
 devkit architect ~/projects/my-app "add feature" -- --fast
+devkit architect ~/projects/my-app "add feature" --detach -- --fast
 devkit ship ~/projects/my-app .devkit/plans/feature.md -- --security-override "reason"
 ```
 
@@ -1020,7 +1031,7 @@ Shared configurations and pattern definitions.
 - `skill-patterns.json` — Validation patterns
 - `scanner-languages.json` — Language grammar configuration for codebase scanner (extensions, tree-sitter queries, package versions for Python, TypeScript, Java, Go)
 - `scanner-value-thresholds.json` — Confidence tier configuration for scanner value analysis (INSUFFICIENT/PRELIMINARY/RELIABLE/HIGH_CONFIDENCE thresholds)
-- `devkit-defaults.json` — Default configuration for the meta-harness CLI (registry path, `.devkit/` state dir name, `allowed_roots`, `claude` command/flag, size limits). Loaded by `scripts/devkit_cli.py` at startup; hardcoded fallback defaults are used if missing or corrupt.
+- `devkit-defaults.json` — Default configuration for the meta-harness CLI (registry path, `.devkit/` state dir name, `allowed_roots`, `claude` command/flag, size limits, `clean_retention_days` for detached run cleanup). Loaded by `scripts/devkit_cli.py` at startup; hardcoded fallback defaults are used if missing or corrupt.
 - `tech-stack-definitions/` — Stack-specific configs (7 stacks: python, fastapi, typescript, react, nextjs, astro, security)
 - `base-definitions/` — Reserved for future use (currently empty)
 
@@ -1034,22 +1045,25 @@ Deployment and utility scripts.
 - `uninstall.sh` — Clean uninstallation with backup restoration
 - `validate-all.sh` — Health check - validate all skills in one pass
 - `codebase-scanner.py` — Deterministic codebase symbol index for agent context. Extracts functions, classes, methods, and import graph. Uses tree-sitter (>=0.25.0) when available in `~/.claude-devkit/scanner-venv/`, falls back to regex. Invoked by `/architect` Step 1 and `/ship` Step 1. Tree-sitter venv created by `install.sh`.
-- `devkit_cli.py` — Meta-harness CLI implementation (Python 3.8+, stdlib only). Validates target repositories and skill names, manages per-project state (`.devkit/state.json`) and the global registry (`~/.claude-devkit/registry.json`), and delegates skill execution to Claude Code via `subprocess.run(["claude", "--print", ...])` (or `os.execvp` for `devkit shell`). Reads defaults from `configs/devkit-defaults.json` with hardcoded fallback.
+- `devkit_cli.py` — Meta-harness CLI implementation (Python 3.8+, stdlib only). Validates target repositories and skill names, manages per-project state (`.devkit/state.json`) and the global registry (`~/.claude-devkit/registry.json`), and delegates skill execution to Claude Code via `subprocess.run(["claude", "--print", ...])` (or `os.execvp` for `devkit shell`). Supports detached/background execution (`--detach`) with run output capture to `~/.claude-devkit/runs/`. Reads defaults from `configs/devkit-defaults.json` with hardcoded fallback.
 - `devkit` — Thin bash entry point wrapper that execs `devkit_cli.py` with `python3`. Installed as a shell alias and added to PATH by `install.sh`.
 - `emit-audit-event.sh` — Standalone helper script for skill audit event emission (invoked by `/ship`, `/architect`, `/audit`)
 - `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, overrides, verify-chain, recent, scores, trend)
 - `compute-run-score.sh` — Compute per-dimension quantitative scores from a JSONL audit log (python3, no jq)
 - `score-reflector.sh` — Deterministic score reflector for candidate learnings generation (python3, no jq)
 - `scanner-value-report.sh` — Scanner value analysis: cohort comparison of /ship run scores by scanner mode (tree-sitter-partial vs regex-fallback vs absent). No jq dependency.
-- `test-integration.sh` — Integration smoke tests (60 tests): emit-audit-event.sh JSONL correctness,
+- `test-integration.sh` — Integration smoke tests (80 tests): emit-audit-event.sh JSONL correctness,
   L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
   lifecycle, threat model consumption structural tests across /ship, /architect, /secure-review,
   quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
   codebase-scanner integration tests (8 tests),
   scanner value instrumentation tests (5 tests),
   anti-pattern scan structural tests (6 tests),
-  and meta-harness tests (13 tests: 8 functional, 5 security -- symlink rejection, allowed_roots
-  enforcement, oversized state file, invalid skill name, `--`-prefixed argument injection)
+  meta-harness tests (13 tests: 8 functional, 5 security -- symlink rejection, allowed_roots
+  enforcement, oversized state file, invalid skill name, `--`-prefixed argument injection),
+  and detached execution tests (20 tests: run ID generation/validation, `--detach` flag
+  extraction, watcher lifecycle with mock processes, jobs/result/logs commands, cleanup
+  with stale PID detection, directory permissions, path traversal rejection, no shell=True)
 
 **Usage:**
 ```bash
@@ -1177,7 +1191,36 @@ subprocess.run(["claude", "--print", "/<skill> <args>"], cwd=<resolved target>)
   targets and non-git directories are rejected.
 
 **Commands:** `devkit init <target>`, `devkit <skill> <target> [args]`,
-`devkit shell <target>`, `devkit status [<target>]`, `devkit deploy [--validate]`.
+`devkit shell <target>`, `devkit status [<target>]`, `devkit deploy [--validate]`,
+`devkit jobs [<target>]`, `devkit result <run-id>`, `devkit logs <run-id>`,
+`devkit clean [--days N]`.
+
+**Detached execution (`--detach`):** Adding `--detach` to any skill invocation
+spawns Claude Code in the background and returns a run ID immediately. A watcher
+process captures stdout/stderr to `~/.claude-devkit/runs/<run-id>/` and finalizes
+metadata on completion. The `--detach` flag is extracted before `validate_args()`
+runs, so it does not conflict with the `--`-prefix rejection guard.
+
+```bash
+# Run a skill in the background
+devkit architect ~/projects/my-app "add feature" --detach
+# Returns: 20260821-143052-a1b2c3
+
+# Check status, retrieve results
+devkit jobs                              # List all runs
+devkit jobs ~/projects/my-app            # Filter by project
+devkit result 20260821-143052-a1b2c3     # Print captured result
+devkit logs 20260821-143052-a1b2c3       # Print stderr logs
+devkit clean --days 14                   # Remove old runs (default: 7 days)
+
+# Combine with skill flags
+devkit architect ~/projects/my-app "add feature" --detach -- --fast
+```
+
+Run directories are stored at `~/.claude-devkit/runs/<run-id>/` with `meta.json`
+(run metadata), `stdout.log`, `stderr.log`, and `result.json` (parsed from stdout).
+Directory permissions are 0o700; files are 0o600. Stale runs (watcher died before
+finalizing) are detected via PID liveness checks.
 
 **Passing flags through (`--` separator):** `validate_args()` rejects any skill
 argument starting with `--` as a flag-injection guard, so skill flags like `--fast`
