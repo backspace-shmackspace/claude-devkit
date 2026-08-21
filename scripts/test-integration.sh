@@ -9,7 +9,7 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 116 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+# 118 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
 #           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
 #           threat model consumption structural tests (10 tests),
 #           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
@@ -23,7 +23,9 @@
 #           lifecycle, jobs, result, logs, clean, security),
 #           zero-project-footprint tests (36 new + 3 updated: project ID 7,
 #           central storage 3, env vars 3, migration 6, helper scripts 7,
-#           security 3, relink/path 4, backward compat 3), cleanup
+#           security 3, relink/path 4, backward compat 3),
+#           code review M-2 tests (2 tests: env detached propagation,
+#           permission check on run), cleanup
 
 set -e
 
@@ -903,7 +905,7 @@ meta = json.loads(meta_path.read_text())
 assert meta['run_id'] == '\$RUN_ID'
 assert meta['skill'] == 'test'
 assert meta['status'] == 'running'
-assert meta['devkit_version'] == '0.2.0'
+assert meta['devkit_version'] == '0.3.0'
 print('PASS: run dir created with running meta.json')
 \"" \
     0
@@ -1375,7 +1377,8 @@ def mock_run(args, **kwargs):
     captured_env['DEVKIT_SCRIPTS'] = env.get('DEVKIT_SCRIPTS')
     class FakeResult:
         returncode = 0
-        stdout = b'{\"result\":\"ok\"}'
+        stdout = '{\"result\":\"ok\"}'
+        stderr = ''
     return FakeResult()
 subprocess.run = mock_run
 try:
@@ -1413,7 +1416,8 @@ def mock_run(args, **kwargs):
     captured_env['DEVKIT_SCRIPTS'] = env.get('DEVKIT_SCRIPTS')
     class FakeResult:
         returncode = 0
-        stdout = b'{\"result\":\"ok\"}'
+        stdout = '{\"result\":\"ok\"}'
+        stderr = ''
     return FakeResult()
 subprocess.run = mock_run
 try:
@@ -1836,6 +1840,108 @@ assert state is not None, 'read_state should handle 1.0.0 schema'
 assert state.get('project_id') is not None or state.get('schema_version') == '1.0.0', \
     'state should either have project_id or be readable as 1.0.0'
 print('PASS: schema 1.0.0 state file handled gracefully')
+\"" \
+    0
+
+# --- Code review M-2 tests (118-119) ---
+
+# Test 118: _spawn_detached propagates DEVKIT_PROJECT_DIR and DEVKIT_SCRIPTS to env
+run_test 118 "_spawn_detached propagates DEVKIT_PROJECT_DIR and DEVKIT_SCRIPTS in env" \
+    "python3 -c \"
+import sys, os, json
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+import subprocess
+
+config = dict(d.FALLBACK_DEFAULTS)
+config['claude_command'] = '$MOCK_CLAUDE'
+config['claude_print_flag'] = '--print'
+
+resolved = Path('$HARNESS_TEST_DIR').resolve()
+expected_project_dir = str(d.get_project_dir(resolved))
+expected_scripts_dir = str(d.get_scripts_dir(config))
+
+# Capture the env dict passed to _spawn_watcher by monkey-patching it
+captured_env = {}
+orig_spawn_watcher = d._spawn_watcher
+def mock_spawn_watcher(runs_dir, invocation, cwd, env):
+    captured_env.update(env)
+d._spawn_watcher = mock_spawn_watcher
+try:
+    run_id = 'test-detach-env-propagation'
+    runs_dir = Path.home() / '.claude-devkit' / 'runs' / run_id
+    if runs_dir.exists():
+        import shutil
+        shutil.rmtree(str(runs_dir))
+    d._spawn_detached('audit', resolved, '', config, run_id)
+finally:
+    d._spawn_watcher = orig_spawn_watcher
+    # Clean up
+    runs_dir = Path.home() / '.claude-devkit' / 'runs' / 'test-detach-env-propagation'
+    if runs_dir.exists():
+        import shutil
+        shutil.rmtree(str(runs_dir))
+
+assert captured_env.get('DEVKIT_PROJECT_DIR') == expected_project_dir, \
+    f'DEVKIT_PROJECT_DIR: {captured_env.get(\\\"DEVKIT_PROJECT_DIR\\\")} != {expected_project_dir}'
+assert captured_env.get('DEVKIT_SCRIPTS') == expected_scripts_dir, \
+    f'DEVKIT_SCRIPTS: {captured_env.get(\\\"DEVKIT_SCRIPTS\\\")} != {expected_scripts_dir}'
+assert captured_env.get('CLAUDE_DEVKIT') is not None, 'CLAUDE_DEVKIT should also be set'
+print('PASS: _spawn_detached propagates DEVKIT_PROJECT_DIR and DEVKIT_SCRIPTS')
+\"" \
+    0
+
+# Test 119: cmd_run_skill aborts when central project dir has insecure permissions
+run_test 119 "cmd_run_skill aborts on insecure project dir permissions (0o755)" \
+    "python3 -c \"
+import sys, os, stat
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+import subprocess
+
+# Ensure project is initialized so central dir exists
+resolved = Path('$ZPF_TEST_DIR').resolve()
+project_dir = d.get_project_dir(resolved)
+project_dir.mkdir(parents=True, exist_ok=True)
+
+# Create a minimal valid state so preflight doesn't fail on missing state
+state = {
+    'schema_version': '1.1.0',
+    'project_name': resolved.name,
+    'project_id': d.compute_project_id(resolved),
+    'project_path': str(resolved),
+    'initialized_at': '2026-01-01T00:00:00Z',
+    'devkit_version': '0.3.0',
+}
+config = dict(d.FALLBACK_DEFAULTS)
+config['claude_command'] = '/tmp/devkit-mock-claude'
+config['claude_print_flag'] = '--print'
+config['allowed_roots'] = ['~/projects/', '~/workspaces/']
+d.write_state(resolved, state, config)
+
+# Widen permissions to trigger the security check
+os.chmod(str(project_dir), 0o755)
+
+# Mock subprocess.run so we never actually invoke claude
+orig_run = subprocess.run
+def mock_run(args, **kwargs):
+    class FakeResult:
+        returncode = 0
+        stdout = '{\"result\":\"ok\"}'
+        stderr = ''
+    return FakeResult()
+subprocess.run = mock_run
+try:
+    result = d.cmd_run_skill('audit', '$ZPF_TEST_DIR', [], [], config)
+finally:
+    subprocess.run = orig_run
+    # Restore 0o700 for cleanup
+    os.chmod(str(project_dir), 0o700)
+
+assert result == 1, f'Expected exit 1 (insecure permissions), got {result}'
+print('PASS: cmd_run_skill aborted on insecure project dir permissions')
 \"" \
     0
 

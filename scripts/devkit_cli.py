@@ -175,7 +175,7 @@ def compute_project_id(resolved_path):
     if sys.platform == 'darwin' or sys.platform == 'win32':
         canonical = canonical.lower()
 
-    basename = os.path.basename(str(resolved_path))
+    basename = os.path.basename(canonical)
     if not basename:
         raise ValueError("Cannot use filesystem root as a project target")
 
