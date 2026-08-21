@@ -7,7 +7,7 @@ model: claude-opus-4-6
 # /ship Workflow
 
 ## Inputs
-- Plan file: $ARGUMENTS   # e.g. $PLANS_DIR/feature-x.md
+- Plan file: $ARGUMENTS   # Full path, or bare plan name (e.g. "cross-repo-plan-support")
 
 ## Role
 You are the **work coordinator**. You dispatch work to agents and check their results.
@@ -44,7 +44,23 @@ mkdir -p "$PLANS_DIR"
 echo "Plans directory: $PLANS_DIR"
 ```
 
-**Parse --security-override flag (MUST be second action in Step 0):**
+**Resolve plan path (MUST be second action in Step 0):**
+
+If `$ARGUMENTS` (after removing any flags like `--security-override`) does not contain a `/` character,
+treat it as a bare plan name and resolve it to `$PLANS_DIR/<name>.md`. If the name already ends with
+`.md`, do not append it again. Verify the resolved file exists; if not, try without `.md` suffix removed
+(in case the user passed e.g. `feature.md`). If neither exists, halt with:
+"Plan not found: tried $PLANS_DIR/<name>.md"
+
+Examples:
+- `cross-repo-plan-support` → `$PLANS_DIR/cross-repo-plan-support.md`
+- `cross-repo-plan-support.md` → `$PLANS_DIR/cross-repo-plan-support.md`
+- `$PLANS_DIR/cross-repo-plan-support.md` → used as-is (contains `/`)
+- `/absolute/path/to/plan.md` → used as-is (contains `/`)
+
+After resolution, set `$PLAN_PATH` to the resolved absolute path for all subsequent steps.
+
+**Parse --security-override flag (MUST be third action in Step 0):**
 
 If `$ARGUMENTS` contains `--security-override`:
 - Extract the reason string (quoted text after `--security-override`)
