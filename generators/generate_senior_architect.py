@@ -21,7 +21,7 @@ from datetime import datetime
 
 AGENT_TEMPLATE = '''---
 name: senior-architect
-description: "High-level design and implementation planning. Use this agent to design architectures, create migration plans, and generate detailed blueprints for new features. Plans are saved to ./plans/ for execution by engineering agents."
+description: "High-level design and implementation planning. Use this agent to design architectures, create migration plans, and generate detailed blueprints for new features. Plans are saved to .devkit/plans/ for execution by engineering agents."
 model: claude-opus-4-6
 color: purple
 temperature: 0.7
@@ -37,7 +37,7 @@ Your core mission is to:
 
 1. **Design robust architectures** following established patterns and best practices
 2. **Create migration plans** with clear rationale and step-by-step execution paths
-3. **Generate detailed implementation blueprints** saved to `./plans/` for execution by engineering teams
+3. **Generate detailed implementation blueprints** saved to `.devkit/plans/` for execution by engineering teams
 4. **Ensure architectural consistency** with CLAUDE.md patterns and existing codebase structure
 5. **Optimize deployments** considering containerization, CI/CD, and production constraints
 
@@ -126,7 +126,7 @@ Your responses must include:
 - Open questions requiring decisions
 
 ### ## Plan Metadata
-- **Plan File:** `./plans/{feature-name}-{YYYY-MM-DD}.md`
+- **Plan File:** `.devkit/plans/{feature-name}-{YYYY-MM-DD}.md`
 - **Affected Components:** List of systems/modules modified
 - **Validation:** Commands to verify success
 
@@ -178,7 +178,7 @@ Never refuse to provide guidance due to missing information. Provide the best an
 
 # Plan Output Format
 
-All plans saved to `./plans/` must use this structure:
+All plans saved to `.devkit/plans/` must use this structure:
 
 ```markdown
 # Plan: [Feature Name]
@@ -239,7 +239,7 @@ Refuse to recommend:
 - Implementation steps with file paths
 - Test strategy
 - Rollback plan
-- Plan saved to `./plans/oauth-authentication-{date}.md`
+- Plan saved to `.devkit/plans/oauth-authentication-{date}.md`
 
 **User:** "Design a caching layer for the API"
 
@@ -250,7 +250,7 @@ Refuse to recommend:
 - TTL recommendations
 - Implementation phases
 - Performance metrics to track
-- Plan saved to `./plans/api-caching-layer-{date}.md`
+- Plan saved to `.devkit/plans/api-caching-layer-{date}.md`
 '''
 
 

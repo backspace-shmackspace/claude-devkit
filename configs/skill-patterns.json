@@ -48,11 +48,11 @@
     {
       "id": 6,
       "name": "Structured Reporting",
-      "description": "Output paths reference ./plans/ directory",
+      "description": "Output paths reference .devkit/plans/ directory",
       "type": "keyword",
-      "rule": "./plans/",
+      "rule": ".devkit/plans/",
       "severity": "warning",
-      "message": "Pattern 6 (Structured Reporting): Skill outputs should typically be written to ./plans/ directory for consistency."
+      "message": "Pattern 6 (Structured Reporting): Skill outputs should typically be written to .devkit/plans/ directory for consistency."
     },
     {
       "id": 7,
@@ -84,11 +84,11 @@
     {
       "id": 10,
       "name": "Archive on Success",
-      "description": "Reference to ./plans/archive/ or explicit archive step",
+      "description": "Reference to .devkit/plans/archive/ or explicit archive step",
       "type": "keyword",
-      "rule": "(./plans/archive/|archive|mv .+ archive)",
+      "rule": "(.devkit/plans/archive/|archive|mv .+ archive)",
       "severity": "warning",
-      "message": "Pattern 10 (Archive on Success): Consider moving artifacts to ./plans/archive/ on successful completion to keep the plans directory clean."
+      "message": "Pattern 10 (Archive on Success): Consider moving artifacts to .devkit/plans/archive/ on successful completion to keep the plans directory clean."
     }
   ],
   "structural_requirements": [

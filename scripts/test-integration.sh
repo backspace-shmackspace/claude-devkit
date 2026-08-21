@@ -160,7 +160,7 @@ run_test 6 "emit-audit-event.sh multi-call JSONL correctness" \
      VERIFY_SCRIPT=\"/tmp/integration-smoke-test/verify-g-\${TEST_RUN_ID}.py\" && \
      mkdir -p /tmp/integration-smoke-test/plans/audit-logs && \
      printf '{\"run_id\":\"%s\",\"audit_log\":\"%s\",\"skill\":\"ship\",\"skill_version\":\"3.6.0\",\"security_maturity\":\"advisory\",\"hmac_key\":\"\"}' \"\$TEST_RUN_ID\" \"\$TEST_LOG\" > \"\$TEST_STATE\" && \
-     bash '$REPO_DIR/scripts/emit-audit-event.sh' \"\$TEST_STATE\" '{\"event_type\":\"run_start\",\"plan_file\":\"./plans/test.md\"}' && \
+     bash '$REPO_DIR/scripts/emit-audit-event.sh' \"\$TEST_STATE\" '{\"event_type\":\"run_start\",\"plan_file\":\".devkit/plans/test.md\"}' && \
      bash '$REPO_DIR/scripts/emit-audit-event.sh' \"\$TEST_STATE\" '{\"event_type\":\"step_start\",\"step\":\"step_0\",\"step_name\":\"Pre-flight\"}' && \
      bash '$REPO_DIR/scripts/emit-audit-event.sh' \"\$TEST_STATE\" '{\"event_type\":\"step_end\",\"step\":\"step_0\",\"step_name\":\"Pre-flight\"}' && \
      cat > \"\$VERIFY_SCRIPT\" <<PYEOF

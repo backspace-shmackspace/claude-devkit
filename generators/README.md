@@ -7,7 +7,7 @@ Tools for generating Claude Code resources: local agents and skill definitions.
 These scripts create a local `senior-architect` agent that:
 - Uses Claude Opus 4.6 model (via Anthropic API, bypassing Vertex AI restrictions)
 - Provides high-level design and implementation planning
-- Generates detailed blueprints saved to `./plans/`
+- Generates detailed blueprints saved to `.devkit/plans/`
 - Can be customized per-project for domain-specific expertise
 
 ## Why Local Agents?
@@ -438,11 +438,11 @@ python validate_skill.py <path-to-SKILL.md> [--strict] [--json]
 | 3. Tool declarations | Every step has `Tool:` line |
 | 4. Verdict gates | At least one PASS/FAIL/BLOCKED logic |
 | 5. Timestamped artifacts | References `[timestamp]` or ISO datetime |
-| 6. Structured reporting | Outputs to `./plans/` directory |
+| 6. Structured reporting | Outputs to `.devkit/plans/` directory |
 | 7. Bounded iterations | Revision loops have `Max N revision` language |
 | 8. Model selection | Valid `model:` in YAML frontmatter |
 | 9. Scope parameters | `## Inputs` section with `$ARGUMENTS` |
-| 10. Archive on success | References `./plans/archive/` |
+| 10. Archive on success | References `.devkit/plans/archive/` |
 
 **Structural Checks:**
 - Valid YAML frontmatter with `---` delimiters
@@ -857,7 +857,7 @@ The standalone code-reviewer is fully self-contained and doesn't inherit from a 
 - Attack surface analysis
 - Security architecture design
 - Compliance planning (OWASP, GDPR, SOC 2)
-- Outputs to `./plans/security-*`
+- Outputs to `.devkit/plans/security-*`
 
 **Differentiation from MCP redteam_v2:**
 - **security-analyst (local):** Proactive threat modeling for general development
@@ -876,7 +876,7 @@ The standalone code-reviewer is fully self-contained and doesn't inherit from a 
 - Implementation plans with phases
 - Risk assessment
 - Deployment topology
-- Outputs to `./plans/`
+- Outputs to `.devkit/plans/`
 
 ## Tech Stack Configurations
 

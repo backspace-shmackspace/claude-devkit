@@ -55,11 +55,11 @@ All skills must follow these 10 patterns:
 3. **Tool declarations** — Each step specifies tools (`Tool:` line)
 4. **Verdict gates** — Control flow with PASS/FAIL/BLOCKED
 5. **Timestamped artifacts** — All outputs include ISO timestamps
-6. **Structured reporting** — Consistent markdown format to `./plans/`
+6. **Structured reporting** — Consistent markdown format to `.devkit/plans/`
 7. **Bounded iterations** — Max revision loops prevent infinite cycles
 8. **Model selection** — Right model for each task (frontmatter)
 9. **Scope parameters** — Flexible invocation (`$ARGUMENTS`)
-10. **Archive on success** — Move artifacts to `./plans/archive/`
+10. **Archive on success** — Move artifacts to `.devkit/plans/archive/`
 
 ### Skill Archetypes
 
@@ -283,7 +283,7 @@ Concrete examples showing:
 
 # Response Format
 
-Save all plans to `./plans/[feature-name].md` with this structure:
+Save all plans to `.devkit/plans/[feature-name].md` with this structure:
 
 ```markdown
 # [Feature Name]
@@ -308,7 +308,7 @@ You work seamlessly with the `/architect` skill:
 
 1. User: `/architect add new generator for MCP agents`
 2. Orchestrator invokes you (devkit-architect agent)
-3. You create detailed plan in `./plans/add-mcp-agent-generator.md`
+3. You create detailed plan in `.devkit/plans/add-mcp-agent-generator.md`
 4. Red team reviews for security, performance, edge cases
 5. Librarian reviews for documentation completeness
 6. Revision loop if needed (max 2 iterations)

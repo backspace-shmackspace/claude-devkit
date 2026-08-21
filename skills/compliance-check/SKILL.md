@@ -94,7 +94,7 @@ System and Communications Protection (SC):
 - Encryption at rest patterns (use of encryption libraries for stored sensitive data)
 
 Rate each finding: Critical / High / Medium / Low.
-Write to `./plans/compliance-check-[timestamp].fedramp.md`"
+Write to `.devkit/plans/compliance-check-[timestamp].fedramp.md`"
 
 ---
 
@@ -134,7 +134,7 @@ High: Non-FIPS algorithm used but context unclear, or key length below minimum.
 Medium: Potentially non-FIPS pattern requiring manual review.
 Low: Informational — approved algorithm but suboptimal configuration.
 
-Write to `./plans/compliance-check-[timestamp].fips.md`"
+Write to `.devkit/plans/compliance-check-[timestamp].fips.md`"
 
 ---
 
@@ -195,7 +195,7 @@ A10 - Server-Side Request Forgery (SSRF):
 - DNS rebinding exposure patterns
 
 Rate each finding: Critical / High / Medium / Low.
-Write to `./plans/compliance-check-[timestamp].owasp.md`"
+Write to `.devkit/plans/compliance-check-[timestamp].owasp.md`"
 
 ---
 
@@ -236,7 +236,7 @@ Data Protection Patterns:
 - PII minimization (collect only what is needed)
 
 Rate each finding: Critical / High / Medium / Low.
-Write to `./plans/compliance-check-[timestamp].soc2.md`"
+Write to `.devkit/plans/compliance-check-[timestamp].soc2.md`"
 
 ## Step 2 — Synthesis
 
@@ -245,12 +245,12 @@ Read all completed scan reports and synthesize into a unified compliance summary
 Tool: `Read` (direct — coordinator does this)
 
 Read all reports that were generated (only the frameworks that were requested):
-- `./plans/compliance-check-[timestamp].fedramp.md` (if fedramp was scanned)
-- `./plans/compliance-check-[timestamp].fips.md` (if fips was scanned)
-- `./plans/compliance-check-[timestamp].owasp.md` (if owasp was scanned)
-- `./plans/compliance-check-[timestamp].soc2.md` (if soc2 was scanned)
+- `.devkit/plans/compliance-check-[timestamp].fedramp.md` (if fedramp was scanned)
+- `.devkit/plans/compliance-check-[timestamp].fips.md` (if fips was scanned)
+- `.devkit/plans/compliance-check-[timestamp].owasp.md` (if owasp was scanned)
+- `.devkit/plans/compliance-check-[timestamp].soc2.md` (if soc2 was scanned)
 
-Generate `./plans/compliance-check-[timestamp].summary.md` with this structure:
+Generate `.devkit/plans/compliance-check-[timestamp].summary.md` with this structure:
 
 ```markdown
 # Compliance Check Summary — [frameworks] — [timestamp]
@@ -326,7 +326,7 @@ are NOT verifiable from source code analysis and require separate verification:
 
 ## Step 3 — Verdict gate
 
-Read `./plans/compliance-check-[timestamp].summary.md` and report verdict.
+Read `.devkit/plans/compliance-check-[timestamp].summary.md` and report verdict.
 
 Tool: `Read`
 
@@ -334,7 +334,7 @@ Tool: `Read`
 Report:
 "compliance-check BLOCKED — Critical compliance gaps require remediation.
 
-Summary: ./plans/compliance-check-[timestamp].summary.md
+Summary: .devkit/plans/compliance-check-[timestamp].summary.md
 All Critical findings must be resolved before making any compliance claims.
 
 Frameworks checked: [list]
@@ -347,7 +347,7 @@ This report is a development aid, not a compliance certification."
 Report:
 "compliance-check PASS WITH NOTES — Compliance gaps found but not blocking.
 
-Summary: ./plans/compliance-check-[timestamp].summary.md
+Summary: .devkit/plans/compliance-check-[timestamp].summary.md
 Review High findings before making compliance claims. Merging is not blocked.
 
 Frameworks checked: [list]
@@ -360,7 +360,7 @@ This report is a development aid, not a compliance certification."
 Report:
 "compliance-check PASS — No blocking compliance gaps found.
 
-Summary: ./plans/compliance-check-[timestamp].summary.md
+Summary: .devkit/plans/compliance-check-[timestamp].summary.md
 
 Frameworks checked: [list]
 Medium findings: [count]
@@ -374,11 +374,11 @@ Move scan artifacts to archive.
 
 Tool: `Bash`
 
-Archive path: `./plans/archive/compliance-check/[timestamp]/`
+Archive path: `.devkit/plans/archive/compliance-check/[timestamp]/`
 
 ```bash
-mkdir -p "./plans/archive/compliance-check/[timestamp]"
-mv ./plans/compliance-check-[timestamp].* "./plans/archive/compliance-check/[timestamp]/"
+mkdir -p ".devkit/plans/archive/compliance-check/[timestamp]"
+mv .devkit/plans/compliance-check-[timestamp].* ".devkit/plans/archive/compliance-check/[timestamp]/"
 ```
 
-Report: "Scan complete. Results archived to ./plans/archive/compliance-check/[timestamp]/"
+Report: "Scan complete. Results archived to .devkit/plans/archive/compliance-check/[timestamp]/"

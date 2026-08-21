@@ -57,7 +57,7 @@ Tool: `Bash`
 ```bash
 # --- Audit Logging Setup ---
 RUN_ID=$(date +%Y%m%d-%H%M%S)-$(cat /dev/urandom | LC_ALL=C tr -dc 'a-z0-9' | head -c 6)
-AUDIT_LOG_DIR="./plans/audit-logs"
+AUDIT_LOG_DIR=".devkit/plans/audit-logs"
 mkdir -p "$AUDIT_LOG_DIR"
 AUDIT_LOG="$AUDIT_LOG_DIR/architect-${RUN_ID}.jsonl"
 STATE_FILE=".architect-audit-state-${RUN_ID}.json"
@@ -102,9 +102,9 @@ Tool: `Glob`, `Read` (direct — coordinator does this)
 
 1. **Project patterns:** Read `./CLAUDE.md` (if exists). Extract key sections: architecture, conventions, tech stack, development rules.
 
-2. **Recent plans:** Glob `./plans/*.md` (exclude `*.redteam.md`, `*.review.md`, `*.feasibility.md`, `*.code-review.md`, `*.qa-report.md`, `*.test-failure.log`, `*.summary.md`, `*.hardener.md`, `*.performance.md`, `*.qa.md`). Sort by modification time (newest first). Read up to 3 most recent plan files.
+2. **Recent plans:** Glob `.devkit/plans/*.md` (exclude `*.redteam.md`, `*.review.md`, `*.feasibility.md`, `*.code-review.md`, `*.qa-report.md`, `*.test-failure.log`, `*.summary.md`, `*.hardener.md`, `*.performance.md`, `*.qa.md`). Sort by modification time (newest first). Read up to 3 most recent plan files.
 
-3. **Archived plans:** Glob `./plans/archive/*/*.md` (exclude `*.code-review.md`, `*.qa-report.md`). Sort by modification time (newest first). Read up to 2 most recent archived plan files.
+3. **Archived plans:** Glob `.devkit/plans/archive/*/*.md` (exclude `*.code-review.md`, `*.qa-report.md`). Sort by modification time (newest first). Read up to 2 most recent archived plan files.
 
 **4. Codebase structure:** Run codebase scanner to extract structural facts.
 
@@ -248,7 +248,7 @@ archived_plans_consulted: [comma-separated list of plan filenames, or "none"]
 ---end metadata format---
 
 File output requirement:
-- Save the plan to: `./plans/[feature-name].md`
+- Save the plan to: `.devkit/plans/[feature-name].md`
 
 Feature-name rules:
 - Derive `[feature-name]` from $ARGUMENTS as a short slug:
@@ -282,7 +282,7 @@ Refer to the threat-model-gate skill at `~/.claude/skills/threat-model-gate/SKIL
 
 If the keyword heuristic did NOT trigger (i.e., `$ARGUMENTS` did not contain security keywords) AND threat-model-gate was found in Step 0:
 
-After the architect subagent writes the plan, read `./plans/[feature-name].md` and scan its content for security signals:
+After the architect subagent writes the plan, read `.devkit/plans/[feature-name].md` and scan its content for security signals:
 - References to authentication, authorization, session management, or access control
 - References to PII, personal data, GDPR, HIPAA, or data classification
 - References to encryption, TLS, certificates, or key management
@@ -297,7 +297,7 @@ Re-invoke the architect subagent (max 1 additional call):
 Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
 
 Prompt:
-"The plan you just drafted at `./plans/[feature-name].md` touches security-sensitive areas
+"The plan you just drafted at `.devkit/plans/[feature-name].md` touches security-sensitive areas
 (detected: [list of security signals found]). Use the Edit tool to insert a `## Security Requirements`
 section into the existing plan, placing it after the last existing section and before
 any `## Status` or metadata sections. Follow the template in
@@ -339,7 +339,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
 Task:
 "You are a critical reviewer. Your job is to find weaknesses in the plan.
 
-Critically analyze the plan at `./plans/[feature-name].md`.
+Critically analyze the plan at `.devkit/plans/[feature-name].md`.
 Challenge assumptions, identify risks, find gaps in the rollout plan,
 and stress-test the proposed design for failure modes.
 Rate each finding: Critical / Major / Minor / Info.
@@ -351,14 +351,14 @@ Structure your output as:
 ## Findings
 (Each finding with severity rating: Critical / Major / Minor / Info)
 
-Write your analysis to `./plans/[feature-name].redteam.md`
+Write your analysis to `.devkit/plans/[feature-name].redteam.md`
 with the Verdict as the first heading after the metadata."
 
 **Required (when threat-model-gate is deployed and plan is security-sensitive):** If `~/.claude/skills/threat-model-gate/SKILL.md` was found in Step 0 AND the plan is security-sensitive (Stage 1 keyword match OR Stage 2 plan content scan fired in Step 2) AND the `--fast` flag is NOT set, MUST invoke a security-analyst review:
 
 - If `.claude/agents/security-analyst.md` was found in Step 0: invoke the project-specific security-analyst agent via `Task`.
 - If `.claude/agents/security-analyst.md` was NOT found: invoke a generic `Task` subagent with this prompt:
-  "You are a security analyst. Read the threat-model-gate skill at `~/.claude/skills/threat-model-gate/SKILL.md` for your threat modeling framework and checklist. Then read the plan at `./plans/[feature-name].md`. Validate the `## Security Requirements` section:
+  "You are a security analyst. Read the threat-model-gate skill at `~/.claude/skills/threat-model-gate/SKILL.md` for your threat modeling framework and checklist. Then read the plan at `.devkit/plans/[feature-name].md`. Validate the `## Security Requirements` section:
   - Are all six STRIDE categories addressed?
   - Are mitigations specific (not vague like 'use standard security practices')?
   - Are trust boundaries explicitly identified?
@@ -372,16 +372,16 @@ Append the STRIDE validation to the redteam artifact as a `## Security-Analyst S
 Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
 
 Task:
-"Review `./plans/[feature-name].md` against `./CLAUDE.md` project rules.
+"Review `.devkit/plans/[feature-name].md` against `./CLAUDE.md` project rules.
 Identify conflicts, required adjustments, or missing constraints.
 
 Additionally, check historical alignment:
 - Verify the plan's `## Context Alignment` section exists and is substantive
-- Confirm the plan does not contradict decisions documented in prior plans (check recent plans in `./plans/` if any exist)
+- Confirm the plan does not contradict decisions documented in prior plans (check recent plans in `.devkit/plans/` if any exist)
 - Confirm the plan follows patterns established in CLAUDE.md
 - Flag if the context metadata block is missing or has `false` for claude_md_exists when a CLAUDE.md exists
 
-Write `./plans/[feature-name].review.md` with:
+Write `.devkit/plans/[feature-name].review.md` with:
 - Verdict: PASS or FAIL
 - Conflicts (bullet list, cite relevant rule headings)
 - Historical alignment issues (bullet list, if any)
@@ -393,7 +393,7 @@ Write `./plans/[feature-name].review.md` with:
 Tool: `.claude/agents/code-reviewer.md` (if found), fallback to `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
 
 Task:
-"Review `./plans/[feature-name].md` for technical feasibility.
+"Review `.devkit/plans/[feature-name].md` for technical feasibility.
 Assess:
 - Implementation complexity (realistic estimates vs. over-simplification)
 - Missing edge cases or error handling
@@ -401,7 +401,7 @@ Assess:
 - Breaking changes or backward compatibility risks
 - Dependency/library assumptions
 
-Write `./plans/[feature-name].feasibility.md` with:
+Write `.devkit/plans/[feature-name].feasibility.md` with:
 - Verdict: PASS or FAIL
 - Concerns (categorized: Critical / Major / Minor)
 - Recommended adjustments"
@@ -442,13 +442,13 @@ Re-invoke the architect to revise the plan using the same pattern as Step 2 (loc
 Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
 
 Prompt:
-"Revise the plan at `./plans/[feature-name].md` to address the findings in:
-- `./plans/[feature-name].redteam.md` (if exists)
-- `./plans/[feature-name].review.md`
-- `./plans/[feature-name].feasibility.md`
+"Revise the plan at `.devkit/plans/[feature-name].md` to address the findings in:
+- `.devkit/plans/[feature-name].redteam.md` (if exists)
+- `.devkit/plans/[feature-name].review.md`
+- `.devkit/plans/[feature-name].feasibility.md`
 
 Only change what is necessary to resolve Critical, Major, and FAIL-causing issues.
-Do not expand scope. Overwrite `./plans/[feature-name].md` with the revised plan.
+Do not expand scope. Overwrite `.devkit/plans/[feature-name].md` with the revised plan.
 
 Preserve the `## Context Alignment` section and context metadata block.
 If the review flagged historical alignment issues, address them in the revision."
@@ -478,12 +478,12 @@ bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
 ```
 
 Read the latest review artifacts:
-- `./plans/[feature-name].review.md` (librarian)
-- `./plans/[feature-name].redteam.md` (if exists — skipped in `--fast` mode)
-- `./plans/[feature-name].feasibility.md` (code reviewer)
+- `.devkit/plans/[feature-name].review.md` (librarian)
+- `.devkit/plans/[feature-name].redteam.md` (if exists — skipped in `--fast` mode)
+- `.devkit/plans/[feature-name].feasibility.md` (code reviewer)
 
 **If PASS (no unresolved Critical/Major, no FAIL verdict from any reviewer):**
-- Append the following to `./plans/[feature-name].md`:
+- Append the following to `.devkit/plans/[feature-name].md`:
 
 ```
 ## Status: APPROVED
@@ -503,7 +503,7 @@ Stage files individually with existence checks and build dynamic pathspec list (
 
 ````bash
 PLAN_FILES=""
-for f in ./plans/[feature-name].md ./plans/[feature-name].redteam.md ./plans/[feature-name].review.md ./plans/[feature-name].feasibility.md; do
+for f in .devkit/plans/[feature-name].md .devkit/plans/[feature-name].redteam.md .devkit/plans/[feature-name].review.md .devkit/plans/[feature-name].feasibility.md; do
   [ -f "$f" ] && git add "$f" && PLAN_FILES="$PLAN_FILES $f" || true
 done
 ````
@@ -536,11 +536,11 @@ EOF
 
 If git commit succeeds: append to output: "Plan and review artifacts committed to git."
 
-If pre-flight checks fail or git commit fails: append to output: "Auto-commit skipped/failed ([reason]). Files remain on disk. Commit manually: `git add ./plans/[feature-name].* && git commit -m 'chore(plans): save [feature-name] blueprint'`"
+If pre-flight checks fail or git commit fails: append to output: "Auto-commit skipped/failed ([reason]). Files remain on disk. Commit manually: `git add .devkit/plans/[feature-name].* && git commit -m 'chore(plans): save [feature-name] blueprint'`"
 
 Do NOT change the verdict based on commit success or failure.
 
-- Output (PASS): "Plan approved. Run `/ship plans/[feature-name].md` to implement."
+- Output (PASS): "Plan approved. Run `/ship .devkit/plans/[feature-name].md` to implement."
 
 **If FAIL or unresolved Critical findings after max revisions:**
 - Do NOT append approval status.
@@ -558,12 +558,12 @@ bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"verdict\",\"step\":\"step_5_verdict\",\"verdict\":\"${APPROVAL_VERDICT:-PASS}\",\"verdict_source\":\"final_gate\",\"agent_type\":\"coordinator\"}"
 
 bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
-  "{\"event_type\":\"run_end\",\"outcome\":\"${APPROVAL_VERDICT:-PASS}\",\"plan_file\":\"./plans/${FEATURE_NAME:-unknown}.md\"}"
+  "{\"event_type\":\"run_end\",\"outcome\":\"${APPROVAL_VERDICT:-PASS}\",\"plan_file\":\".devkit/plans/${FEATURE_NAME:-unknown}.md\"}"
 
 bash scripts/emit-audit-event.sh ".architect-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_5_verdict","step_name":"Final verdict gate","agent_type":"coordinator"}'
 
 # Clean up state file
 rm -f ".architect-audit-state-${RUN_ID}.json"
-echo "Architect audit log complete: ./plans/audit-logs/architect-${RUN_ID}.jsonl"
+echo "Architect audit log complete: .devkit/plans/audit-logs/architect-${RUN_ID}.jsonl"
 ```

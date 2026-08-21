@@ -137,7 +137,7 @@ claude-code
 - Red team + Librarian review in parallel
 - Revision loop (up to 2 iterations)
 - Approval gate with APPROVED/NEEDS_WORK verdict
-- Plan saved to `plans/add-user-authentication.md`
+- Plan saved to `.devkit/plans/add-user-authentication.md`
 
 ### Step 3: Create Your First Custom Skill
 
@@ -250,7 +250,7 @@ claude-code
 
 # Use /ship skill (requires coder, code-reviewer, qa-engineer agents)
 /architect add README file
-/ship plans/add-readme-file.md
+/ship .devkit/plans/add-readme-file.md
 ```
 
 **What happens:**

@@ -1,7 +1,7 @@
 # Claude Devkit
 
 **Version:** 1.0.0
-**Last Updated:** 2026-05-25
+**Last Updated:** 2026-08-20
 **Purpose:** Unified development toolkit for Claude Code - skills, agents, generators, and templates
 
 **New to Claude Devkit?** Start with [GETTING_STARTED.md](GETTING_STARTED.md) for a 15-minute tutorial.
@@ -68,7 +68,7 @@ claude-devkit/
 │   ├── scanner-value-thresholds.json  # Confidence tiers for scanner value analysis
 │   └── base-definitions/
 │
-├── plans/audit-logs/    # JSONL audit event logs (L1: gitignored, L2/L3: committed)
+├── .devkit/plans/audit-logs/    # JSONL audit event logs (L1: gitignored, L2/L3: committed)
 │
 └── scripts/             # Deployment and utilities
     ├── deploy.sh        # Deploy skills to ~/.claude/skills/
@@ -83,7 +83,7 @@ claude-devkit/
     ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
     ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
     ├── scanner-value-report.sh # Scanner value analysis: cohort comparison by scanner mode
-    └── test-integration.sh    # Integration smoke tests (55 tests)
+    └── test-integration.sh    # Integration smoke tests (54 tests)
 ```
 
 ### Data Flow
@@ -115,10 +115,10 @@ Skill invocation → codebase-scanner.py (pre-scan) → structured symbol index 
 
 | Skill | Version | Purpose | Model | Steps |
 |-------|---------|---------|-------|-------|
-| **architect** | 3.4.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Stage 2 plan content scan detects security-sensitive features; invokes security-analyst (Required, not Recommended) when deployed and injects threat-model-gate requirements. Plans include `## Work Groups` in Task Breakdown for /ship parallel execution. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `plans/audit-logs/architect-<run_id>.jsonl`. | opus-4-6 | 6 |
-| **ship** | 3.8.0 | Pre-flight check → Read plan + security requirements validation (Step 1 checks for threat model output and blocks if required gates are unmet) → Pattern validation (warnings) → Security gates (secrets-scan, secure-review with threat model context passing in Step 4d, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate (emits `run_score` before `run_end`) → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. Quantitative scoring (efficiency, security, quality, velocity) emitted as `run_score` event. | opus-4-6 | 8 |
+| **architect** | 3.4.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Stage 2 plan content scan detects security-sensitive features; invokes security-analyst (Required, not Recommended) when deployed and injects threat-model-gate requirements. Plans include `## Work Groups` in Task Breakdown for /ship parallel execution. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `.devkit/plans/audit-logs/architect-<run_id>.jsonl`. | opus-4-6 | 6 |
+| **ship** | 3.8.0 | Pre-flight check → Read plan + security requirements validation (Step 1 checks for threat model output and blocks if required gates are unmet) → Pattern validation (warnings) → Security gates (secrets-scan, secure-review with threat model context passing in Step 4d, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate (emits `run_score` before `run_end`) → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `.devkit/plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. Quantitative scoring (efficiency, security, quality, velocity) emitted as `run_score` event. | opus-4-6 | 8 |
 | **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
-| **audit** | 3.2.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. JSONL audit logging to `plans/audit-logs/audit-<run_id>.jsonl`. | opus-4-6 | 6 |
+| **audit** | 3.2.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. JSONL audit logging to `.devkit/plans/audit-logs/audit-<run_id>.jsonl`. | opus-4-6 | 6 |
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-6 | 6 |
 | **receiving-code-review** | 1.0.0 | Code review reception discipline: 6-step response pattern (READ through IMPLEMENT), anti-performative-agreement, YAGNI enforcement, source-specific handling, pushback guidelines. Reference archetype. | claude-sonnet-4-6 | Reference |
 | **verification-before-completion** | 1.0.0 | Evidence-before-claims gate: 5-step verification (IDENTIFY, RUN, READ, VERIFY, CLAIM). Requires fresh test/build output before any completion claim. Red flags, rationalization table, key patterns for TDD and bug fixes. Reference archetype. | claude-sonnet-4-6 | Reference |
@@ -190,7 +190,7 @@ The `/ship` skill runs four security gates when the corresponding skills are dep
 **Override Syntax:**
 
 ```bash
-/ship plans/feature.md --security-override "False positive: hardcoded test API key in fixture file"
+/ship .devkit/plans/feature.md --security-override "False positive: hardcoded test API key in fixture file"
 ```
 
 **Notes:**
@@ -201,7 +201,7 @@ The `/ship` skill runs four security gates when the corresponding skills are dep
 
 ## Audit Logging
 
-`/ship`, `/architect`, and `/audit` emit structured JSONL audit events to `plans/audit-logs/` on every run, providing a machine-parseable record of what agents did and when.
+`/ship`, `/architect`, and `/audit` emit structured JSONL audit events to `.devkit/plans/audit-logs/` on every run, providing a machine-parseable record of what agents did and when.
 
 **Event Types:**
 
@@ -219,9 +219,9 @@ The `/ship` skill runs four security gates when the corresponding skills are dep
 
 **Log File Locations:**
 
-- `/ship` logs: `plans/audit-logs/ship-<run_id>.jsonl`
-- `/architect` logs: `plans/audit-logs/architect-<run_id>.jsonl`
-- `/audit` logs: `plans/audit-logs/audit-<run_id>.jsonl`
+- `/ship` logs: `.devkit/plans/audit-logs/ship-<run_id>.jsonl`
+- `/architect` logs: `.devkit/plans/audit-logs/architect-<run_id>.jsonl`
+- `/audit` logs: `.devkit/plans/audit-logs/audit-<run_id>.jsonl`
 
 **Maturity-Aware Retention:**
 
@@ -259,9 +259,9 @@ Requirements: `jq` (required for all commands), `openssl` (required for `verify-
 
 - `scripts/emit-audit-event.sh` — Standalone helper script invoked by each skill step. Reads state from a per-run state file (shell variables don't persist across Bash tool calls). Uses `python3 json.dumps()` for RFC 8259 compliant escaping. Exits 0 on all error paths (never blocks `/ship`).
 - `scripts/compute-run-score.sh` — Reads a run's JSONL audit log, computes per-dimension scores (efficiency, security, quality, velocity), outputs partial event JSON for `emit-audit-event.sh`. Now includes `scanner_mode` and `scanner_tokens` fields in the output JSON (consumed by `scanner-value-report.sh`). Exits 0 on all paths; handles empty, incomplete, and malformed logs gracefully (neutral 0.5 scores). No jq dependency.
-- `scripts/score-reflector.sh` — Deterministic score reflector. Reads all `run_score` events from `plans/audit-logs/`, computes statistics and trends, correlates run scores with scanner mode cohorts, outputs candidate learnings entries to stdout for human review. Tiered analysis: 5-9 runs = summary stats, 10+ runs = trends. No jq dependency.
+- `scripts/score-reflector.sh` — Deterministic score reflector. Reads all `run_score` events from `.devkit/plans/audit-logs/`, computes statistics and trends, correlates run scores with scanner mode cohorts, outputs candidate learnings entries to stdout for human review. Tiered analysis: 5-9 runs = summary stats, 10+ runs = trends. No jq dependency.
 - `configs/audit-event-schema.json` — JSON Schema defining all event types with OTel field mapping documentation.
-- `plans/audit-logs/` — Dedicated directory for audit logs (separate lifecycle from `plans/archive/`).
+- `.devkit/plans/audit-logs/` — Dedicated directory for audit logs (separate lifecycle from `.devkit/plans/archive/`).
 
 **OTel Migration:** The JSONL format is designed for future migration to OpenTelemetry spans via a format adapter. The adapter requires span hierarchy reconstruction (not a trivial field rename) and will be built when Kagenti provides an OTel collector endpoint.
 
@@ -445,7 +445,7 @@ gen-agent . --type all  # Generate all agents (auto-detects stack)
 ```bash
 # In any Claude Code session
 /architect add user authentication
-/ship plans/add-user-authentication.md
+/ship .devkit/plans/add-user-authentication.md
 /audit
 /sync
 ```
@@ -469,6 +469,11 @@ devkit shell ~/projects/my-app
 
 # Check status of all managed projects
 devkit status
+
+# Pass skill flags through with the `--` separator (everything after `--` is
+# forwarded verbatim, bypassing the flag-injection guard on skill args)
+devkit architect ~/projects/my-app "add feature" -- --fast
+devkit ship ~/projects/my-app .devkit/plans/feature.md -- --security-override "reason"
 ```
 
 ## Complete Workflows
@@ -480,10 +485,10 @@ devkit status
 /architect add shopping cart functionality
 
 # 2. Optional: Audit the plan before implementation
-/audit plan plans/add-shopping-cart.md
+/audit plan .devkit/plans/add-shopping-cart.md
 
 # 3. Implement the plan
-/ship plans/add-shopping-cart.md
+/ship .devkit/plans/add-shopping-cart.md
 
 # 4. Update documentation
 /sync
@@ -493,12 +498,12 @@ devkit status
 ```
 
 **Artifacts Created:**
-- `plans/add-shopping-cart.md` — Approved implementation plan
-- `plans/add-shopping-cart.redteam.md` — Red team review
-- `plans/add-shopping-cart.feasibility.md` — Feasibility review
-- `plans/add-shopping-cart.review.md` — Librarian review
-- `plans/archive/add-shopping-cart/` — Code review and QA reports
-- `plans/audit-[timestamp].summary.md` — Final audit results
+- `.devkit/plans/add-shopping-cart.md` — Approved implementation plan
+- `.devkit/plans/add-shopping-cart.redteam.md` — Red team review
+- `.devkit/plans/add-shopping-cart.feasibility.md` — Feasibility review
+- `.devkit/plans/add-shopping-cart.review.md` — Librarian review
+- `.devkit/plans/archive/add-shopping-cart/` — Code review and QA reports
+- `.devkit/plans/audit-[timestamp].summary.md` — Final audit results
 - `CLAUDE.md` — Updated with new patterns
 
 **Security Gates:**
@@ -517,7 +522,7 @@ At L1 (advisory), BLOCKED verdicts show warnings but don't stop the workflow. At
 /audit full
 
 # 2. Review findings
-cat plans/audit-[timestamp].summary.md
+cat .devkit/plans/audit-[timestamp].summary.md
 
 # 3. Address critical issues
 # ... make fixes ...
@@ -530,11 +535,11 @@ cat plans/audit-[timestamp].summary.md
 ```
 
 **Artifacts Created:**
-- `plans/audit-[timestamp].summary.md` — Audit summary with verdict
-- `plans/audit-[timestamp].security.md` — Security findings
-- `plans/audit-[timestamp].performance.md` — Performance findings
-- `plans/audit-[timestamp].qa.md` — QA regression results
-- `plans/archive/audit/audit-[timestamp]/` — Archived reports
+- `.devkit/plans/audit-[timestamp].summary.md` — Audit summary with verdict
+- `.devkit/plans/audit-[timestamp].security.md` — Security findings
+- `.devkit/plans/audit-[timestamp].performance.md` — Performance findings
+- `.devkit/plans/audit-[timestamp].qa.md` — QA regression results
+- `.devkit/plans/archive/audit/audit-[timestamp]/` — Archived reports
 
 ### Workflow 3: Documentation Sync (Weekly Maintenance)
 
@@ -554,10 +559,10 @@ git commit -m "Update CLAUDE.md with recent patterns"
 ```
 
 **Artifacts Created:**
-- `plans/sync-[timestamp].review.md` — Librarian review
+- `.devkit/plans/sync-[timestamp].review.md` — Librarian review
 - `CLAUDE.md` — Updated with current patterns
 - `README.md` — Updated usage docs (if needed)
-- `plans/archive/sync/sync-[timestamp].review.md` — Archived review
+- `.devkit/plans/archive/sync/sync-[timestamp].review.md` — Archived review
 
 ### Workflow 4: Creating New Skills
 
@@ -621,11 +626,11 @@ All skills follow these 10 patterns:
 | **3. Tool declarations** | Each step specifies tools | `Tool:` line in every step |
 | **4. Verdict gates** | Control flow with PASS/FAIL/BLOCKED | Verdict logic in steps |
 | **5. Timestamped artifacts** | All outputs include ISO timestamps | `[timestamp]` references |
-| **6. Structured reporting** | Consistent markdown format | Outputs to `./plans/` |
+| **6. Structured reporting** | Consistent markdown format | Outputs to `.devkit/plans/` |
 | **7. Bounded iterations** | Max revision loops prevent cycles | `Max N revision` language |
 | **8. Model selection** | Right model for each task | Valid `model:` in frontmatter |
 | **9. Scope parameters** | Flexible invocation | `## Inputs` with `$ARGUMENTS` |
-| **10. Archive on success** | Move artifacts after completion | References `./plans/archive/` |
+| **10. Archive on success** | Move artifacts after completion | References `.devkit/.devkit/plans/archive/` |
 | **11. Worktree isolation** | Structural conflict prevention for parallel work | Git worktrees per work unit with validation |
 
 ### Archetype Patterns
@@ -841,7 +846,7 @@ Do not attempt `/threat-model` -- knowledge-base skills have no workflow steps t
 ## Artifact Locations
 
 ```
-./plans/
+.devkit/plans/
 ├── [feature].md                           # Plans from /architect
 ├── [feature].redteam.md                   # Red team reviews
 ├── [feature].feasibility.md               # Feasibility reviews
@@ -876,7 +881,7 @@ Do not attempt `/threat-model` -- knowledge-base skills have no workflow steps t
         └── fix-[finding-id]-[timestamp]-reverify.security-review.md # Fallback security review (from /fix, no /secure-review deployed)
 ```
 
-`.claude/learnings.md` — Project-level learnings (lives outside `./plans/`, created by `/retro` and `/ship` Step 7)
+`.claude/learnings.md` — Project-level learnings (lives outside `.devkit/plans/`, created by `/retro` and `/ship` Step 7)
 
 ## Development Rules
 
@@ -977,9 +982,11 @@ Python scripts for code generation with validation and atomic writes.
 
 **Scripts:**
 - `generate_skill.py` — Create skills from archetypes
-- `generate_senior_architect.py` — Create architect agents
+- `generate_agents.py` — Create all project agents (unified generator)
+- `generate_senior_architect.py` — Create architect agents (legacy)
 - `validate_skill.py` — Validate skill definitions
-- `test_skill_generator.sh` — Test suite (69 tests)
+- `validate_agent.py` — Validate agents for inheritance patterns
+- `test_skill_generator.sh` — Test suite (66 tests)
 
 **Capabilities:**
 - Auto-detection (project type, stack)
@@ -1033,7 +1040,7 @@ Deployment and utility scripts.
 - `compute-run-score.sh` — Compute per-dimension quantitative scores from a JSONL audit log (python3, no jq)
 - `score-reflector.sh` — Deterministic score reflector for candidate learnings generation (python3, no jq)
 - `scanner-value-report.sh` — Scanner value analysis: cohort comparison of /ship run scores by scanner mode (tree-sitter-partial vs regex-fallback vs absent). No jq dependency.
-- `test-integration.sh` — Integration smoke tests (55 tests): emit-audit-event.sh JSONL correctness,
+- `test-integration.sh` — Integration smoke tests (54 tests): emit-audit-event.sh JSONL correctness,
   L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
   lifecycle, threat model consumption structural tests across /ship, /architect, /secure-review,
   quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
@@ -1170,6 +1177,17 @@ subprocess.run(["claude", "--print", "/<skill> <args>"], cwd=<resolved target>)
 **Commands:** `devkit init <target>`, `devkit <skill> <target> [args]`,
 `devkit shell <target>`, `devkit status [<target>]`, `devkit deploy [--validate]`.
 
+**Passing flags through (`--` separator):** `validate_args()` rejects any skill
+argument starting with `--` as a flag-injection guard, so skill flags like `--fast`
+or `--security-override "reason"` cannot be passed directly. Use `--` to mark the
+end of harness-parsed arguments -- everything after it is forwarded verbatim to the
+skill (see `split_skill_args()` in `devkit_cli.py`):
+
+```bash
+devkit architect ~/projects/my-app "add feature" -- --fast
+devkit ship ~/projects/my-app .devkit/plans/feature.md -- --security-override "reason"
+```
+
 **Known limitation:** `devkit shell` replaces the harness process via `os.execvp()`,
 so `last_invocation` is written before the interactive session starts and is never
 updated with an exit code afterward (the harness never regains control). `devkit
@@ -1233,7 +1251,7 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Coverage (69 tests):**
+**Coverage (66 tests):**
 - Generator and validator help text
 - All 20 core skills (architect, ship, retro, audit, sync,
   receiving-code-review, verification-before-completion, compliance-check,
@@ -1423,7 +1441,7 @@ tmp/
 temp/
 
 # Audit logs (L1 ephemeral — gitignored at advisory maturity)
-plans/audit-logs/*.jsonl
+.devkit/plans/audit-logs/*.jsonl
 
 # Audit run state files (ephemeral — deleted at run end)
 .ship-audit-state-*
@@ -1457,7 +1475,7 @@ test(generators): add validation tests for scan archetype
 - [x] Agent generator (unified)
 - [x] Skill validator + agent validator
 - [x] Deployment scripts (core + contrib)
-- [x] Test suite (69 tests, all 20 core + 3 contrib skills validated)
+- [x] Test suite (66 tests, all 20 core + 3 contrib skills validated)
 - [x] Security maturity levels (L1/L2/L3)
 - [x] validate-all health check command
 - [x] Deploy-time validation (--validate flag)

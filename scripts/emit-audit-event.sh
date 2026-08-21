@@ -45,7 +45,7 @@ Arguments:
 State file format:
   {
     "run_id": "20260327-143052-a1b2c3",
-    "audit_log": "./plans/audit-logs/ship-20260327-143052-a1b2c3.jsonl",
+    "audit_log": ".devkit/plans/audit-logs/ship-20260327-143052-a1b2c3.jsonl",
     "skill": "ship",
     "skill_version": "3.6.0",
     "security_maturity": "advisory",

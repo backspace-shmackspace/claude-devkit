@@ -24,12 +24,12 @@ This skill is a **pipeline coordinator**. It orchestrates a targeted fix workflo
 
 Examples:
 ```
-/fix plans/archive/maven-build-support/maven-build-support.secure-review.md H-01
-/fix plans/archive/maven-build-support/maven-build-support.code-review.md M-1
-/fix plans/audit-20260523T143000.security.md C-01
-/fix plans/archive/audit/audit-20260523/audit-20260523.security.md H-02
+/fix .devkit/plans/archive/maven-build-support/maven-build-support.secure-review.md H-01
+/fix .devkit/plans/archive/maven-build-support/maven-build-support.code-review.md M-1
+/fix .devkit/plans/audit-20260523T143000.security.md C-01
+/fix .devkit/plans/archive/audit/audit-20260523/audit-20260523.security.md H-02
 /fix "command injection in find -exec in pipeline build step"  # free-text fallback
-/fix plans/archive/maven-build-support/maven-build-support.secure-review.md H-01 --dry-run
+/fix .devkit/plans/archive/maven-build-support/maven-build-support.secure-review.md H-01 --dry-run
 ```
 
 - `artifact-path`: Path to a review artifact (`.code-review.md`, `.secure-review.md`, `.qa-report.md`, `.security.md`, `.performance.md`) OR a free-text description of the fix
@@ -251,7 +251,7 @@ Execute its scanning workflow scoped to `changes` (uncommitted diff only).
 **Original finding to verify resolution:**
 [finding ID, severity, description — from Step 0]
 
-Write your findings to `./plans/fix-[finding-id]-[timestamp]-reverify.secure-review.md`.
+Write your findings to `.devkit/plans/fix-[finding-id]-[timestamp]-reverify.secure-review.md`.
 
 In your report, explicitly state whether finding [finding-id] is RESOLVED or PERSISTS.
 If the finding PERSISTS, explain why the fix did not address it.
@@ -273,7 +273,7 @@ Check whether the fix addresses the finding without introducing new security iss
 
 Verdict: PASS (finding addressed) / FAIL (finding persists or new Critical issue)
 
-Write your review to `./plans/fix-[finding-id]-[timestamp]-reverify.security-review.md`."
+Write your review to `.devkit/plans/fix-[finding-id]-[timestamp]-reverify.security-review.md`."
 
 **Correctness finding:**
 
@@ -312,7 +312,7 @@ Verdict:
 - REVISION_NEEDED: Fix needs adjustment (explain what)
 - FAIL: Fix does not address the finding or introduces a Critical issue
 
-Write your review to `./plans/fix-[finding-id]-[timestamp].code-review.md`."
+Write your review to `.devkit/plans/fix-[finding-id]-[timestamp].code-review.md`."
 
 **3c — Result evaluation:**
 
@@ -321,7 +321,7 @@ Write your review to `./plans/fix-[finding-id]-[timestamp].code-review.md`."
 | PASS or PASS_WITH_NOTES | PASS | Proceed to Step 4 (commit) |
 | PASS or PASS_WITH_NOTES | REVISION_NEEDED | Re-dispatch coder with review feedback (Max 1 revision round, then stop) |
 | FAIL | Any | Stop. Output: "Fix did not resolve the finding. See verification artifact." |
-| Any | FAIL | Stop. Output: "Code review FAIL. See `./plans/fix-[finding-id]-[timestamp].code-review.md`." |
+| Any | FAIL | Stop. Output: "Code review FAIL. See `.devkit/plans/fix-[finding-id]-[timestamp].code-review.md`." |
 
 **Revision retry (Max 1 revision round):**
 
@@ -331,7 +331,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 "You are revising a fix based on code review feedback.
 
-Read the code review at `./plans/fix-[finding-id]-[timestamp].code-review.md`.
+Read the code review at `.devkit/plans/fix-[finding-id]-[timestamp].code-review.md`.
 Address the REVISION_NEEDED findings.
 
 Read the coder agent definition at `.claude/agents/coder*.md`.
@@ -339,7 +339,7 @@ Read the coder agent definition at `.claude/agents/coder*.md`.
 Do not change anything beyond what the code review asks for."
 
 Then re-run Step 3b (code review only). If still REVISION_NEEDED or FAIL after retry:
-Stop. Output: "Fix did not converge after 1 revision. See `./plans/fix-[finding-id]-[timestamp].code-review.md`."
+Stop. Output: "Fix did not converge after 1 revision. See `.devkit/plans/fix-[finding-id]-[timestamp].code-review.md`."
 
 ## Step 4 — Commit and archive
 
@@ -394,9 +394,9 @@ Where:
 Tool: `Bash`
 
 ```bash
-mkdir -p ./plans/archive/fix/
+mkdir -p .devkit/plans/archive/fix/
 # Move all fix verification artifacts (timestamped names prevent collisions)
-mv ./plans/fix-*.md ./plans/archive/fix/ 2>/dev/null || true
+mv .devkit/plans/fix-*.md .devkit/plans/archive/fix/ 2>/dev/null || true
 ```
 
 **4c — Update learnings (conditional, security findings only):**

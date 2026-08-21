@@ -8,7 +8,7 @@
 #   bash scripts/score-reflector.sh [--min-runs N] [--format md|json]
 #   bash scripts/score-reflector.sh --help
 #
-# Reads all run_score events from plans/audit-logs/*.jsonl
+# Reads all run_score events from .devkit/plans/audit-logs/*.jsonl
 # Computes per-dimension statistics and trends
 # Outputs candidate learnings entries to stdout (never writes to .claude/learnings.md)
 #
@@ -58,7 +58,7 @@ Trend detection (10+ runs only):
   Composite drop:       composite mean of last 5 < previous 5 by > 0.1
 
 Data sources:
-  Reads all run_score events from plans/audit-logs/*.jsonl
+  Reads all run_score events from .devkit/plans/audit-logs/*.jsonl
   Output is to stdout only -- never writes to .claude/learnings.md
   Human reviews and copies relevant entries to learnings.md
 
@@ -78,7 +78,7 @@ fi
 # Parse arguments
 MIN_RUNS=5
 FORMAT="md"
-AUDIT_LOG_DIR="${AUDIT_LOG_DIR:-./plans/audit-logs}"
+AUDIT_LOG_DIR="${AUDIT_LOG_DIR:-.devkit/plans/audit-logs}"
 
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in

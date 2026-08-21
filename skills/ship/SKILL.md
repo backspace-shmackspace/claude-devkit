@@ -7,7 +7,7 @@ model: claude-opus-4-6
 # /ship Workflow
 
 ## Inputs
-- Plan file: $ARGUMENTS   # e.g. ./plans/feature-x.md
+- Plan file: $ARGUMENTS   # e.g. .devkit/plans/feature-x.md
 
 ## Role
 You are the **work coordinator**. You dispatch work to agents and check their results.
@@ -73,7 +73,7 @@ Tool: `Bash`
 
 ```bash
 # --- Audit Logging Setup ---
-AUDIT_LOG_DIR="./plans/audit-logs"
+AUDIT_LOG_DIR=".devkit/plans/audit-logs"
 mkdir -p "$AUDIT_LOG_DIR"
 AUDIT_LOG="$AUDIT_LOG_DIR/ship-${RUN_ID}.jsonl"
 STATE_FILE=".ship-audit-state-${RUN_ID}.json"
@@ -301,7 +301,7 @@ against the plan body text:
 **If no security signals found in plan content:**
 - No output (plan is not security-sensitive, no check needed)
 
-Derive `[name]` from the plan filename (e.g. `./plans/feature-x.md` → `feature-x`).
+Derive `[name]` from the plan filename (e.g. `.devkit/plans/feature-x.md` → `feature-x`).
 
 **Parse work groups (optional):** Look for a `## Work Groups` section inside the Task Breakdown. Format:
 
@@ -912,7 +912,7 @@ the changed files and may be affected by this change.
 
 $IMPORT_GRAPH_DATA
 
-Write your review to `./plans/[name].code-review.md` with this structure:
+Write your review to `.devkit/plans/[name].code-review.md` with this structure:
 - **Verdict:** PASS / REVISION_NEEDED / FAIL
 - **Critical findings** (must fix — correctness, security, data loss)
 - **Major findings** (should fix — performance, maintainability, missing requirements)
@@ -932,7 +932,7 @@ Tool: `Bash` (direct — coordinator does this)
 Run the test command extracted from the plan in Step 1.
 
 If exit code is non-zero:
-- Write the test output to `./plans/[name].test-failure.log`
+- Write the test output to `.devkit/plans/[name].test-failure.log`
 
 ### 4c — QA validation
 
@@ -947,7 +947,7 @@ Follow that agent's validation standards.
 Check every acceptance criterion in the plan against the current code.
 Run any test commands from the plan if they haven't been run.
 
-Write `./plans/[name].qa-report.md` with:
+Write `.devkit/plans/[name].qa-report.md` with:
 - **Verdict:** PASS / PASS_WITH_NOTES / FAIL
 - **Acceptance criteria coverage** (checklist: criterion → met/not met)
 - **Missing tests or edge cases**
@@ -995,7 +995,7 @@ Include evidence (file path and line reference) for each status.
 
 Scope: `changes` (uncommitted modifications in the working directory).
 
-Write your security review summary to `./plans/[name].secure-review.md` with the
+Write your security review summary to `.devkit/plans/[name].secure-review.md` with the
 standard secure-review output format including verdict (PASS / PASS_WITH_NOTES / BLOCKED),
 severity-rated findings, and redacted secrets (if any).
 
@@ -1016,7 +1016,7 @@ files modified in this implementation.
 
 Scope: `changes` (uncommitted modifications in the working directory).
 
-Write your security review summary to `./plans/[name].secure-review.md` with the
+Write your security review summary to `.devkit/plans/[name].secure-review.md` with the
 standard secure-review output format including verdict (PASS / PASS_WITH_NOTES / BLOCKED),
 severity-rated findings, and redacted secrets (if any).
 
@@ -1058,13 +1058,13 @@ At L1, secure-review BLOCKED is reported but does not stop the workflow (parent 
 | Any | Any | Any | BLOCKED (no override, revision loop exhausted) | Stop workflow |
 
 If stopping due to secure review BLOCKED (L2/L3, post-revision):
-- "Secure review BLOCKED after revision loop. See `./plans/[name].secure-review.md`. Fix security findings or re-run with --security-override."
+- "Secure review BLOCKED after revision loop. See `.devkit/plans/[name].secure-review.md`. Fix security findings or re-run with --security-override."
 
 If proceeding with security override (L2/L3):
 - Log: "Secure review BLOCKED — overridden: [reason]. Proceeding with PASS_WITH_NOTES."
 
 If auto-downgrading at L1:
-- Log: "Secure review BLOCKED (L1 advisory — non-blocking). Review findings: `./plans/[name].secure-review.md`."
+- Log: "Secure review BLOCKED (L1 advisory — non-blocking). Review findings: `.devkit/plans/[name].secure-review.md`."
 
 **Emit retrospective per-substep audit events for Step 4 results:**
 
@@ -1123,9 +1123,9 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
 ```
 
 If stopping, output appropriate message:
-- "Code review FAIL. See `./plans/[name].code-review.md`."
-- "Tests failed. See `./plans/[name].test-failure.log`."
-- "QA validation FAIL. See `./plans/[name].qa-report.md`."
+- "Code review FAIL. See `.devkit/plans/[name].code-review.md`."
+- "Tests failed. See `.devkit/plans/[name].test-failure.log`."
+- "QA validation FAIL. See `.devkit/plans/[name].qa-report.md`."
 
 ## Step 5 — Revision loop (conditional)
 
@@ -1173,7 +1173,7 @@ Then proceed with the standard worktree workflow:
 
 - Re-create worktrees (Step 3b) — these now branch from the WIP commit containing first-pass code
 - Dispatch coders to worktrees (Step 3c) with modified prompt:
-  "Read the code review at `./plans/[name].code-review.md`.
+  "Read the code review at `.devkit/plans/[name].code-review.md`.
   Address all Critical and Major findings.
 
   **IMPORTANT:** The code review references files in the main directory (e.g., src/Button.tsx).
@@ -1195,7 +1195,7 @@ Re-run Step 4 in its entirety (all three parallel checks: code review + tests + 
 Evaluate results using the same result matrix from Step 4.
 
 **Max 2 revision rounds total.** If still REVISION_NEEDED or FAIL after 2 rounds:
-stop the workflow. Output: "Code review did not converge after 2 rounds. See `./plans/[name].code-review.md`."
+stop the workflow. Output: "Code review did not converge after 2 rounds. See `.devkit/plans/[name].code-review.md`."
 
 **Emit step_end for Step 5 (only if Step 5 executed):**
 
@@ -1221,7 +1221,7 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_6_commit_gate","step_name":"Commit gate","agent_type":"coordinator"}'
 ```
 
-Read `./plans/[name].qa-report.md`. Check the verdict.
+Read `.devkit/plans/[name].qa-report.md`. Check the verdict.
 
 **If PASS or PASS_WITH_NOTES:**
 
@@ -1260,13 +1260,13 @@ Execute it against the current project.
 
 Report your verdict: PASS, PASS_WITH_NOTES, INCOMPLETE, or BLOCKED.
 If BLOCKED, list the Critical CVE findings.
-Write your report to `./plans/[name].dependency-audit.md`."
+Write your report to `.devkit/plans/[name].dependency-audit.md`."
 
 **If dependency audit returns BLOCKED:**
 - At L1 (advisory): Log prominent warning. Auto-downgrade to PASS_WITH_NOTES. Continue.
-  Output: "Dependency audit BLOCKED (L1 advisory — non-blocking). Review findings: `./plans/[name].dependency-audit.md`."
+  Output: "Dependency audit BLOCKED (L1 advisory — non-blocking). Review findings: `.devkit/plans/[name].dependency-audit.md`."
 - At L2/L3: If `--security-override`: Downgrade to PASS_WITH_NOTES. Log override reason. Else: Stop workflow.
-  Output: "Dependency audit BLOCKED. Critical vulnerabilities found. See `./plans/[name].dependency-audit.md`."
+  Output: "Dependency audit BLOCKED. Critical vulnerabilities found. See `.devkit/plans/[name].dependency-audit.md`."
 
 **If dependency audit returns INCOMPLETE:**
 - Log: "Dependency audit INCOMPLETE — no scanner available for this ecosystem. Install the appropriate scanner for full CVE scanning."
@@ -1402,7 +1402,7 @@ fi
 
      <why this change was needed - one sentence from plan context>
 
-     Implements: ./plans/[name].md
+     Implements: .devkit/plans/[name].md
 
      Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
      EOF
@@ -1415,26 +1415,26 @@ fi
 
 4. Clean up artifacts:
    - Tool: `Bash`
-   - Command: `mkdir -p ./plans/archive/[name] && mv ./plans/[name].code-review.md ./plans/[name].qa-report.md ./plans/archive/[name]/ && if [ -f ./plans/[name].feasibility.md ]; then mv ./plans/[name].feasibility.md ./plans/archive/[name]/; fi`
+   - Command: `mkdir -p .devkit/plans/archive/[name] && mv .devkit/plans/[name].code-review.md .devkit/plans/[name].qa-report.md .devkit/plans/archive/[name]/ && if [ -f .devkit/plans/[name].feasibility.md ]; then mv .devkit/plans/[name].feasibility.md .devkit/plans/archive/[name]/; fi`
    - Then, archive test failure log if it exists:
      ```bash
-     if [ -f "./plans/[name].test-failure.log" ]; then
-       mv "./plans/[name].test-failure.log" "./plans/archive/[name]/"
+     if [ -f ".devkit/plans/[name].test-failure.log" ]; then
+       mv ".devkit/plans/[name].test-failure.log" ".devkit/plans/archive/[name]/"
      fi
      ```
    - Then, archive security review and dependency audit artifacts if they exist:
      ```bash
-     if [ -f "./plans/[name].secure-review.md" ]; then
-       mv "./plans/[name].secure-review.md" "./plans/archive/[name]/"
+     if [ -f ".devkit/plans/[name].secure-review.md" ]; then
+       mv ".devkit/plans/[name].secure-review.md" ".devkit/plans/archive/[name]/"
      fi
-     if [ -f "./plans/[name].dependency-audit.md" ]; then
-       mv "./plans/[name].dependency-audit.md" "./plans/archive/[name]/"
+     if [ -f ".devkit/plans/[name].dependency-audit.md" ]; then
+       mv ".devkit/plans/[name].dependency-audit.md" ".devkit/plans/archive/[name]/"
      fi
      ```
 
 5. Output success message:
    - "✅ Implementation complete and committed.
-   - QA report: `./plans/archive/[name]/[name].qa-report.md`
+   - QA report: `.devkit/plans/archive/[name]/[name].qa-report.md`
    - **Next step:** Run `/sync` to update documentation."
 
 **If FAIL:**
@@ -1453,7 +1453,7 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
 rm -f ".ship-audit-state-${RUN_ID}.json"
 ```
 
-- Output: "❌ QA validation failed. See `./plans/[name].qa-report.md`."
+- Output: "❌ QA validation failed. See `.devkit/plans/[name].qa-report.md`."
 - Stop the workflow.
 
 ## Step 7 — Retro capture (post-commit, non-blocking)
@@ -1478,11 +1478,11 @@ Prompt:
 "You are extracting learnings from a completed /ship run.
 
 Read the archived review artifacts using glob-based discovery:
-- `./plans/archive/[name]/*.code-review.md`
-- `./plans/archive/[name]/*.qa-report.md`
+- `.devkit/plans/archive/[name]/*.code-review.md`
+- `.devkit/plans/archive/[name]/*.qa-report.md`
 
 If any test failure logs exist, also read:
-- `./plans/archive/[name]/*.test-failure.log`
+- `.devkit/plans/archive/[name]/*.test-failure.log`
 
 Read each file in its entirety. Extract findings regardless of the specific section header format used. Look for issues by severity, positive observations, coverage gaps, and test failures regardless of how the document is structured.
 
@@ -1504,7 +1504,7 @@ Read the existing learnings file (if it exists):
    - Failure categories (what type of test failed and why). Rate each: Critical / High / Medium / Low.
 
 4. From the security review (if exists):
-   - Glob for `./plans/archive/[name]/*.secure-review.md`
+   - Glob for `.devkit/plans/archive/[name]/*.secure-review.md`
      (Note: the secure-review artifact is read from the archive directory because Step 6 moves it there before Step 7 runs.)
    - If found, read the file and check for a `## Threat Model Coverage` section
    - Any threat with `NOT_IMPLEMENTED` status is a threat model gap -- the plan identified

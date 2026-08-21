@@ -72,7 +72,7 @@ Prompt: "You are reviewing documentation for currency and accuracy.
 2. Compare them against the recent code changes
 3. Identify documentation that is now stale, missing, or incorrect
 
-Write `./plans/sync-[timestamp].review.md` with this structure:
+Write `.devkit/plans/sync-[timestamp].review.md` with this structure:
 
 ## Verdict
 [CURRENT / UPDATES_NEEDED]
@@ -104,12 +104,12 @@ Write `./plans/sync-[timestamp].review.md` with this structure:
 
 ## Step 4 — Update documentation (conditional)
 
-Read `./plans/sync-[timestamp].review.md` and check verdict.
+Read `.devkit/plans/sync-[timestamp].review.md` and check verdict.
 
 **If verdict is CURRENT:**
 Output: "✅ Documentation is current. No updates needed.
 
-Review: ./plans/sync-[timestamp].review.md"
+Review: .devkit/plans/sync-[timestamp].review.md"
 
 Stop the workflow.
 
@@ -119,7 +119,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt: "You are updating project documentation based on a librarian review.
 
-Read the review at `./plans/sync-[timestamp].review.md`.
+Read the review at `.devkit/plans/sync-[timestamp].review.md`.
 
 Apply all **Required Updates** to `CLAUDE.md` and `README.md`.
 Use the Edit tool to make precise changes.
@@ -157,7 +157,7 @@ git commit -m \"docs: sync with codebase
 
 Updates documentation to reflect recent code changes.
 
-Review: ./plans/sync-[timestamp].review.md
+Review: .devkit/plans/sync-[timestamp].review.md
 
 Co-Authored-By: Claude Sonnet <noreply@anthropic.com>\"
 ```
@@ -167,12 +167,12 @@ To reject:
 git restore CLAUDE.md README.md
 ```
 
-Review: ./plans/sync-[timestamp].review.md"
+Review: .devkit/plans/sync-[timestamp].review.md"
 
 ## Step 6 — Archive review
 
 Tool: `Bash` (direct — coordinator does this)
 
-Run: `mkdir -p ./plans/archive/sync && mv ./plans/sync-[timestamp].review.md ./plans/archive/sync/`
+Run: `mkdir -p .devkit/plans/archive/sync && mv .devkit/plans/sync-[timestamp].review.md .devkit/plans/archive/sync/`
 
-Output: "Review archived to ./plans/archive/sync/sync-[timestamp].review.md"
+Output: "Review archived to .devkit/plans/archive/sync/sync-[timestamp].review.md"

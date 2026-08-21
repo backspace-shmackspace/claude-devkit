@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -64,6 +65,7 @@ class Colors:
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
     BLUE = '\033[94m'
+    CYAN = '\033[96m'
     RESET = '\033[0m'
     BOLD = '\033[1m'
 
@@ -701,17 +703,32 @@ def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config):
 
     claude_cmd = config.get("claude_command", FALLBACK_DEFAULTS["claude_command"])
     print_flag = config.get("claude_print_flag", FALLBACK_DEFAULTS["claude_print_flag"])
-    invocation = [claude_cmd, print_flag, prompt]
+    invocation = [claude_cmd, print_flag, "--output-format", "json", prompt]
+
+    # Pre-run banner
+    print(
+        f"{Colors.CYAN}devkit:{Colors.RESET} {resolved.name} | "
+        f"/{skill} | {resolved}",
+        file=sys.stderr,
+    )
 
     exit_code = 1
+    wall_start = time.monotonic()
     try:
-        # List-form subprocess.run -- never shell=True. No user input is
-        # interpolated into a shell command string.
-        proc = subprocess.run(invocation, cwd=str(resolved), env=env)
+        # List-form subprocess.run -- never shell=True. Capture stdout so
+        # we can parse the JSON envelope for usage metadata.
+        proc = subprocess.run(
+            invocation, cwd=str(resolved), env=env,
+            capture_output=True, text=True,
+        )
         exit_code = proc.returncode
+
+        # Print stderr passthrough (claude warnings, progress, etc.)
+        if proc.stderr:
+            print(proc.stderr, end="", file=sys.stderr)
+
+        _print_run_result(proc.stdout, exit_code, wall_start)
     finally:
-        # Wrapped in try/finally so state and registry updates execute even
-        # if the process receives SIGINT during skill execution.
         final_state = dict(base_state)
         final_state["last_invocation"] = {
             "skill": skill,
@@ -723,6 +740,76 @@ def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config):
         update_registry(resolved, config, touch=True, register=True)
 
     return exit_code
+
+
+def _format_duration(seconds):
+    """Format seconds into a human-readable duration string."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    return f"{minutes}m {secs}s"
+
+
+def _format_tokens(n):
+    """Format token count with k/M suffix."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    return str(n)
+
+
+def _print_run_result(stdout, exit_code, wall_start):
+    """Parse JSON output from claude --print, display result and summary."""
+    elapsed = time.monotonic() - wall_start
+
+    # Try to parse JSON envelope
+    result_text = None
+    usage_line = None
+    try:
+        data = json.loads(stdout)
+        result_text = data.get("result", "")
+        cost = data.get("total_cost_usd")
+        usage = data.get("usage", {})
+        input_tok = usage.get("input_tokens", 0)
+        output_tok = usage.get("output_tokens", 0)
+        cache_read = usage.get("cache_read_input_tokens", 0)
+        num_turns = data.get("num_turns", 0)
+
+        parts = [_format_duration(elapsed)]
+        if input_tok or output_tok:
+            parts.append(
+                f"{_format_tokens(input_tok)} in / "
+                f"{_format_tokens(output_tok)} out"
+            )
+        if cache_read:
+            parts.append(f"{_format_tokens(cache_read)} cached")
+        if cost is not None:
+            parts.append(f"${cost:.4f}")
+        if num_turns:
+            parts.append(f"{num_turns} turn{'s' if num_turns != 1 else ''}")
+        usage_line = " | ".join(parts)
+    except (json.JSONDecodeError, TypeError, KeyError):
+        # Not valid JSON -- fall back to raw output
+        result_text = stdout
+
+    # Print the actual result
+    if result_text:
+        print(result_text)
+
+    # Post-run summary
+    status = (
+        f"{Colors.GREEN}completed{Colors.RESET}"
+        if exit_code == 0
+        else f"{Colors.RED}failed (exit {exit_code}){Colors.RESET}"
+    )
+    summary = f"{Colors.CYAN}devkit:{Colors.RESET} {status}"
+    if usage_line:
+        summary += f" | {usage_line}"
+    else:
+        summary += f" | {_format_duration(elapsed)}"
+    print(summary, file=sys.stderr)
 
 
 def cmd_shell(target_str, config):
@@ -871,7 +958,7 @@ Examples:
   devkit init ~/projects/my-app
   devkit audit ~/projects/my-app
   devkit architect ~/projects/my-app "add user authentication"
-  devkit ship ~/projects/my-app plans/add-user-auth.md
+  devkit ship ~/projects/my-app .devkit/plans/add-user-auth.md
   devkit shell ~/projects/my-app
   devkit status
   devkit status ~/projects/my-app

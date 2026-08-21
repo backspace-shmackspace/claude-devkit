@@ -9,14 +9,14 @@
 #   bash scripts/scanner-value-report.sh [--format md|json] [--audit-log-dir PATH]
 #   bash scripts/scanner-value-report.sh --help
 #
-# Reads run_score events from plans/audit-logs/ship-*.jsonl ONLY.
+# Reads run_score events from .devkit/plans/audit-logs/ship-*.jsonl ONLY.
 # /architect logs are excluded (they have no run_score events).
 # Pre-instrumentation run_score events (missing scanner_mode) default to "absent".
 #
 # Options:
 #   --format md         Output as markdown report (default)
 #   --format json       Output as structured JSON
-#   --audit-log-dir P   Override audit log directory (default: ./plans/audit-logs)
+#   --audit-log-dir P   Override audit log directory (default: .devkit/plans/audit-logs)
 #
 # Output sections (markdown):
 #   Caveat               Observational data warning (always shown)
@@ -46,10 +46,10 @@ Usage:
 Options:
   --format md         Output as markdown report (default)
   --format json       Output as structured JSON
-  --audit-log-dir P   Override audit log directory (default: ./plans/audit-logs)
+  --audit-log-dir P   Override audit log directory (default: .devkit/plans/audit-logs)
 
 Reads:
-  run_score events from plans/audit-logs/ship-*.jsonl ONLY
+  run_score events from .devkit/plans/audit-logs/ship-*.jsonl ONLY
   /architect logs are excluded (no run_score events in architect logs)
   Pre-instrumentation events (missing scanner_mode) default to scanner_mode "absent"
 
@@ -85,7 +85,7 @@ fi
 
 # Parse arguments
 FORMAT="md"
-AUDIT_LOG_DIR="${AUDIT_LOG_DIR:-./plans/audit-logs}"
+AUDIT_LOG_DIR="${AUDIT_LOG_DIR:-.devkit/plans/audit-logs}"
 
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
@@ -94,7 +94,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --audit-log-dir)
-            AUDIT_LOG_DIR="${2:-./plans/audit-logs}"
+            AUDIT_LOG_DIR="${2:-.devkit/plans/audit-logs}"
             shift 2
             ;;
         --help|-h)

@@ -36,10 +36,34 @@ cd ~/projects/claude-devkit
 ```bash
 # In any Claude Code session
 /architect add user authentication
-/ship plans/add-user-authentication.md
+/ship .devkit/plans/add-user-authentication.md
 /audit
 /sync
 ```
+
+### 4. Use the Meta-Harness (Optional)
+
+The `devkit` CLI lets you target and run skills against any registered git
+repository from outside that project — no `cd` required.
+
+```bash
+# Register a project for devkit management
+devkit init ~/projects/my-app
+
+# Run skills from anywhere
+devkit audit ~/projects/my-app
+devkit architect ~/projects/my-app "add feature"
+
+# Pass skill flags through with `--` (bypasses the flag-injection guard)
+devkit architect ~/projects/my-app "add feature" -- --fast
+
+# Open an interactive session, or check status of all managed projects
+devkit shell ~/projects/my-app
+devkit status
+```
+
+See [CLAUDE.md](CLAUDE.md#with-meta-harness) for the full command reference and
+security model.
 
 ## What's Included
 
@@ -50,7 +74,7 @@ Pre-built workflows for common development tasks:
 | Skill | Purpose | Usage |
 |-------|---------|-------|
 | `/architect` | Create implementation plans with context alignment and approval gates. Detects security-sensitive features via keyword heuristic and Stage 2 plan content scan; requires threat modeling when threat-model-gate is deployed. | `/architect add shopping cart` |
-| `/ship` | Execute plans with pattern validation, security gates (secrets/code/deps), testing, QA, and retro capture. Supports security maturity levels (L1/L2/L3) and `--security-override`. | `/ship plans/feature.md` |
+| `/ship` | Execute plans with pattern validation, security gates (secrets/code/deps), testing, QA, and retro capture. Supports security maturity levels (L1/L2/L3) and `--security-override`. | `/ship .devkit/plans/feature.md` |
 | `/retro` | Mine review artifacts for recurring patterns and capture learnings | `/retro` or `/retro feature-name` |
 | `/audit` | Security and performance scanning. Composable: invokes /secure-review when deployed. | `/audit` or `/audit code` |
 | `/sync` | Update documentation and CLAUDE.md | `/sync` or `/sync full` |
@@ -61,7 +85,7 @@ Pre-built workflows for common development tasks:
 | `/secrets-scan` | Pre-commit secrets detection for API keys, tokens, credentials | `/secrets-scan staged` |
 | `/secure-review` | Deep semantic security review with data flow tracing, taint analysis, and trust boundary validation. When invoked with threat model context, produces a `## Threat Model Coverage` section mapping STRIDE threats to implementation status. | `/secure-review changes` |
 | `/threat-model-gate` | Security planning reference for authentication, authorization, data handling | `/threat-model-gate` |
-| `/fix` | Targeted finding remediation — parse a finding from a review artifact, dispatch a scoped coder, run focused verification, and commit with traceability. Supports `--dry-run`. | `/fix plans/audit-findings.md --finding SEC-01` |
+| `/fix` | Targeted finding remediation — parse a finding from a review artifact, dispatch a scoped coder, run focused verification, and commit with traceability. Supports `--dry-run`. | `/fix .devkit/plans/audit-findings.md --finding SEC-01` |
 
 **Knowledge-base skills** (reference guides invoked on demand, no multi-step workflow):
 
@@ -75,7 +99,7 @@ Pre-built workflows for common development tasks:
 | `/container-hardening` | Container security: non-root, read-only filesystem, capability restrictions | `/container-hardening` |
 | `/threat-model` | Full STRIDE+DREAD threat modeling with OTM v0.2.0 JSON output, MITRE ATT&CK mapping | `/threat-model` |
 
-**Audit Logging:** `/ship`, `/architect`, and `/audit` emit structured JSONL events to `plans/audit-logs/`
+**Audit Logging:** `/ship`, `/architect`, and `/audit` emit structured JSONL events to `.devkit/plans/audit-logs/`
 on every run. At L2/L3, logs are committed to git. Query with `./scripts/audit-log-query.sh`.
 See [CLAUDE.md](CLAUDE.md) for full details.
 
@@ -129,7 +153,7 @@ Reusable templates for skills and agents:
 /architect add shopping cart functionality
 
 # 2. Implement the plan
-/ship plans/add-shopping-cart.md
+/ship .devkit/plans/add-shopping-cart.md
 
 # 3. Update documentation
 /sync
@@ -145,7 +169,7 @@ Reusable templates for skills and agents:
 /architect add user authentication with JWT tokens
 
 # 2. Implement with security gates (requires security skills deployed)
-/ship plans/add-user-authentication.md
+/ship .devkit/plans/add-user-authentication.md
 
 # Security gates run automatically:
 # - Step 0: Secrets scan (blocks if secrets found)
@@ -153,7 +177,7 @@ Reusable templates for skills and agents:
 # - Step 6: Dependency audit (blocks at L2/L3 if vulnerable deps found)
 
 # 3. Override security gate if needed (false positive or time-sensitive)
-/ship plans/add-user-authentication.md --security-override "False positive: test fixture data"
+/ship .devkit/plans/add-user-authentication.md --security-override "False positive: test fixture data"
 
 # 4. Final comprehensive audit
 /audit
@@ -216,7 +240,7 @@ claude-code
 
 # Use with skills
 /architect add checkout flow
-/ship plans/add-checkout-flow.md
+/ship .devkit/plans/add-checkout-flow.md
 ```
 
 ## Available Skills
@@ -232,10 +256,10 @@ Creates detailed implementation plans with red team review and approval gates.
 ```
 
 **Output:**
-- `plans/[feature].md` — Approved implementation plan
-- `plans/[feature].redteam.md` — Red team critique
-- `plans/[feature].feasibility.md` — Feasibility review
-- `plans/[feature].review.md` — Librarian review
+- `.devkit/plans/[feature].md` — Approved implementation plan
+- `.devkit/plans/[feature].redteam.md` — Red team critique
+- `.devkit/plans/[feature].feasibility.md` — Feasibility review
+- `.devkit/plans/[feature].review.md` — Librarian review
 
 **Workflow:**
 1. Context discovery (read project CLAUDE.md and docs)
@@ -251,8 +275,8 @@ Executes implementation plans with code review, testing, and QA validation.
 
 **Usage:**
 ```bash
-/ship plans/add-user-authentication.md
-/ship plans/feature.md --security-override "reason"
+/ship .devkit/plans/add-user-authentication.md
+/ship .devkit/plans/feature.md --security-override "reason"
 ```
 
 **Options:**
@@ -260,8 +284,8 @@ Executes implementation plans with code review, testing, and QA validation.
 
 **Output:**
 - Implemented code changes
-- `plans/archive/[feature]/[feature].code-review.md` — Code review
-- `plans/archive/[feature]/[feature].qa-report.md` — QA report
+- `.devkit/plans/archive/[feature]/[feature].code-review.md` — Code review
+- `.devkit/plans/archive/[feature]/[feature].qa-report.md` — QA report
 - Git commit (on approval)
 
 **Workflow:**
@@ -298,10 +322,10 @@ Runs comprehensive security, performance, and QA scans.
 ```
 
 **Output:**
-- `plans/audit-[timestamp].summary.md` — Audit summary
-- `plans/audit-[timestamp].security.md` — Security findings
-- `plans/audit-[timestamp].performance.md` — Performance findings
-- `plans/audit-[timestamp].qa.md` — QA regression results
+- `.devkit/.devkit/plans/audit-[timestamp].summary.md` — Audit summary
+- `.devkit/.devkit/plans/audit-[timestamp].security.md` — Security findings
+- `.devkit/.devkit/plans/audit-[timestamp].performance.md` — Performance findings
+- `.devkit/.devkit/plans/audit-[timestamp].qa.md` — QA regression results
 
 **Workflow:**
 1. Detect scope (plan/code/full)
@@ -322,7 +346,7 @@ Updates CLAUDE.md and documentation with current patterns.
 ```
 
 **Output:**
-- `plans/sync-[timestamp].review.md` — Librarian review
+- `.devkit/.devkit/plans/sync-[timestamp].review.md` — Librarian review
 - Updated `CLAUDE.md`
 - Updated `README.md` (if needed)
 
@@ -586,7 +610,7 @@ cd ~/projects/claude-devkit
 bash generators/test_skill_generator.sh
 ```
 
-**Test Coverage (69 tests):**
+**Test Coverage (66 tests):**
 - Generator and validator help text (2 tests)
 - All 20 core skills validation (architect, ship, retro, audit, sync,
   receiving-code-review, verification-before-completion, compliance-check,
@@ -606,8 +630,8 @@ bash generators/test_skill_generator.sh
 ```
 Test Summary
 ========================================
-Total:  69
-Pass:   69
+Total:  66
+Pass:   66
 Fail:   0
 
 ✅ All tests passed!
@@ -622,7 +646,7 @@ cd ~/projects/claude-devkit
 bash scripts/test-integration.sh
 ```
 
-**Integration Test Coverage (42 tests):**
+**Integration Test Coverage (54 tests):**
 - Coordinator lifecycle (generate → validate → deploy → undeploy)
 - `validate-all.sh` health check
 - Pipeline lifecycle
@@ -635,6 +659,9 @@ bash scripts/test-integration.sh
 - Codebase-scanner integration tests (8 tests)
 - Fix skill structural tests (2 tests)
 - Scanner value instrumentation tests (5 tests: `compute-run-score.sh scanner_mode extraction`, `scanner_mode absent default`, `scanner-value-report.sh empty dir`, `scanner-value-report.sh cohort table`, `scanner_invocation schema registration`)
+- Quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases)
+- Meta-harness CLI tests (13 tests: 8 functional, 5 security — symlink rejection, `allowed_roots`
+  enforcement, oversized state file, invalid skill name, `--`-prefixed argument injection)
 
 ## Structure
 
@@ -649,8 +676,10 @@ claude-devkit/
 │
 ├── generators/                # Code generation scripts
 │   ├── generate_skill.py              # Create skills
-│   ├── generate_senior_architect.py   # Create architects
+│   ├── generate_agents.py             # Create all project agents (unified)
+│   ├── generate_senior_architect.py   # Create architects (legacy)
 │   ├── validate_skill.py              # Validate skills
+│   ├── validate_agent.py              # Validate agents
 │   ├── test_skill_generator.sh        # Test suite
 │   └── README.md
 │
@@ -666,6 +695,7 @@ claude-devkit/
 │   ├── score-dimensions.json          # Score dimension weights and logic (machine-readable)
 │   ├── scanner-languages.json         # Language grammar config for codebase scanner
 │   ├── scanner-value-thresholds.json  # Thresholds for scanner value cohort analysis
+│   ├── devkit-defaults.json           # Default config for the meta-harness CLI
 │   ├── tech-stack-definitions/        # Tech stack configs (7 stacks)
 │   └── base-definitions/              # (empty - reserved for future)
 │
@@ -675,12 +705,14 @@ claude-devkit/
 │   ├── uninstall.sh           # Clean uninstallation
 │   ├── validate-all.sh        # Health check - validate all skills
 │   ├── codebase-scanner.py    # Deterministic codebase symbol index (tree-sitter + regex fallback)
+│   ├── devkit_cli.py          # Meta-harness CLI implementation (stdlib only)
+│   ├── devkit                 # Meta-harness entry point (thin bash wrapper)
 │   ├── emit-audit-event.sh    # Audit event emission helper (invoked by skills)
 │   ├── audit-log-query.sh     # Query utility for JSONL audit logs
 │   ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log (includes scanner_mode and scanner_tokens fields)
 │   ├── score-reflector.sh     # Deterministic score reflector (candidate learnings, scanner-aware cohort analysis)
 │   ├── scanner-value-report.sh  # Scanner value cohort analysis report
-│   └── test-integration.sh    # Integration smoke tests (42 tests)
+│   └── test-integration.sh    # Integration smoke tests (54 tests)
 │
 ├── .claude/                   # Project-specific agents
 │   └── agents/
@@ -800,7 +832,7 @@ venv/
 *.log
 
 # Audit logs (L1 ephemeral — gitignored at advisory maturity)
-plans/audit-logs/*.jsonl
+.devkit/plans/audit-logs/*.jsonl
 
 # Audit run state files (ephemeral — deleted at run end)
 .ship-audit-state-*
@@ -860,5 +892,5 @@ MIT - Use freely in your projects
 ---
 
 **Version:** 1.0.0
-**Last Updated:** 2026-07-15
+**Last Updated:** 2026-08-20
 **Maintained by:** @backspace-shmackspace
