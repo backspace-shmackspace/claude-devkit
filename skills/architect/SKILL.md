@@ -2,7 +2,7 @@
 name: architect
 description: Research and create a technical blueprint for a new feature.
 model: claude-opus-4-6
-version: 3.4.0
+version: 3.5.0
 ---
 # /architect Workflow
 
@@ -97,7 +97,7 @@ state = {
     'run_id': '${RUN_ID}',
     'audit_log': '${AUDIT_LOG}',
     'skill': 'architect',
-    'skill_version': '3.3.0',
+    'skill_version': '3.5.0',
     'security_maturity': 'advisory',
     'hmac_key': ''
 }
@@ -163,6 +163,42 @@ if [ -n "$SCANNER_OUTPUT" ]; then
 fi
 ```
 
+**5. Cross-repo context (when DEVKIT_TARGET_COUNT > 1):**
+
+If the environment variable `DEVKIT_TARGET_COUNT` is set and its value is greater than 1, this is a multi-target session (initiated via `devkit architect --with`). Gather context from all secondary targets (target 0 is the primary, already covered by reads 1-4 above):
+
+For each target N from 1 to DEVKIT_TARGET_COUNT-1:
+
+a. Read CLAUDE.md from `$DEVKIT_TARGET_N_PATH/CLAUDE.md` via Read tool (if exists). Extract key sections as done for the primary target in read 1.
+
+b. Run codebase-scanner on each secondary target:
+
+Tool: `Bash`
+
+```bash
+if [ "${DEVKIT_TARGET_COUNT:-1}" -gt 1 ]; then
+  for i in $(seq 1 $((DEVKIT_TARGET_COUNT - 1))); do
+    eval "TARGET_PATH=\$DEVKIT_TARGET_${i}_PATH"
+    eval "TARGET_NAME=\$DEVKIT_TARGET_${i}_NAME"
+    eval "TARGET_ID=\$DEVKIT_TARGET_${i}_ID"
+
+    echo "=== Secondary Target $i: $TARGET_NAME ($TARGET_PATH) ==="
+    echo "Project ID: $TARGET_ID"
+
+    # Run codebase scanner from target directory
+    if [ -x "$SCANNER_PYTHON" ]; then
+      (cd "$TARGET_PATH" && "$SCANNER_PYTHON" "$SCANNER_SCRIPT" --format summary --quiet 2>/dev/null || echo "Scanner unavailable for $TARGET_NAME")
+    else
+      (cd "$TARGET_PATH" && python3 "$SCANNER_SCRIPT" --format summary --quiet 2>/dev/null || echo "Scanner unavailable for $TARGET_NAME")
+    fi
+  done
+fi
+```
+
+c. Note each target's project name (`$DEVKIT_TARGET_N_NAME`) and ID (`$DEVKIT_TARGET_N_ID`).
+
+If `DEVKIT_TARGET_COUNT` is absent or equals 1, skip this section entirely (single-project mode, existing behavior unchanged).
+
 **Construct `$CONTEXT_BLOCK`:**
 
 Assemble the discovered context into a structured block:
@@ -184,6 +220,10 @@ Assemble the discovered context into a structured block:
 
 ### Codebase Structure (auto-generated)
 [Scanner output from step 4, or "Scanner not available. Agent will discover structure during planning."]
+
+### Cross-Repo Targets (multi-target session only)
+[For each secondary target: project name, project ID, key patterns from CLAUDE.md, scanner output]
+[If single-target session: omit this entire section]
 ---end context block format---
 
 **If CLAUDE.md does not exist:** Set patterns section to "No CLAUDE.md found." Continue to Step 2 (do not block).
@@ -216,6 +256,30 @@ Invoke the project-level architect. If none found, use a Task subagent with gene
 
 **IMPORTANT:** When calling the Task tool, you MUST pass the exact model string `claude-opus-4-6` — do NOT use shorthand like `opus` which resolves to a different model.
 
+**If DEVKIT_TARGET_COUNT > 1 (multi-target session):** Prepend the following preamble to the architect Task prompt (before the standard planning instruction). Construct it from the env vars discovered in Step 1:
+
+```
+This plan spans multiple repositories:
+[For each target N, 0 to DEVKIT_TARGET_COUNT-1:]
+- [PRIMARY or SECONDARY]: $DEVKIT_TARGET_N_NAME ($DEVKIT_TARGET_N_PATH)
+  Project ID: $DEVKIT_TARGET_N_ID
+
+Each Work Group in the Task Breakdown must specify which repository it targets using
+a `**Target:** <project-name>` annotation in the Work Group header (see format below).
+Use `devkit://` URIs when referencing artifacts in other targets' central storage.
+
+The plan's YAML frontmatter must include a `targets:` field listing all targets:
+---
+targets:
+  - path: $DEVKIT_TARGET_0_PATH
+    role: primary
+  - path: $DEVKIT_TARGET_1_PATH
+    role: secondary
+---
+```
+
+**If DEVKIT_TARGET_COUNT is absent or equals 1:** No preamble. Use the standard prompt below.
+
 Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
 
 Prompt:
@@ -243,13 +307,17 @@ Hard requirements for the plan:
 - src/types.ts (modify — shared types needed by both groups)
 
 ### Work Group 1: [descriptive name]
+**Target:** project-name
 - src/feature/component-a.ts (create)
 - src/feature/component-a.test.ts (create)
 
 ### Work Group 2: [descriptive name]
+**Target:** other-project-name
 - src/api/endpoint-b.ts (modify)
 - src/api/endpoint-b.test.ts (modify)
 ```
+
+The `**Target:**` annotation is required for cross-repo plans (DEVKIT_TARGET_COUNT > 1) and indicates which repository a work group operates on. For single-project plans, the annotation may be omitted.
 
 Work group rules:
 - Each work group runs in an isolated git worktree with its own coder agent — files in different work groups MUST be independent (no cross-group file modifications).
@@ -515,6 +583,21 @@ Read the latest review artifacts:
 ## Status: APPROVED
 ```
 
+**If PASS and DEVKIT_TARGET_COUNT > 1 (cross-repo plan-ref creation):**
+
+Tool: `Bash`
+
+```bash
+devkit plan sync "$DEVKIT_TARGET_0_PATH"
+```
+
+This reads the plan's `targets:` frontmatter and writes ref files to all involved
+project directories. If any secondary target is unreachable, the sync logs a warning
+but does not alter the verdict. Ref creation failure is non-blocking — the plan is
+already approved. Refs can be rebuilt later via `devkit plan sync`.
+
+If `DEVKIT_TARGET_COUNT` is absent or equals 1, skip this step.
+
 **Auto-commit plan and review artifacts (runs for both PASS and FAIL):**
 
 Tool: `Bash`
@@ -546,7 +629,7 @@ If APPROVED:
 [ -n "$PLAN_FILES" ] && git commit -m "$(cat <<'EOF'
 feat(plans): approve [feature-name] blueprint
 
-Plan approved by /architect v3.0.0 with all review gates passed.
+Plan approved by /architect v3.5.0 with all review gates passed.
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
@@ -558,7 +641,7 @@ If FAIL:
 [ -n "$PLAN_FILES" ] && git commit -m "$(cat <<'EOF'
 chore(plans): save failed [feature-name] blueprint
 
-Plan did not pass /architect v3.0.0 review gates. Committing artifacts for reference.
+Plan did not pass /architect v3.5.0 review gates. Committing artifacts for reference.
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF

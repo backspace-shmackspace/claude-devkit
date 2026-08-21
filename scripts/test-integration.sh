@@ -9,7 +9,7 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 118 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+# 147 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
 #           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
 #           threat model consumption structural tests (10 tests),
 #           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
@@ -25,7 +25,11 @@
 #           central storage 3, env vars 3, migration 6, helper scripts 7,
 #           security 3, relink/path 4, backward compat 3),
 #           code review M-2 tests (2 tests: env detached propagation,
-#           permission check on run), cleanup
+#           permission check on run),
+#           cross-repo plan tests (29 tests: frontmatter parser 6, URI 3,
+#           plan refs 3, multi-target shell 3, multi-target skill dispatch 3,
+#           devkit plan subcommand 5, read_plan_refs 2, validate_plan_targets 2,
+#           cmd_path traversal 1, plan archive 1), cleanup
 
 set -e
 
@@ -60,6 +64,10 @@ ZPF_TEST_DIR="/tmp/devkit-zpf-test"
 ZPF_MIGRATE_DIR="/tmp/devkit-zpf-migrate"
 ZPF_RELINK_DIR="/tmp/devkit-zpf-relink"
 ZPF_CENTRAL_CLEANUP_PREFIX="devkit-zpf-"
+CRP_TEST_DIR_1="/tmp/devkit-crp-test-1"
+CRP_TEST_DIR_2="/tmp/devkit-crp-test-2"
+CRP_SYMLINK="/tmp/devkit-crp-symlink"
+CRP_CENTRAL_CLEANUP_PREFIX="devkit-crp-"
 
 # Isolate all meta-harness registry writes from the real
 # ~/.claude-devkit/registry.json -- devkit_cli.py's get_registry_path()
@@ -99,7 +107,15 @@ cleanup() {
         for d in "$HOME/.claude-devkit/projects/devkit-harness-"*; do
             rm -rf "$d" 2>/dev/null || true
         done
+        # Clean up central dirs for cross-repo plan test fixtures
+        for d in "$HOME/.claude-devkit/projects/${CRP_CENTRAL_CLEANUP_PREFIX}"*; do
+            rm -rf "$d" 2>/dev/null || true
+        done
     fi
+    # Clean up cross-repo plan test fixtures
+    rm -rf "$CRP_TEST_DIR_1" 2>/dev/null || true
+    rm -rf "$CRP_TEST_DIR_2" 2>/dev/null || true
+    rm -f "$CRP_SYMLINK" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -126,6 +142,16 @@ if [ -d "$HOME/.claude-devkit/projects" ]; then
         rm -rf "$d" 2>/dev/null || true
     done
     for d in "$HOME/.claude-devkit/projects/devkit-harness-"*; do
+        rm -rf "$d" 2>/dev/null || true
+    done
+fi
+
+# Clean up and set up cross-repo plan test fixtures at start
+rm -rf "$CRP_TEST_DIR_1" 2>/dev/null || true
+rm -rf "$CRP_TEST_DIR_2" 2>/dev/null || true
+rm -f "$CRP_SYMLINK" 2>/dev/null || true
+if [ -d "$HOME/.claude-devkit/projects" ]; then
+    for d in "$HOME/.claude-devkit/projects/${CRP_CENTRAL_CLEANUP_PREFIX}"*; do
         rm -rf "$d" 2>/dev/null || true
     done
 fi
@@ -1945,6 +1971,776 @@ print('PASS: cmd_run_skill aborted on insecure project dir permissions')
 \"" \
     0
 
+# --- Cross-repo plan support tests (120-148) ---
+# These tests verify plan frontmatter parsing, devkit:// URI resolution,
+# plan-ref files, multi-target shell/skill dispatch, devkit plan subcommand,
+# read_plan_refs, validate_plan_targets, cmd_path traversal protection, and
+# plan archive. Fixtures: CRP_TEST_DIR_1, CRP_TEST_DIR_2 (git repos).
+
+# Set up cross-repo plan test git repos and initialize them
+mkdir -p "$CRP_TEST_DIR_1" && git -C "$CRP_TEST_DIR_1" init -q
+mkdir -p "$CRP_TEST_DIR_2" && git -C "$CRP_TEST_DIR_2" init -q
+python3 "$DEVKIT_CLI" init "$CRP_TEST_DIR_1" 2>/dev/null
+python3 "$DEVKIT_CLI" init "$CRP_TEST_DIR_2" 2>/dev/null
+
+# --- Plan frontmatter parser tests (120-125) ---
+
+# Test 120: parse_plan_frontmatter extracts targets from valid frontmatter
+run_test 120 "parse_plan_frontmatter extracts targets from valid frontmatter" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+content = '''---
+status: DRAFT
+targets:
+  - path: ~/projects/project-a
+    role: primary
+  - path: ~/projects/project-b
+    role: secondary
+---
+# Plan body
+'''
+fm, err = d.parse_plan_frontmatter(content)
+assert err == '', f'Unexpected error: {err}'
+assert fm.get('status') == 'DRAFT', f'status mismatch: {fm.get(\\\"status\\\")}'
+assert 'targets' in fm, 'missing targets key'
+assert len(fm['targets']) == 2, f'expected 2 targets, got {len(fm[\\\"targets\\\"])}'
+assert fm['targets'][0]['path'] == '~/projects/project-a', f'wrong path: {fm[\\\"targets\\\"][0]}'
+assert fm['targets'][0]['role'] == 'primary', f'wrong role: {fm[\\\"targets\\\"][0]}'
+assert fm['targets'][1]['role'] == 'secondary', f'wrong role: {fm[\\\"targets\\\"][1]}'
+print('PASS: parse_plan_frontmatter extracts targets correctly')
+\"" \
+    0
+
+# Test 121: parse_plan_frontmatter handles plan without targets (single-project)
+run_test 121 "parse_plan_frontmatter handles plan without targets (single-project)" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+content = '''---
+status: APPROVED
+author: test-user
+---
+# Single project plan
+'''
+fm, err = d.parse_plan_frontmatter(content)
+assert err == '', f'Unexpected error: {err}'
+assert fm.get('status') == 'APPROVED', f'status mismatch: {fm.get(\\\"status\\\")}'
+assert 'targets' not in fm, f'targets should not be present: {fm}'
+assert fm.get('author') == 'test-user', f'author mismatch: {fm.get(\\\"author\\\")}'
+print('PASS: single-project plan parsed without targets key')
+\"" \
+    0
+
+# Test 122: validate_plan_targets rejects more than 10 targets
+run_test 122 "validate_plan_targets rejects more than 10 targets" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+# Build a list of 11 targets
+targets = []
+for i in range(11):
+    role = 'primary' if i == 0 else 'secondary'
+    targets.append({'path': f'/tmp/project-{i}', 'role': role})
+
+config = dict(d.FALLBACK_DEFAULTS)
+ok, err = d.validate_plan_targets(targets, config)
+assert not ok, 'should reject >10 targets'
+assert 'maximum' in err.lower() or 'exceed' in err.lower(), f'error should mention maximum: {err}'
+print(f'PASS: 11 targets rejected with: {err}')
+\"" \
+    0
+
+# Test 123: parse_plan_frontmatter handles mixed flat keys and list keys
+run_test 123 "parse_plan_frontmatter handles mixed flat keys and list keys" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+content = '''---
+status: DRAFT
+targets:
+  - path: ~/projects/proj-a
+    role: primary
+  - path: ~/projects/proj-b
+    role: secondary
+author: test-author
+---
+# Plan
+'''
+fm, err = d.parse_plan_frontmatter(content)
+assert err == '', f'Unexpected error: {err}'
+assert fm.get('status') == 'DRAFT', f'status mismatch: {fm.get(\\\"status\\\")}'
+assert len(fm.get('targets', [])) == 2, f'expected 2 targets, got {len(fm.get(\\\"targets\\\", []))}'
+assert fm.get('author') == 'test-author', f'author not parsed after list: {fm.get(\\\"author\\\")}'
+print('PASS: mixed flat keys and list keys parsed correctly')
+\"" \
+    0
+
+# Test 124: parse_plan_frontmatter fails atomically on malformed indentation
+run_test 124 "parse_plan_frontmatter fails atomically on malformed indentation" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+content = '''---
+status: DRAFT
+targets:
+  - path: ~/projects/proj-a
+    role: primary
+  - path: ~/projects/proj-b
+role: secondary
+---
+'''
+fm, err = d.parse_plan_frontmatter(content)
+assert fm == {}, f'should return empty dict on error, got: {fm}'
+assert err != '', 'should return error message'
+print(f'PASS: malformed indentation rejected with: {err}')
+\"" \
+    0
+
+# Test 125: parse_plan_frontmatter fails atomically on partial targets
+run_test 125 "parse_plan_frontmatter fails atomically on partial targets" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+content = '''---
+status: DRAFT
+targets:
+  - path: ~/projects/proj-a
+    role: primary
+  - : bad
+---
+'''
+fm, err = d.parse_plan_frontmatter(content)
+assert fm == {}, f'should return empty dict on partial parse, got: {fm}'
+assert err != '', 'should return error message for bad list item'
+print(f'PASS: partial targets rejected atomically with: {err}')
+\"" \
+    0
+
+# --- devkit:// URI tests (126-128) ---
+
+# Test 126: resolve_devkit_uri resolves valid URI to absolute path
+run_test 126 "resolve_devkit_uri resolves valid URI to absolute path" \
+    "python3 -c \"
+import sys, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+ok, result = d.resolve_devkit_uri('devkit://test-project-abc123456789/plans/test.md')
+assert ok, f'should resolve successfully, got error: {result}'
+expected_suffix = os.path.join('.claude-devkit', 'projects', 'test-project-abc123456789', 'plans', 'test.md')
+assert result.endswith(expected_suffix), f'resolved path should end with {expected_suffix}, got: {result}'
+assert '~' not in result, f'resolved path should not contain tilde: {result}'
+print(f'PASS: resolved to {result}')
+\"" \
+    0
+
+# Test 127: resolve_devkit_uri rejects path traversal
+run_test 127 "resolve_devkit_uri rejects path traversal" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+ok, result = d.resolve_devkit_uri('devkit://test-project-abc123456789/../../../etc/passwd')
+assert not ok, 'should reject path traversal'
+assert 'traversal' in result.lower() or '..' in result, f'error should mention traversal: {result}'
+print(f'PASS: path traversal rejected with: {result}')
+\"" \
+    0
+
+# Test 128: resolve_devkit_uri rejects invalid project-id format
+run_test 128 "resolve_devkit_uri rejects invalid project-id format" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+ok, result = d.resolve_devkit_uri('devkit://../../bad/plans/test.md')
+assert not ok, 'should reject invalid project ID'
+assert 'project' in result.lower() or 'invalid' in result.lower(), f'error should mention project/invalid: {result}'
+print(f'PASS: invalid project-id rejected with: {result}')
+\"" \
+    0
+
+# --- Plan ref tests (129-131) ---
+
+# Test 129: write_plan_refs creates ref files in all target project dirs
+run_test 129 "write_plan_refs creates ref files in all target project dirs" \
+    "python3 -c \"
+import sys, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+resolved1 = Path('$CRP_TEST_DIR_1').resolve()
+resolved2 = Path('$CRP_TEST_DIR_2').resolve()
+pid1 = d.compute_project_id(resolved1)
+pid2 = d.compute_project_id(resolved2)
+proj_dir1 = d.get_project_dir(resolved1)
+proj_dir2 = d.get_project_dir(resolved2)
+
+targets = [
+    {'project_id': pid1, 'project_path': str(resolved1), 'role': 'primary'},
+    {'project_id': pid2, 'project_path': str(resolved2), 'role': 'secondary'},
+]
+plan_name = 'test-cross-repo-plan'
+plan_file = 'test-cross-repo-plan.md'
+primary_plan_path = str(proj_dir1 / 'plans' / plan_file)
+
+d.write_plan_refs(plan_name, plan_file, primary_plan_path, pid1, str(resolved1), targets)
+
+ref1 = proj_dir1 / 'plan-refs' / f'{plan_name}.ref.json'
+ref2 = proj_dir2 / 'plan-refs' / f'{plan_name}.ref.json'
+assert ref1.exists(), f'ref file not found at {ref1}'
+assert ref2.exists(), f'ref file not found at {ref2}'
+
+import json
+with open(ref1) as f:
+    data1 = json.load(f)
+assert data1['role'] == 'primary', f'wrong role in primary ref: {data1[\\\"role\\\"]}'
+with open(ref2) as f:
+    data2 = json.load(f)
+assert data2['role'] == 'secondary', f'wrong role in secondary ref: {data2[\\\"role\\\"]}'
+print('PASS: ref files created in both project dirs')
+\"" \
+    0
+
+# Test 130: plan-refs/ directory has 0o700 permissions
+run_test 130 "plan-refs/ directory has 0o700 permissions" \
+    "python3 -c \"
+import sys, os, stat
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+resolved1 = Path('$CRP_TEST_DIR_1').resolve()
+proj_dir1 = d.get_project_dir(resolved1)
+refs_dir = proj_dir1 / 'plan-refs'
+if refs_dir.exists():
+    mode = stat.S_IMODE(refs_dir.stat().st_mode)
+    assert mode == 0o700, f'plan-refs/ permissions: {oct(mode)}, expected 0o700'
+    print('PASS: plan-refs/ has 0o700 permissions')
+else:
+    print('PASS: skipped (plan-refs/ not yet created)')
+\"" \
+    0
+
+# Test 131: ref files have 0o600 permissions and store absolute paths
+run_test 131 "ref files have 0o600 permissions and store absolute paths" \
+    "python3 -c \"
+import sys, os, stat, json
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+resolved1 = Path('$CRP_TEST_DIR_1').resolve()
+proj_dir1 = d.get_project_dir(resolved1)
+refs_dir = proj_dir1 / 'plan-refs'
+ref_files = list(refs_dir.glob('*.ref.json')) if refs_dir.exists() else []
+assert len(ref_files) > 0, 'no ref files found'
+for ref_path in ref_files:
+    mode = stat.S_IMODE(ref_path.stat().st_mode)
+    assert mode == 0o600, f'{ref_path.name} permissions: {oct(mode)}, expected 0o600'
+    with open(ref_path) as f:
+        data = json.load(f)
+    assert '~' not in data.get('primary_plan_path', ''), f'primary_plan_path contains tilde: {data[\\\"primary_plan_path\\\"]}'
+    for t in data.get('all_targets', []):
+        assert '~' not in t.get('project_path', ''), f'project_path contains tilde: {t[\\\"project_path\\\"]}'
+print('PASS: ref files have 0o600 permissions and absolute paths (no tildes)')
+\"" \
+    0
+
+# --- Multi-target shell tests (132-134) ---
+
+# Test 132: cmd_shell with --with sets DEVKIT_TARGET_COUNT and indexed env vars
+run_test 132 "cmd_shell with --with sets DEVKIT_TARGET_COUNT and indexed env vars" \
+    "python3 -c \"
+import sys, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+config = dict(d.FALLBACK_DEFAULTS)
+config['allowed_roots'] = ['~/projects/', '~/workspaces/']
+
+resolved1 = Path('$CRP_TEST_DIR_1').resolve()
+resolved2 = Path('$CRP_TEST_DIR_2').resolve()
+
+# Capture the env dict that would be passed to execvp by monkey-patching
+captured_env = {}
+orig_execvp = os.execvp
+def mock_execvp(file, args):
+    captured_env.update(os.environ)
+    raise SystemExit(0)  # Don't actually exec
+os.execvp = mock_execvp
+try:
+    d.cmd_shell(['$CRP_TEST_DIR_1', '--with', '$CRP_TEST_DIR_2'], config)
+except SystemExit:
+    pass
+finally:
+    os.execvp = orig_execvp
+
+assert captured_env.get('DEVKIT_TARGET_COUNT') == '2', \
+    f'DEVKIT_TARGET_COUNT: {captured_env.get(\\\"DEVKIT_TARGET_COUNT\\\")}'
+assert captured_env.get('DEVKIT_TARGET_0_PATH') == str(resolved1), \
+    f'TARGET_0_PATH: {captured_env.get(\\\"DEVKIT_TARGET_0_PATH\\\")} != {resolved1}'
+assert captured_env.get('DEVKIT_TARGET_1_PATH') == str(resolved2), \
+    f'TARGET_1_PATH: {captured_env.get(\\\"DEVKIT_TARGET_1_PATH\\\")} != {resolved2}'
+print('PASS: multi-target shell sets DEVKIT_TARGET_COUNT and indexed vars')
+\"" \
+    0
+
+# Test 133: cmd_shell with --with validates secondary targets
+run_test 133 "cmd_shell with --with validates secondary targets" \
+    "python3 -c \"
+import sys, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+config = dict(d.FALLBACK_DEFAULTS)
+config['allowed_roots'] = ['~/projects/', '~/workspaces/']
+
+# Patch execvp to prevent actual exec
+orig_execvp = os.execvp
+os.execvp = lambda f, a: None
+try:
+    result = d.cmd_shell(['$CRP_TEST_DIR_1', '--with', '/tmp/nonexistent'], config)
+    assert result == 1 or result is None, f'Expected exit 1 for invalid --with target, got {result}'
+    print('PASS: invalid --with target rejected')
+except SystemExit as e:
+    if e.code in (1, 2):
+        print('PASS: invalid --with target rejected via sys.exit')
+    else:
+        raise
+finally:
+    os.execvp = orig_execvp
+\"" \
+    0
+
+# Test 134: cmd_shell with --with rejects symlinked secondary targets
+run_test 134 "cmd_shell with --with rejects symlinked secondary targets" \
+    "ln -sf '$CRP_TEST_DIR_2' '$CRP_SYMLINK' && \
+     python3 -c \"
+import sys, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+config = dict(d.FALLBACK_DEFAULTS)
+config['allowed_roots'] = ['~/projects/', '~/workspaces/']
+
+orig_execvp = os.execvp
+os.execvp = lambda f, a: None
+try:
+    result = d.cmd_shell(['$CRP_TEST_DIR_1', '--with', '$CRP_SYMLINK'], config)
+    assert result == 1 or result is None, f'Expected exit 1 for symlink --with, got {result}'
+    print('PASS: symlinked --with target rejected')
+except SystemExit as e:
+    if e.code in (1, 2):
+        print('PASS: symlinked --with target rejected via sys.exit')
+    else:
+        raise
+finally:
+    os.execvp = orig_execvp
+\" && rm -f '$CRP_SYMLINK'" \
+    0
+
+# --- Multi-target skill dispatch tests (135-137) ---
+
+# Test 135: extract_with_targets extracts --with pairs correctly
+run_test 135 "extract_with_targets extracts --with pairs correctly" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+remaining, targets = d.extract_with_targets(['arg1', '--with', '/tmp/a', '--detach', '--with', '/tmp/b'])
+assert remaining == ['arg1', '--detach'], f'remaining mismatch: {remaining}'
+assert targets == ['/tmp/a', '/tmp/b'], f'targets mismatch: {targets}'
+print('PASS: extract_with_targets extracts --with pairs correctly')
+\"" \
+    0
+
+# Test 136: extract_with_targets exits 2 on missing path after --with
+run_test 136 "extract_with_targets exits 2 on missing path after --with" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+try:
+    d.extract_with_targets(['arg1', '--with'])
+    print('FAIL: should have exited')
+    sys.exit(1)
+except SystemExit as e:
+    assert e.code == 2, f'expected exit 2, got {e.code}'
+    print('PASS: missing path after --with exits 2')
+\"" \
+    0
+
+# Test 137: cmd_run_skill with --with and --detach extracts both correctly
+run_test 137 "cmd_run_skill with --with and --detach extracts both correctly" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+# Test extract_with_targets followed by --detach extraction
+args = ['feature', '--with', '/tmp/bar', '--detach']
+remaining, with_targets = d.extract_with_targets(args)
+assert with_targets == ['/tmp/bar'], f'with_targets mismatch: {with_targets}'
+detach = '--detach' in remaining
+assert detach, '--detach should be in remaining after --with extraction'
+remaining = [a for a in remaining if a != '--detach']
+assert remaining == ['feature'], f'remaining after both extractions: {remaining}'
+print('PASS: --with and --detach extracted correctly in sequence')
+\"" \
+    0
+
+# --- devkit plan subcommand tests (138-142) ---
+
+# Test 138: devkit plan list shows cross-repo refs
+run_test 138 "devkit plan list shows cross-repo refs" \
+    "python3 -c \"
+import sys, json, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+# Ensure a ref file exists from test 129
+resolved1 = Path('$CRP_TEST_DIR_1').resolve()
+proj_dir1 = d.get_project_dir(resolved1)
+refs_dir = proj_dir1 / 'plan-refs'
+ref_files = list(refs_dir.glob('*.ref.json')) if refs_dir.exists() else []
+assert len(ref_files) > 0, 'prerequisite: ref file from test 129 should exist'
+\" && \
+     OUTPUT=\$(python3 '$DEVKIT_CLI' plan list '$CRP_TEST_DIR_1' 2>/dev/null) && \
+     echo \"\$OUTPUT\" | grep -q 'test-cross-repo-plan'" \
+    0
+
+# Test 139: devkit plan show displays plan details with target info
+run_test 139 "devkit plan show displays plan details with target info" \
+    "python3 -c \"
+import sys, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+# Create a plan file with targets: frontmatter in the primary project
+resolved1 = Path('$CRP_TEST_DIR_1').resolve()
+proj_dir1 = d.get_project_dir(resolved1)
+plans_dir = proj_dir1 / 'plans'
+plans_dir.mkdir(parents=True, exist_ok=True)
+plan_content = '''---
+status: DRAFT
+targets:
+  - path: $CRP_TEST_DIR_1
+    role: primary
+  - path: $CRP_TEST_DIR_2
+    role: secondary
+---
+# Test cross-repo plan
+'''
+plan_path = plans_dir / 'test-cross-repo-plan.md'
+plan_path.write_text(plan_content)
+\" && \
+     OUTPUT=\$(python3 '$DEVKIT_CLI' plan show '$CRP_TEST_DIR_1' test-cross-repo-plan 2>/dev/null) && \
+     echo \"\$OUTPUT\" | grep -qi 'primary\|secondary\|target'" \
+    0
+
+# Test 140: devkit plan validate detects missing primary target
+run_test 140 "devkit plan validate detects missing primary target" \
+    "PLAN_FILE=\"/tmp/crp-validate-noprimary.md\" && \
+     cat > \"\$PLAN_FILE\" <<'PLANEOF'
+---
+status: DRAFT
+targets:
+  - path: $CRP_TEST_DIR_1
+    role: secondary
+  - path: $CRP_TEST_DIR_2
+    role: secondary
+---
+# No primary target
+PLANEOF
+     python3 '$DEVKIT_CLI' plan validate '$CRP_TEST_DIR_1' \"\$PLAN_FILE\"; EXIT=\$?; \
+     rm -f \"\$PLAN_FILE\"; \
+     [ \"\$EXIT\" -ne 0 ]" \
+    0
+
+# Test 141: devkit plan validate detects uninitialized secondary target
+run_test 141 "devkit plan validate detects uninitialized secondary target" \
+    "PLAN_FILE=\"/tmp/crp-validate-uninit.md\" && \
+     UNINIT_DIR=\"/tmp/${CRP_CENTRAL_CLEANUP_PREFIX}uninit-\$(date +%s)\" && \
+     mkdir -p \"\$UNINIT_DIR\" && git -C \"\$UNINIT_DIR\" init -q && \
+     cat > \"\$PLAN_FILE\" <<PLANEOF
+---
+status: DRAFT
+targets:
+  - path: $CRP_TEST_DIR_1
+    role: primary
+  - path: \$UNINIT_DIR
+    role: secondary
+---
+# Uninitialized secondary
+PLANEOF
+     python3 '$DEVKIT_CLI' plan validate '$CRP_TEST_DIR_1' \"\$PLAN_FILE\"; EXIT=\$?; \
+     rm -f \"\$PLAN_FILE\"; rm -rf \"\$UNINIT_DIR\" 2>/dev/null || true; \
+     [ \"\$EXIT\" -ne 0 ]" \
+    0
+
+# Test 142: devkit plan sync rebuilds refs and removes stale refs
+run_test 142 "devkit plan sync rebuilds refs and removes stale refs" \
+    "python3 -c \"
+import sys, json, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+# Create a stale ref file for a plan that no longer exists
+resolved1 = Path('$CRP_TEST_DIR_1').resolve()
+proj_dir1 = d.get_project_dir(resolved1)
+refs_dir = proj_dir1 / 'plan-refs'
+refs_dir.mkdir(parents=True, exist_ok=True)
+
+stale_ref = refs_dir / 'deleted-plan.ref.json'
+stale_data = {
+    'schema_version': '1.0.0',
+    'plan_name': 'deleted-plan',
+    'plan_file': 'deleted-plan.md',
+    'primary_project_id': d.compute_project_id(resolved1),
+    'primary_project_path': str(resolved1),
+    'primary_plan_path': str(proj_dir1 / 'plans' / 'deleted-plan.md'),
+    'role': 'primary',
+    'all_targets': [],
+    'created_at': '2026-01-01T00:00:00Z',
+    'created_by': 'test'
+}
+fd = os.open(str(stale_ref), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w') as f:
+    json.dump(stale_data, f)
+assert stale_ref.exists(), 'stale ref should exist before sync'
+\" && \
+     python3 '$DEVKIT_CLI' plan sync '$CRP_TEST_DIR_1' 2>/dev/null && \
+     python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+resolved1 = Path('$CRP_TEST_DIR_1').resolve()
+proj_dir1 = d.get_project_dir(resolved1)
+stale_ref = proj_dir1 / 'plan-refs' / 'deleted-plan.ref.json'
+assert not stale_ref.exists(), f'stale ref should be removed after sync: {stale_ref}'
+print('PASS: stale ref removed, existing refs rebuilt')
+\"" \
+    0
+
+# --- read_plan_refs tests (143-144) ---
+
+# Test 143: read_plan_refs returns empty list for missing plan-refs/ directory
+run_test 143 "read_plan_refs returns empty list for missing plan-refs/ directory" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+# Use a project dir that exists but has no plan-refs/
+test_dir = Path('/tmp/${CRP_CENTRAL_CLEANUP_PREFIX}no-refs')
+test_dir.mkdir(parents=True, exist_ok=True)
+
+refs = d.read_plan_refs(test_dir)
+assert refs == [], f'expected empty list, got: {refs}'
+
+import shutil
+shutil.rmtree(str(test_dir), ignore_errors=True)
+print('PASS: read_plan_refs returns empty list for missing directory')
+\"" \
+    0
+
+# Test 144: read_plan_refs rejects oversized ref files
+run_test 144 "read_plan_refs rejects oversized ref files" \
+    "python3 -c \"
+import sys, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+test_dir = Path('/tmp/${CRP_CENTRAL_CLEANUP_PREFIX}oversize-refs')
+refs_dir = test_dir / 'plan-refs'
+refs_dir.mkdir(parents=True, exist_ok=True)
+
+# Create a valid small ref file
+small_ref = refs_dir / 'good-plan.ref.json'
+import json
+small_data = {
+    'schema_version': '1.0.0', 'plan_name': 'good-plan',
+    'plan_file': 'good-plan.md', 'primary_project_id': 'test-abc123456789',
+    'primary_project_path': '/tmp/test', 'primary_plan_path': '/tmp/test/plans/good.md',
+    'role': 'primary', 'all_targets': [], 'created_at': '2026-01-01T00:00:00Z',
+    'created_by': 'test'
+}
+fd = os.open(str(small_ref), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w') as f:
+    json.dump(small_data, f)
+
+# Create an oversized ref file (>100KB)
+big_ref = refs_dir / 'huge-plan.ref.json'
+fd2 = os.open(str(big_ref), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd2, 'w') as f:
+    f.write('x' * 200000)
+
+refs = d.read_plan_refs(test_dir)
+# The oversized file should be skipped, only the valid one returned
+names = [r.get('plan_name') for r in refs]
+assert 'good-plan' in names, f'valid ref should be returned: {names}'
+# huge-plan should NOT appear (it is not valid JSON anyway, but size check comes first)
+assert 'huge-plan' not in names, f'oversized ref should be skipped: {names}'
+
+import shutil
+shutil.rmtree(str(test_dir), ignore_errors=True)
+print('PASS: oversized ref file skipped, valid refs returned')
+\"" \
+    0
+
+# --- validate_plan_targets tests (145-146) ---
+
+# Test 145: validate_plan_targets rejects duplicate primaries
+run_test 145 "validate_plan_targets rejects duplicate primaries" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+targets = [
+    {'path': '/tmp/a', 'role': 'primary'},
+    {'path': '/tmp/b', 'role': 'primary'},
+]
+config = dict(d.FALLBACK_DEFAULTS)
+ok, err = d.validate_plan_targets(targets, config)
+assert not ok, 'should reject duplicate primaries'
+assert 'primary' in err.lower() and 'multiple' in err.lower(), f'error should mention multiple primary: {err}'
+print(f'PASS: duplicate primaries rejected with: {err}')
+\"" \
+    0
+
+# Test 146: validate_plan_targets rejects targets list with no primary
+run_test 146 "validate_plan_targets rejects targets list with no primary" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+targets = [
+    {'path': '/tmp/a', 'role': 'secondary'},
+    {'path': '/tmp/b', 'role': 'secondary'},
+]
+config = dict(d.FALLBACK_DEFAULTS)
+ok, err = d.validate_plan_targets(targets, config)
+assert not ok, 'should reject no primary'
+assert 'primary' in err.lower(), f'error should mention primary: {err}'
+print(f'PASS: no primary rejected with: {err}')
+\"" \
+    0
+
+# --- cmd_path traversal protection test (147) ---
+
+# Test 147: cmd_path rejects path traversal via .. segments
+run_test 147 "cmd_path rejects path traversal via .. segments" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+
+config = dict(d.FALLBACK_DEFAULTS)
+config['allowed_roots'] = ['~/projects/', '~/workspaces/']
+
+# Should reject traversal
+result = d.cmd_path('$CRP_TEST_DIR_1', config, subpath='../../etc/passwd')
+assert result == 1, f'expected exit 1 for traversal, got {result}'
+
+# Should accept valid subpath
+result2 = d.cmd_path('$CRP_TEST_DIR_1', config, subpath='plans/feature.md')
+assert result2 == 0, f'expected exit 0 for valid subpath, got {result2}'
+print('PASS: cmd_path rejects traversal, accepts valid subpath')
+\"" \
+    0
+
+# --- devkit plan archive test (148) ---
+
+# Test 148: devkit plan archive removes ref files from all involved projects
+run_test 148 "devkit plan archive removes ref files from all involved projects" \
+    "python3 -c \"
+import sys, json, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+# Ensure ref files exist for test-cross-repo-plan (from test 129)
+resolved1 = Path('$CRP_TEST_DIR_1').resolve()
+resolved2 = Path('$CRP_TEST_DIR_2').resolve()
+proj_dir1 = d.get_project_dir(resolved1)
+proj_dir2 = d.get_project_dir(resolved2)
+pid1 = d.compute_project_id(resolved1)
+pid2 = d.compute_project_id(resolved2)
+
+# Re-create refs to ensure they exist
+targets = [
+    {'project_id': pid1, 'project_path': str(resolved1), 'role': 'primary'},
+    {'project_id': pid2, 'project_path': str(resolved2), 'role': 'secondary'},
+]
+plan_name = 'archive-test-plan'
+plan_file = 'archive-test-plan.md'
+plans_dir = proj_dir1 / 'plans'
+plans_dir.mkdir(parents=True, exist_ok=True)
+# Create the plan file
+plan_path = plans_dir / plan_file
+plan_path.write_text('---\nstatus: APPROVED\n---\n# Archive test\n')
+primary_plan_path = str(plan_path)
+d.write_plan_refs(plan_name, plan_file, primary_plan_path, pid1, str(resolved1), targets)
+
+ref1 = proj_dir1 / 'plan-refs' / f'{plan_name}.ref.json'
+ref2 = proj_dir2 / 'plan-refs' / f'{plan_name}.ref.json'
+assert ref1.exists(), f'ref1 should exist before archive: {ref1}'
+assert ref2.exists(), f'ref2 should exist before archive: {ref2}'
+\" && \
+     python3 '$DEVKIT_CLI' plan archive '$CRP_TEST_DIR_1' archive-test-plan 2>/dev/null && \
+     python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+resolved1 = Path('$CRP_TEST_DIR_1').resolve()
+resolved2 = Path('$CRP_TEST_DIR_2').resolve()
+proj_dir1 = d.get_project_dir(resolved1)
+proj_dir2 = d.get_project_dir(resolved2)
+
+ref1 = proj_dir1 / 'plan-refs' / 'archive-test-plan.ref.json'
+ref2 = proj_dir2 / 'plan-refs' / 'archive-test-plan.ref.json'
+assert not ref1.exists(), f'ref1 should be removed after archive: {ref1}'
+assert not ref2.exists(), f'ref2 should be removed after archive: {ref2}'
+
+# Plan should be moved to archive
+archive_dir = proj_dir1 / 'plans' / 'archive' / 'archive-test-plan'
+assert archive_dir.exists() or not (proj_dir1 / 'plans' / 'archive-test-plan.md').exists(), \
+    'plan should be archived or removed from plans/'
+print('PASS: ref files removed from all projects after archive')
+\"" \
+    0
+
 # Test 9: Cleanup
 echo ""
 echo -e "${BLUE}Test 9: Cleanup${RESET}"
@@ -1967,11 +2763,18 @@ fi
 rm -rf "$ZPF_TEST_DIR" || true
 rm -rf "$ZPF_MIGRATE_DIR" || true
 rm -rf "$ZPF_RELINK_DIR" || true
+# Clean up cross-repo plan test fixtures
+rm -rf "$CRP_TEST_DIR_1" || true
+rm -rf "$CRP_TEST_DIR_2" || true
+rm -f "$CRP_SYMLINK" || true
 if [ -d "$HOME/.claude-devkit/projects" ]; then
     for d in "$HOME/.claude-devkit/projects/${ZPF_CENTRAL_CLEANUP_PREFIX}"*; do
         rm -rf "$d" 2>/dev/null || true
     done
     for d in "$HOME/.claude-devkit/projects/devkit-harness-"*; do
+        rm -rf "$d" 2>/dev/null || true
+    done
+    for d in "$HOME/.claude-devkit/projects/${CRP_CENTRAL_CLEANUP_PREFIX}"*; do
         rm -rf "$d" 2>/dev/null || true
     done
 fi

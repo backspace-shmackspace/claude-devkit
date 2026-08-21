@@ -1,7 +1,7 @@
 ---
 name: ship
 description: Execute an approved plan using unattended implementation and validation with worktree isolation.
-version: 3.8.0
+version: 3.9.0
 model: claude-opus-4-6
 ---
 # /ship Workflow
@@ -144,7 +144,7 @@ state = {
     'run_id': '${RUN_ID}',
     'audit_log': '${AUDIT_LOG}',
     'skill': 'ship',
-    'skill_version': '3.7.0',
+    'skill_version': '3.9.0',
     'security_maturity': '${SECURITY_MATURITY}',
     'hmac_key': '${HMAC_KEY}'
 }
@@ -317,6 +317,74 @@ Read the plan file at `$ARGUMENTS`. Extract:
 If any section is missing or plan is not approved, stop with:
 "Plan at `$ARGUMENTS` is incomplete or not approved. Required: Task Breakdown, Test Plan, Acceptance Criteria, and ## Status: APPROVED marker. Run `/architect` first."
 
+**Cross-repo plan target validation (conditional):**
+
+Check whether the plan contains a `targets:` field in its YAML frontmatter. If so, validate that the current working directory matches one of the listed targets:
+
+Tool: `Bash`
+
+```bash
+# Parse plan frontmatter for targets field via devkit_cli parser
+TARGETS_JSON=$(PLAN_PATH_ARG="$PLAN_PATH" SCRIPTS_ARG="$DEVKIT_SCRIPTS" python3 -c "
+import sys, json, os
+plan_path = os.environ['PLAN_PATH_ARG']
+scripts_dir = os.environ['SCRIPTS_ARG']
+sys.path.insert(0, scripts_dir)
+from devkit_cli import parse_plan_frontmatter
+content = open(plan_path).read()
+fm, err = parse_plan_frontmatter(content)
+if err or 'targets' not in fm:
+    sys.exit(0)
+print(json.dumps(fm['targets']))
+" 2>/dev/null || echo "")
+
+if [ -n "$TARGETS_JSON" ]; then
+  echo "Cross-repo plan detected."
+  MATCH_RESULT=$(echo "$TARGETS_JSON" | python3 -c "
+import json, os, sys
+targets = json.loads(sys.stdin.read())
+cwd = os.path.realpath(os.getcwd())
+match_role = None
+primary_name = None
+for t in targets:
+    path = os.path.expanduser(t.get('path', ''))
+    resolved = os.path.realpath(path) if path else ''
+    role = t.get('role', 'secondary')
+    if role == 'primary':
+        primary_name = os.path.basename(resolved)
+    if resolved == cwd:
+        match_role = role
+if match_role is None:
+    print('BLOCKED')
+elif match_role == 'secondary':
+    print('SECONDARY:' + (primary_name or 'unknown'))
+else:
+    print('PRIMARY')
+" 2>/dev/null)
+
+  case "$MATCH_RESULT" in
+    BLOCKED)
+      echo "ERROR: Current directory does not match any target in plan frontmatter."
+      exit 1
+      ;;
+    SECONDARY:*)
+      PRIMARY_NAME="${MATCH_RESULT#SECONDARY:}"
+      CWD_NAME=$(basename "$(pwd -P)")
+      echo "WARNING: This plan's primary target is $PRIMARY_NAME. Running against secondary target $CWD_NAME. Only work groups targeting this repo will be executed."
+      ;;
+    PRIMARY)
+      echo "CWD matches primary target."
+      ;;
+  esac
+fi
+```
+
+If CWD does not match any target: **BLOCK** the workflow with "Current directory does not match any target in plan frontmatter."
+
+If CWD matches a secondary target: log a warning and continue. Only work groups targeting this repo will be executed (see target filtering below).
+
+If `targets:` is not present in frontmatter (single-project plan): skip this check entirely (existing behavior unchanged).
+
 **Security requirements validation (conditional):**
 
 Check whether this plan contains a `## Security Requirements` section:
@@ -368,6 +436,24 @@ If no `## Work Groups` section exists, treat the entire Task Breakdown as a sing
 - All files listed in the `### Files to Create` table
 
 Store these as the `scoped_files` for the single implicit work group. This list is used in Step 3d (boundary validation) and Step 3e (merge).
+
+**Cross-repo work group target filtering (conditional):**
+
+If the plan has `targets:` frontmatter (cross-repo plan detected in the target validation above), filter work groups by the `**Target:**` annotation in each work group header:
+
+**Matching algorithm:**
+- The `**Target:** <name>` value is compared against `DEVKIT_TARGET_N_NAME` environment variables (the basename of each project directory, e.g., `cve-api`).
+- Comparison is **case-insensitive** (e.g., `**Target:** CVE-API` matches `DEVKIT_TARGET_0_NAME=cve-api`).
+- The current project's name is determined by matching `$CWD` against `DEVKIT_TARGET_N_PATH` values (same resolution as the target validation above).
+
+**Edge case behavior:**
+- **Unannotated work group** (no `**Target:**` line) in a multi-target plan: Treated as primary-target-only. Log a warning: "Work group N has no target annotation; treating as primary target only."
+- **Mismatched target name** (`**Target:** cve-apii` -- typo): The work group does not match any known target. It is skipped with a warning: "Work group N targets unknown project 'cve-apii'; skipping."
+- **No matching work groups**: If no work groups match the current project after filtering, log: "No work groups target this project (<name>). Nothing to execute." and exit with PASS (no work to do is not an error -- the user may be running `/ship` against secondary targets in sequence).
+
+After filtering, only matching work groups are passed to Steps 3b-3f for worktree creation and dispatch.
+
+If the plan does not have `targets:` frontmatter (single-project plan), skip this filtering entirely and process all work groups (existing behavior unchanged).
 
 **Run codebase scanner:**
 
@@ -518,7 +604,7 @@ Command:
 git add <shared-files> && git commit -m "WIP: /ship shared dependencies for ${name}
 
 This is a temporary commit that will be squashed with the final implementation in Step 6.
-Created by: /ship skill v3.7.0"
+Created by: /ship skill v3.9.0"
 ```
 
 **Emit step_end for Step 3a:**
@@ -1200,7 +1286,7 @@ Tool: `Bash`
 # Example: git add src/auth.ts src/auth.test.ts lib/helpers.ts
 # NEVER use git add -A or git add .
 git add $SHARED_DEP_FILES $WG1_FILES $WG2_FILES ...
-git commit -m "WIP: ship v3.7.0 first-pass implementation (pre-revision)"
+git commit -m "WIP: ship v3.9.0 first-pass implementation (pre-revision)"
 ```
 
 This ensures revision-loop worktrees are based on the first-pass code, not the
@@ -1484,6 +1570,15 @@ fi
        mv "$PLANS_DIR/[name].dependency-audit.md" "$PLANS_DIR/archive/[name]/"
      fi
      ```
+   - Then, if this is a cross-repo plan (the target validation in Step 1 detected `targets:` frontmatter), clean up plan refs from all involved projects:
+     ```bash
+     # Cross-repo plan ref cleanup (conditional)
+     if [ "${DEVKIT_TARGET_COUNT:-1}" -gt 1 ] || [ -n "$TARGETS_JSON" ]; then
+       devkit plan archive "$DEVKIT_TARGET_0_PATH" "[name]" 2>/dev/null || \
+         echo "WARNING: Cross-repo plan ref cleanup failed. Refs can be rebuilt with: devkit plan sync"
+     fi
+     ```
+     If ref cleanup fails (e.g., secondary target unreachable), the archive proceeds with a warning. Ref cleanup failure is non-blocking.
 
 5. Output success message:
    - "✅ Implementation complete and committed.

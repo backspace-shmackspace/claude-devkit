@@ -16,11 +16,19 @@ Usage:
     devkit init <target>                     Initialize project for devkit management
     devkit <skill> <target> [args...]        Run a skill non-interactively in target
     devkit <skill> <target> --detach         Run skill in background, return run ID
+    devkit <skill> <target> --with <t2>      Run skill with multi-target context
     devkit shell <target>                    Open interactive Claude session in target
+    devkit shell <target> --with <t2>        Multi-target interactive session
     devkit status [<target>]                 Show status of one or all projects
     devkit migrate <target>                  Migrate legacy .devkit/ artifacts to central storage
     devkit relink <old-path> <new-path>      Recover artifacts after a project rename/move
     devkit path <target> [subpath]           Print the central artifact directory path
+    devkit plan list <target>                List plans (including cross-repo refs)
+    devkit plan show <target> <plan-name>    Show plan details with target info
+    devkit plan validate <target> <plan-file>  Validate plan frontmatter
+    devkit plan sync <target>                Rebuild plan-refs/ from frontmatter
+    devkit plan resolve <devkit-uri>         Resolve devkit:// URI to absolute path
+    devkit plan archive <target> <plan-name> Archive cross-repo plan and remove refs
     devkit jobs [<target>]                   List background runs (all or filtered)
     devkit result <run-id>                   Print result of a completed run
     devkit logs <run-id>                     Print stderr logs of a run
@@ -45,7 +53,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 STATE_SCHEMA_VERSION = "1.1.0"
 REGISTRY_SCHEMA_VERSION = "1.0.0"
@@ -79,7 +87,7 @@ PROJECT_ID_RE = re.compile(r'^[a-zA-Z0-9._-]+-[0-9a-f]{12}$')
 
 KNOWN_COMMANDS = (
     "init", "shell", "status", "deploy", "jobs", "result", "logs", "clean",
-    "migrate", "relink", "path",
+    "migrate", "relink", "path", "plan",
 )
 
 
@@ -340,6 +348,482 @@ def split_skill_args(skill_args):
         sep_idx = skill_args.index("--")
         return skill_args[:sep_idx], skill_args[sep_idx + 1:]
     return list(skill_args), []
+
+
+# --- Plan frontmatter parsing ----------------------------------------------
+
+def parse_plan_frontmatter(content):
+    """Parse plan YAML frontmatter supporting flat keys and one-deep list-of-dicts.
+
+    Returns (frontmatter_dict, error_message).
+    On success: ({"status": "DRAFT", "targets": [{"path": "...", "role": "..."}]}, "")
+    On failure: ({}, "error description")
+
+    Failure is atomic: if any line cannot be parsed, the entire parse fails.
+    No partial results are ever returned.
+    """
+    lines = content.split("\n")
+    if not lines or lines[0].rstrip() != "---":
+        return {}, ""
+
+    # Find closing ---
+    close_idx = None
+    for i in range(1, len(lines)):
+        if lines[i].rstrip() == "---":
+            close_idx = i
+            break
+    if close_idx is None:
+        return {}, "unclosed frontmatter"
+
+    fm_lines = lines[1:close_idx]
+
+    # Reject unsupported YAML features
+    for line in fm_lines:
+        stripped = line.rstrip()
+        if not stripped or stripped.lstrip().startswith("#"):
+            continue
+        for marker in ("|", ">"):
+            if stripped.endswith(marker) and ":" in stripped:
+                before_colon = stripped.split(":")[0]
+                after_colon = stripped.split(":", 1)[1].strip()
+                if after_colon == marker:
+                    return {}, f"unsupported YAML feature (block scalar): {stripped}"
+        for marker in ("&", "*", "!!", "{", "}", "[", "]"):
+            if marker in stripped:
+                # Only reject if it's clearly YAML syntax, not part of a value
+                if marker in ("&", "*"):
+                    # Anchors/aliases: reject if marker is standalone token
+                    parts = stripped.split()
+                    for p in parts:
+                        if p.startswith(marker) and len(p) > 1:
+                            return {}, f"unsupported YAML feature: {stripped}"
+                elif marker == "!!":
+                    if "!!" in stripped:
+                        return {}, f"unsupported YAML feature (tag): {stripped}"
+                elif marker in ("{", "}", "[", "]"):
+                    # Flow syntax: reject if value starts with { or [
+                    if ":" in stripped:
+                        val = stripped.split(":", 1)[1].strip()
+                        if val and val[0] in ("{", "["):
+                            return {}, f"unsupported YAML feature (flow syntax): {stripped}"
+
+    # Parse line by line
+    result = {}
+    state = "top"
+    current_list_key = None
+    current_item = None
+
+    flat_key_re = re.compile(r'^([a-zA-Z_][\w_-]*)\s*:\s*(.+)$')
+    list_begin_re = re.compile(r'^([a-zA-Z_][\w_-]*)\s*:\s*$')
+    list_item_re = re.compile(r'^\s+-\s+([a-zA-Z_][\w_-]*)\s*:\s*(.+)$')
+    sub_key_re = re.compile(r'^\s+([a-zA-Z_][\w_-]*)\s*:\s*(.+)$')
+    top_key_re = re.compile(r'^([a-zA-Z_][\w_-]*)\s*:')
+
+    i = 0
+    while i < len(fm_lines):
+        line = fm_lines[i].rstrip()
+
+        # Skip blank lines and comments
+        if not line or line.lstrip().startswith("#"):
+            i += 1
+            continue
+
+        if state == "top":
+            m = flat_key_re.match(line)
+            if m:
+                key, val = m.group(1), m.group(2).strip().strip('"').strip("'")
+                result[key] = val
+                i += 1
+                continue
+
+            m = list_begin_re.match(line)
+            if m:
+                current_list_key = m.group(1)
+                result[current_list_key] = []
+                state = "in_list"
+                i += 1
+                continue
+
+            return {}, f"unparseable line: {line}"
+
+        elif state == "in_list":
+            m = list_item_re.match(line)
+            if m:
+                if current_item is not None:
+                    result[current_list_key].append(current_item)
+                key, val = m.group(1), m.group(2).strip().strip('"').strip("'")
+                current_item = {key: val}
+                i += 1
+                continue
+
+            m = sub_key_re.match(line)
+            if m and not top_key_re.match(line):
+                if current_item is None:
+                    return {}, f"sub-key without list item: {line}"
+                key, val = m.group(1), m.group(2).strip().strip('"').strip("'")
+                current_item[key] = val
+                i += 1
+                continue
+
+            m = top_key_re.match(line)
+            if m:
+                # End of list -- flush current item and re-process in top state
+                if current_item is not None:
+                    result[current_list_key].append(current_item)
+                    current_item = None
+                current_list_key = None
+                state = "top"
+                # Do NOT increment i -- re-process this line in "top" state
+                continue
+
+            return {}, f"unparseable line in list: {line}"
+
+    # Flush any pending list item
+    if state == "in_list" and current_item is not None:
+        result[current_list_key].append(current_item)
+
+    return result, ""
+
+
+def validate_plan_targets(targets, config):
+    """Validate a parsed targets list from plan frontmatter.
+
+    Checks (in order -- cheap structural checks first, expensive path
+    validation last):
+    1. targets is a non-empty list
+    2. Target count does not exceed max_cross_repo_targets
+    3. Each target has valid role and required fields
+    4. Exactly one target has role: primary
+    5. All target paths are valid and devkit-initialized
+
+    Returns (True, "") on success, (False, error_message) on failure.
+    """
+    if not isinstance(targets, list) or not targets:
+        return False, "targets must be a non-empty list"
+
+    max_targets = config.get("max_cross_repo_targets",
+                             FALLBACK_DEFAULTS.get("max_cross_repo_targets", 10))
+    if len(targets) > max_targets:
+        return False, f"exceeds maximum of {max_targets} targets (got {len(targets)})"
+
+    # Structural validation pass: check roles and required fields
+    primary_count = 0
+    for i, target in enumerate(targets):
+        if not isinstance(target, dict):
+            return False, f"target {i} is not a dictionary"
+
+        role = target.get("role")
+        if role not in ("primary", "secondary"):
+            return False, f"target {i} has invalid role: {role!r} (must be 'primary' or 'secondary')"
+
+        if role == "primary":
+            primary_count += 1
+
+        if not target.get("path") and not target.get("project_id"):
+            return False, f"target {i} must have 'path' or 'project_id'"
+
+    if primary_count == 0:
+        return False, "no primary target (exactly one target must have role: primary)"
+
+    if primary_count > 1:
+        return False, f"multiple primary targets ({primary_count} found; exactly one required)"
+
+    # Path validation pass: expensive checks run only after structural checks pass
+    for i, target in enumerate(targets):
+        path = target.get("path")
+        if path:
+            ok, result = validate_target(path, config)
+            if not ok:
+                return False, f"target {i} path validation failed: {result}"
+
+            # Check devkit initialization
+            resolved = result
+            state = read_state(resolved, config)
+            if state is None:
+                return False, f"target {i} ({path}) is not initialized (run 'devkit init' first)"
+
+    return True, ""
+
+
+def resolve_devkit_uri(uri, config=None):
+    """Resolve a devkit:// URI to an absolute path.
+
+    URI format: devkit://<project-id>/plans/<filename>
+                devkit://<project-id>/plans/archive/<feature>/<filename>
+
+    Returns (resolved_path, "") on success, ("", error_message) on failure.
+    Validates:
+    - URI starts with devkit://
+    - Project ID matches PROJECT_ID_RE format
+    - No '..' segments in path (path traversal rejected)
+    - Resolved path is under ~/.claude-devkit/projects/<project-id>/
+    """
+    prefix = "devkit://"
+    if not uri.startswith(prefix):
+        return "", f"not a devkit:// URI: {uri}"
+
+    remainder = uri[len(prefix):]
+    if not remainder:
+        return "", "empty devkit:// URI"
+
+    # Split into project-id and subpath
+    parts = remainder.split("/", 1)
+    project_id = parts[0]
+    subpath = parts[1] if len(parts) > 1 else ""
+
+    # Validate project ID format
+    if not PROJECT_ID_RE.match(project_id):
+        return "", f"invalid project ID in URI: {project_id!r}"
+
+    # Reject path traversal
+    if ".." in subpath.split("/"):
+        return "", "path traversal rejected: '..' segments not allowed in devkit:// URIs"
+
+    # Reject absolute-looking subpaths
+    if subpath.startswith("/"):
+        return "", "path traversal rejected: absolute subpath not allowed"
+
+    # Construct the resolved path
+    base_dir = Path.home() / ".claude-devkit" / "projects" / project_id
+    if subpath:
+        resolved = base_dir / subpath
+    else:
+        resolved = base_dir
+
+    # Containment check: resolved path must be under base_dir
+    try:
+        resolved.resolve().relative_to(base_dir.resolve())
+    except ValueError:
+        return "", f"path traversal rejected: resolved path escapes project directory"
+
+    return str(resolved), ""
+
+
+def write_plan_refs(plan_name, plan_file, primary_project_id, primary_project_path,
+                    primary_plan_path, all_targets, config, created_by="devkit"):
+    """Write plan reference JSON files to all target project directories.
+
+    Creates plan-refs/ directory (0o700) in each target's central storage and
+    writes <plan-name>.ref.json (0o600) with cross-repo plan reference data.
+    Uses atomic writes. All paths in ref files are absolute (no tildes).
+
+    Returns (successes, errors) where successes is a count and errors is a list
+    of (project_id, error_msg) tuples.
+    """
+    ref_data_base = {
+        "schema_version": PLAN_REF_SCHEMA_VERSION,
+        "plan_name": plan_name,
+        "plan_file": plan_file,
+        "primary_project_id": primary_project_id,
+        "primary_project_path": str(Path(primary_project_path).expanduser().resolve()),
+        "primary_plan_path": str(Path(primary_plan_path).expanduser().resolve()),
+        "all_targets": [],
+        "created_at": utc_now_iso(),
+        "created_by": created_by,
+    }
+
+    # Build all_targets with absolute paths
+    for t in all_targets:
+        t_path = t.get("project_path") or t.get("path", "")
+        try:
+            abs_path = str(Path(t_path).expanduser().resolve())
+        except OSError:
+            abs_path = t_path
+        ref_data_base["all_targets"].append({
+            "project_id": t.get("project_id", ""),
+            "project_path": abs_path,
+            "role": t.get("role", "secondary"),
+        })
+
+    successes = 0
+    errors = []
+
+    for t in all_targets:
+        t_id = t.get("project_id", "")
+        if not t_id:
+            errors.append((t_id, "missing project_id"))
+            continue
+
+        project_dir = Path.home() / ".claude-devkit" / "projects" / t_id
+        plan_refs_dir = project_dir / "plan-refs"
+
+        # Create plan-refs/ directory with 0o700
+        try:
+            plan_refs_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(str(plan_refs_dir), 0o700)
+        except OSError as e:
+            errors.append((t_id, f"cannot create plan-refs/: {e}"))
+            continue
+
+        # Determine this target's role
+        role = t.get("role", "secondary")
+        ref_data = dict(ref_data_base)
+        ref_data["role"] = role
+
+        ref_file = plan_refs_dir / f"{plan_name}.ref.json"
+        ok, err = _atomic_write_json(ref_file, ref_data, mode=0o600)
+        if ok:
+            successes += 1
+        else:
+            errors.append((t_id, err))
+
+    return successes, errors
+
+
+def read_plan_refs(project_dir, config=None):
+    """Read plan reference files from a project's plan-refs/ directory.
+
+    Returns a list of parsed ref dicts. Skips oversized files (> max_state_file_bytes)
+    and invalid JSON files with warnings. Returns empty list if plan-refs/
+    directory does not exist.
+    """
+    plan_refs_dir = Path(project_dir) / "plan-refs"
+    if not plan_refs_dir.is_dir():
+        return []
+
+    max_bytes = 65536  # Same limit as state files
+    if config:
+        max_bytes = config.get("max_state_file_bytes",
+                               FALLBACK_DEFAULTS.get("max_state_file_bytes", 65536))
+
+    refs = []
+    try:
+        for ref_file in sorted(plan_refs_dir.glob("*.ref.json")):
+            try:
+                size = ref_file.stat().st_size
+                if size > max_bytes:
+                    print(
+                        f"{Colors.YELLOW}Warning:{Colors.RESET} Skipping oversized ref file "
+                        f"{ref_file} ({size} > {max_bytes} bytes)",
+                        file=sys.stderr,
+                    )
+                    continue
+                with open(ref_file, "r") as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    print(
+                        f"{Colors.YELLOW}Warning:{Colors.RESET} Skipping malformed ref file "
+                        f"{ref_file}: not a JSON object",
+                        file=sys.stderr,
+                    )
+                    continue
+
+                # Validate key fields on read (TB-4 defense)
+                pid = data.get("primary_project_id", "")
+                if pid and not PROJECT_ID_RE.match(pid):
+                    print(
+                        f"{Colors.YELLOW}Warning:{Colors.RESET} Skipping ref file with invalid "
+                        f"project ID: {ref_file}",
+                        file=sys.stderr,
+                    )
+                    continue
+
+                role = data.get("role")
+                if role not in ("primary", "secondary"):
+                    print(
+                        f"{Colors.YELLOW}Warning:{Colors.RESET} Skipping ref file with invalid "
+                        f"role '{role}': {ref_file}",
+                        file=sys.stderr,
+                    )
+                    continue
+
+                refs.append(data)
+            except (OSError, json.JSONDecodeError) as e:
+                print(
+                    f"{Colors.YELLOW}Warning:{Colors.RESET} Cannot read ref file {ref_file}: {e}",
+                    file=sys.stderr,
+                )
+                continue
+    except OSError:
+        pass
+
+    return refs
+
+
+def extract_with_targets(args):
+    """Extract --with <path> pairs from an argument list.
+
+    Returns (remaining_args, with_targets).
+    with_targets is a list of raw path strings (not yet validated).
+
+    Extraction runs BEFORE --detach extraction and split_skill_args().
+    --with and its following argument are consumed as a pair; they do
+    not reach split_skill_args() or validate_args().
+
+    Errors:
+      --with at end of args with no following path -> exit 2.
+      --with followed by another flag (--xyz) -> exit 2 (path expected).
+    """
+    remaining = []
+    targets = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--with":
+            if i + 1 >= len(args):
+                print("Error: --with requires a target path", file=sys.stderr)
+                sys.exit(2)
+            next_arg = args[i + 1]
+            if next_arg.startswith("--"):
+                print(f"Error: --with requires a path, got flag: {next_arg}",
+                      file=sys.stderr)
+                sys.exit(2)
+            targets.append(next_arg)
+            i += 2  # consume both --with and the path
+        else:
+            remaining.append(args[i])
+            i += 1
+    return remaining, targets
+
+
+def _setup_multi_target_env(env, resolved_targets, config):
+    """Set DEVKIT_TARGET_* environment variables for multi-target sessions.
+
+    Always sets DEVKIT_TARGET_COUNT and DEVKIT_TARGET_0_* (even for single
+    target). Sets DEVKIT_TARGET_N_* for each additional target.
+
+    resolved_targets is a list of (resolved_path, project_id, project_dir) tuples.
+    The first element is always the primary target.
+    """
+    env["DEVKIT_TARGET_COUNT"] = str(len(resolved_targets))
+
+    for idx, (resolved, project_id, project_dir) in enumerate(resolved_targets):
+        prefix = f"DEVKIT_TARGET_{idx}"
+        env[f"{prefix}_DIR"] = str(project_dir)
+        env[f"{prefix}_PATH"] = str(resolved)
+        env[f"{prefix}_ID"] = project_id or ""
+        env[f"{prefix}_NAME"] = resolved.name
+
+
+def _resolve_with_targets(with_targets_raw, config):
+    """Validate and resolve --with target paths.
+
+    Returns (resolved_list, error_msg) where resolved_list contains
+    (resolved_path, project_id, project_dir) tuples for each valid target.
+    On error, resolved_list is empty and error_msg describes the first failure.
+    """
+    resolved = []
+    for raw_path in with_targets_raw:
+        ok, result = validate_target(raw_path, config)
+        if not ok:
+            return [], f"--with target {raw_path}: {result}"
+
+        target_resolved = result
+        state = read_state(target_resolved, config)
+        if state is None:
+            return [], (
+                f"--with target {raw_path} is not initialized "
+                f"(run 'devkit init {raw_path}' first)"
+            )
+
+        try:
+            project_id = state.get("project_id") or compute_project_id(target_resolved)
+        except ValueError:
+            project_id = None
+
+        project_dir = get_project_dir(target_resolved)
+        resolved.append((target_resolved, project_id, project_dir))
+
+    return resolved, ""
 
 
 # --- State management (~/.claude-devkit/projects/<id>/state.json) ----------
@@ -981,7 +1465,7 @@ def cmd_init(target_str, config):
 
 
 def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config,
-                   detach=False):
+                   detach=False, with_targets=None):
     """Run a skill non-interactively against `target_str`.
 
     `validated_args` are checked by validate_args() (pre-'--'-separator
@@ -992,6 +1476,10 @@ def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config,
 
     When `detach` is True, spawns Claude in the background via
     _spawn_detached() and returns immediately with a run ID.
+
+    When `with_targets` is provided (list of raw path strings from
+    extract_with_targets()), validates and resolves them, then sets
+    DEVKIT_TARGET_* env vars for multi-target sessions.
     """
     ok, result = validate_target(target_str, config)
     if not ok:
@@ -1008,6 +1496,14 @@ def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config,
     if not ok:
         print(f"{Colors.RED}Error:{Colors.RESET} {err}", file=sys.stderr)
         return 1
+
+    # Resolve --with targets
+    resolved_with = []
+    if with_targets:
+        resolved_with, err = _resolve_with_targets(with_targets, config)
+        if err:
+            print(f"{Colors.RED}Error:{Colors.RESET} {err}", file=sys.stderr)
+            return 1
 
     args = validated_args + passthrough_args
 
@@ -1066,6 +1562,11 @@ def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config,
     env["CLAUDE_DEVKIT"] = str(get_devkit_root())
     env["DEVKIT_PROJECT_DIR"] = str(get_project_dir(resolved))
     env["DEVKIT_SCRIPTS"] = str(get_scripts_dir(config))
+
+    # Set multi-target env vars (always, even for single-target)
+    primary_dir = get_project_dir(resolved)
+    all_targets = [(resolved, project_id, primary_dir)] + resolved_with
+    _setup_multi_target_env(env, all_targets, config)
 
     prompt = f"/{skill}"
     if args_str:
@@ -1182,7 +1683,26 @@ def _print_run_result(stdout, exit_code, wall_start):
     print(summary, file=sys.stderr)
 
 
-def cmd_shell(target_str, config):
+def cmd_shell(rest, config):
+    """Open an interactive Claude session in the target project.
+
+    Accepts the full rest list from main() to support --with multi-target:
+      devkit shell <target> [--with <target2> ...]
+
+    When --with is specified, sets DEVKIT_TARGET_* env vars for all targets
+    and updates state for each target before execvp.
+    """
+    if not rest:
+        print(f"{Colors.RED}Error:{Colors.RESET} devkit shell requires a target path",
+              file=sys.stderr)
+        return 2
+
+    target_str = rest[0]
+    extra_args = rest[1:]
+
+    # Extract --with targets before any other processing
+    remaining, with_targets_raw = extract_with_targets(extra_args)
+
     ok, result = validate_target(target_str, config)
     if not ok:
         print(f"{Colors.RED}Error:{Colors.RESET} {result}", file=sys.stderr)
@@ -1200,6 +1720,14 @@ def cmd_shell(target_str, config):
     if fatal:
         return 1
 
+    # Resolve --with targets
+    resolved_with = []
+    if with_targets_raw:
+        resolved_with, err = _resolve_with_targets(with_targets_raw, config)
+        if err:
+            print(f"{Colors.RED}Error:{Colors.RESET} {err}", file=sys.stderr)
+            return 1
+
     # State/registry are updated before execvp because the harness process
     # is replaced and never regains control (known limitation: exit_code
     # remains null for interactive sessions -- see plan State Model section).
@@ -1209,6 +1737,8 @@ def cmd_shell(target_str, config):
         project_id = existing_state.get("project_id") or compute_project_id(resolved)
     except ValueError:
         project_id = None
+
+    with_args_str = " ".join(f"--with {t}" for t in with_targets_raw)
     state = {
         "schema_version": STATE_SCHEMA_VERSION,
         "project_name": resolved.name,
@@ -1218,13 +1748,33 @@ def cmd_shell(target_str, config):
         "devkit_version": VERSION,
         "last_invocation": {
             "skill": "shell",
-            "args": "",
+            "args": with_args_str[:1024],
             "timestamp": now,
             "exit_code": None,
         },
     }
     write_state(resolved, state, config)
     update_registry(resolved, config, touch=True, register=True, project_id=project_id)
+
+    # Update state for each --with target too
+    for with_resolved, with_pid, with_dir in resolved_with:
+        with_existing = read_state(with_resolved, config) or {}
+        with_state = {
+            "schema_version": STATE_SCHEMA_VERSION,
+            "project_name": with_resolved.name,
+            "project_id": with_pid,
+            "project_path": str(with_resolved),
+            "initialized_at": with_existing.get("initialized_at", now),
+            "devkit_version": VERSION,
+            "last_invocation": {
+                "skill": "shell",
+                "args": f"(secondary target of {resolved.name})"[:1024],
+                "timestamp": now,
+                "exit_code": None,
+            },
+        }
+        write_state(with_resolved, with_state, config)
+        update_registry(with_resolved, config, touch=True, register=True, project_id=with_pid)
 
     claude_cmd = config.get("claude_command", FALLBACK_DEFAULTS["claude_command"])
 
@@ -1234,6 +1784,11 @@ def cmd_shell(target_str, config):
     os.environ["CLAUDE_DEVKIT"] = str(get_devkit_root())
     os.environ["DEVKIT_PROJECT_DIR"] = str(get_project_dir(resolved))
     os.environ["DEVKIT_SCRIPTS"] = str(get_scripts_dir(config))
+
+    # Set multi-target env vars (always, even for single-target)
+    primary_dir = get_project_dir(resolved)
+    all_targets = [(resolved, project_id, primary_dir)] + resolved_with
+    _setup_multi_target_env(os.environ, all_targets, config)
 
     try:
         os.chdir(str(resolved))
@@ -1496,7 +2051,12 @@ def cmd_relink(old_path_str, new_path_str, config):
 
 
 def cmd_path(target_str, config, subpath=None):
-    """Print the central artifact directory path for a project."""
+    """Print the central artifact directory path for a project.
+
+    When subpath is provided, validates it against path traversal:
+    rejects '..' segments and verifies the resolved path stays under
+    the project directory (defense-in-depth, matching resolve_devkit_uri).
+    """
     ok, result = validate_target(target_str, config)
     if not ok:
         print(f"{Colors.RED}Error:{Colors.RESET} {result}", file=sys.stderr)
@@ -1510,9 +2070,547 @@ def cmd_path(target_str, config, subpath=None):
         return 1
 
     if subpath:
+        # Reject '..' segments in subpath (path traversal protection)
+        if ".." in subpath.split("/"):
+            print(
+                f"{Colors.RED}Error:{Colors.RESET} path traversal rejected: "
+                f"'..' segments not allowed in subpath",
+                file=sys.stderr,
+            )
+            return 1
+
+        full_path = (project_dir / subpath).resolve()
+        try:
+            full_path.relative_to(project_dir.resolve())
+        except ValueError:
+            print(
+                f"{Colors.RED}Error:{Colors.RESET} path traversal rejected: "
+                f"resolved path escapes project directory",
+                file=sys.stderr,
+            )
+            return 1
+
         print(str(project_dir / subpath))
     else:
         print(str(project_dir))
+    return 0
+
+
+def cmd_plan(args, config):
+    """Plan lifecycle management subcommand.
+
+    Actions: list, show, validate, sync, resolve, archive.
+    """
+    if not args:
+        print(f"{Colors.RED}Error:{Colors.RESET} devkit plan requires an action "
+              f"(list, show, validate, sync, resolve, archive)", file=sys.stderr)
+        return 2
+
+    action = args[0]
+    action_args = args[1:]
+
+    if action == "list":
+        if not action_args:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit plan list requires a target path",
+                  file=sys.stderr)
+            return 2
+        return _plan_list(action_args[0], config)
+
+    elif action == "show":
+        if len(action_args) < 2:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit plan show requires <target> <plan-name>",
+                  file=sys.stderr)
+            return 2
+        return _plan_show(action_args[0], action_args[1], config)
+
+    elif action == "validate":
+        if len(action_args) < 2:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit plan validate requires <target> <plan-file>",
+                  file=sys.stderr)
+            return 2
+        return _plan_validate(action_args[0], action_args[1], config)
+
+    elif action == "sync":
+        if not action_args:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit plan sync requires a target path",
+                  file=sys.stderr)
+            return 2
+        return _plan_sync(action_args[0], config)
+
+    elif action == "resolve":
+        if not action_args:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit plan resolve requires a devkit:// URI",
+                  file=sys.stderr)
+            return 2
+        return _plan_resolve(action_args[0], config)
+
+    elif action == "archive":
+        if len(action_args) < 2:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit plan archive requires <target> <plan-name>",
+                  file=sys.stderr)
+            return 2
+        return _plan_archive(action_args[0], action_args[1], config)
+
+    else:
+        print(f"{Colors.RED}Error:{Colors.RESET} unknown plan action '{action}'. "
+              f"Valid actions: list, show, validate, sync, resolve, archive",
+              file=sys.stderr)
+        return 2
+
+
+def _plan_list(target_str, config):
+    """List plans for a project, including cross-repo refs."""
+    ok, result = validate_target(target_str, config)
+    if not ok:
+        print(f"{Colors.RED}Error:{Colors.RESET} {result}", file=sys.stderr)
+        return 1
+    resolved = result
+
+    try:
+        project_dir = get_project_dir(resolved)
+    except ValueError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} {e}", file=sys.stderr)
+        return 1
+
+    plans_dir = project_dir / "plans"
+    plans = []
+
+    # Scan local plan files
+    if plans_dir.is_dir():
+        for plan_file in sorted(plans_dir.glob("*.md")):
+            try:
+                content = plan_file.read_text()
+            except OSError:
+                continue
+            fm, _ = parse_plan_frontmatter(content)
+            status = fm.get("status", "-")
+            targets = fm.get("targets", [])
+            target_count = len(targets) if targets else 1
+            role = "-"
+            if targets:
+                for t in targets:
+                    t_path = t.get("path", "")
+                    try:
+                        t_resolved = Path(t_path).expanduser().resolve()
+                        if t_resolved == resolved:
+                            role = t.get("role", "-")
+                            break
+                    except OSError:
+                        continue
+                if role == "-":
+                    role = "primary"  # plan is local, so this project is primary
+
+            # Extract created date from filename or frontmatter
+            created = fm.get("date", plan_file.stem[:10] if len(plan_file.stem) >= 10 else "-")
+
+            plans.append({
+                "name": plan_file.stem,
+                "status": status,
+                "targets": target_count,
+                "role": role,
+                "created": created,
+                "source": "local",
+            })
+
+    # Scan plan-refs for cross-repo plans where this project is secondary
+    refs = read_plan_refs(project_dir, config)
+    local_names = {p["name"] for p in plans}
+    for ref in refs:
+        ref_name = ref.get("plan_name", "")
+        if ref_name in local_names:
+            continue  # Already listed from local plans
+        target_count = len(ref.get("all_targets", []))
+        role = ref.get("role", "secondary")
+        created = ref.get("created_at", "-")
+        if len(created) > 10:
+            created = created[:10]
+
+        # Check if primary plan still exists
+        primary_path = ref.get("primary_plan_path", "")
+        status = "-"
+        if primary_path:
+            pp = Path(primary_path)
+            if pp.exists():
+                try:
+                    fm, _ = parse_plan_frontmatter(pp.read_text())
+                    status = fm.get("status", "-")
+                except OSError:
+                    status = "[STALE]"
+            else:
+                status = "[STALE]"
+
+        plans.append({
+            "name": ref_name,
+            "status": status,
+            "targets": target_count,
+            "role": role,
+            "created": created,
+            "source": "ref",
+        })
+
+    if not plans:
+        print("No plans found.")
+        return 0
+
+    print(f"{'PLAN':<30} {'STATUS':<12} {'TARGETS':<10} {'ROLE':<12} CREATED")
+    for p in plans:
+        role_display = p["role"] if p["targets"] > 1 else "-"
+        print(
+            f"{p['name']:<30} {p['status']:<12} {p['targets']:<10} "
+            f"{role_display:<12} {p['created']}"
+        )
+    return 0
+
+
+def _plan_show(target_str, plan_name, config):
+    """Show details for a specific plan."""
+    ok, result = validate_target(target_str, config)
+    if not ok:
+        print(f"{Colors.RED}Error:{Colors.RESET} {result}", file=sys.stderr)
+        return 1
+    resolved = result
+
+    try:
+        project_dir = get_project_dir(resolved)
+    except ValueError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} {e}", file=sys.stderr)
+        return 1
+
+    # Try local plan first
+    plan_file = project_dir / "plans" / f"{plan_name}.md"
+    if plan_file.exists():
+        try:
+            content = plan_file.read_text()
+        except OSError as e:
+            print(f"{Colors.RED}Error:{Colors.RESET} Cannot read {plan_file}: {e}",
+                  file=sys.stderr)
+            return 1
+
+        fm, err = parse_plan_frontmatter(content)
+        if err:
+            print(f"{Colors.YELLOW}Warning:{Colors.RESET} Frontmatter parse error: {err}",
+                  file=sys.stderr)
+
+        print(f"Plan: {plan_name}")
+        print(f"File: {plan_file}")
+        print(f"Status: {fm.get('status', '-')}")
+
+        targets = fm.get("targets", [])
+        if targets:
+            print(f"Targets ({len(targets)}):")
+            for t in targets:
+                path = t.get("path", t.get("project_id", "-"))
+                role = t.get("role", "-")
+                print(f"  - {path} (role: {role})")
+        else:
+            print("Targets: 1 (single-project)")
+        return 0
+
+    # Try ref file
+    ref_file = project_dir / "plan-refs" / f"{plan_name}.ref.json"
+    if ref_file.exists():
+        try:
+            ref = json.loads(ref_file.read_text())
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"{Colors.RED}Error:{Colors.RESET} Cannot read {ref_file}: {e}",
+                  file=sys.stderr)
+            return 1
+
+        print(f"Plan: {plan_name}")
+        print(f"Primary plan file: {ref.get('primary_plan_path', '-')}")
+        print(f"Role in this project: {ref.get('role', '-')}")
+
+        all_targets = ref.get("all_targets", [])
+        if all_targets:
+            print(f"Targets ({len(all_targets)}):")
+            for t in all_targets:
+                path = t.get("project_path", "-")
+                role = t.get("role", "-")
+                pid = t.get("project_id", "-")
+                exists = Path(path).is_dir() if path != "-" else False
+                marker = "" if exists else " [STALE]"
+                print(f"  - {path} (role: {role}, id: {pid}){marker}")
+
+        print(f"Created: {ref.get('created_at', '-')}")
+        print(f"Created by: {ref.get('created_by', '-')}")
+        return 0
+
+    print(f"{Colors.RED}Error:{Colors.RESET} Plan '{plan_name}' not found in {project_dir}",
+          file=sys.stderr)
+    return 1
+
+
+def _plan_validate(target_str, plan_file_path, config):
+    """Validate plan frontmatter: targets exist, are initialized, roles valid."""
+    ok, result = validate_target(target_str, config)
+    if not ok:
+        print(f"{Colors.RED}Error:{Colors.RESET} {result}", file=sys.stderr)
+        return 1
+    resolved = result
+
+    try:
+        project_dir = get_project_dir(resolved)
+    except ValueError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} {e}", file=sys.stderr)
+        return 1
+
+    # Resolve plan file path: try as-is, then under plans/
+    plan_path = Path(plan_file_path)
+    if not plan_path.is_absolute():
+        plan_path = project_dir / "plans" / plan_file_path
+    if not plan_path.exists():
+        print(f"{Colors.RED}Error:{Colors.RESET} Plan file not found: {plan_path}",
+              file=sys.stderr)
+        return 1
+
+    try:
+        content = plan_path.read_text()
+    except OSError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} Cannot read {plan_path}: {e}",
+              file=sys.stderr)
+        return 1
+
+    fm, err = parse_plan_frontmatter(content)
+    if err:
+        print(f"{Colors.RED}Error:{Colors.RESET} Frontmatter parse error: {err}",
+              file=sys.stderr)
+        return 1
+
+    targets = fm.get("targets")
+    if not targets:
+        print(f"{Colors.GREEN}Valid:{Colors.RESET} Single-project plan (no targets: field)")
+        return 0
+
+    ok, err = validate_plan_targets(targets, config)
+    if not ok:
+        print(f"{Colors.RED}Error:{Colors.RESET} {err}", file=sys.stderr)
+        return 1
+
+    print(f"{Colors.GREEN}Valid:{Colors.RESET} Cross-repo plan with {len(targets)} targets")
+    for t in targets:
+        print(f"  - {t.get('path', t.get('project_id', '-'))} (role: {t.get('role', '-')})")
+    return 0
+
+
+def _plan_sync(target_str, config):
+    """Sync plan-refs/ from plan frontmatter. Rebuild after manual edits."""
+    ok, result = validate_target(target_str, config)
+    if not ok:
+        print(f"{Colors.RED}Error:{Colors.RESET} {result}", file=sys.stderr)
+        return 1
+    resolved = result
+
+    try:
+        project_dir = get_project_dir(resolved)
+        project_id = compute_project_id(resolved)
+    except ValueError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} {e}", file=sys.stderr)
+        return 1
+
+    plans_dir = project_dir / "plans"
+    if not plans_dir.is_dir():
+        print("No plans/ directory found. Nothing to sync.")
+        return 0
+
+    plans_synced = 0
+    refs_created = 0
+    stale_removed = 0
+    unreachable = 0
+    active_plan_names = set()
+
+    # Scan plan files and create/update refs for cross-repo plans
+    for plan_file in sorted(plans_dir.glob("*.md")):
+        try:
+            content = plan_file.read_text()
+        except OSError:
+            continue
+
+        fm, err = parse_plan_frontmatter(content)
+        if err:
+            print(f"{Colors.YELLOW}Warning:{Colors.RESET} Cannot parse {plan_file.name}: {err}",
+                  file=sys.stderr)
+            continue
+
+        targets = fm.get("targets")
+        if not targets:
+            continue  # Single-project plan, skip
+
+        plan_name = plan_file.stem
+        active_plan_names.add(plan_name)
+
+        # Find primary target
+        primary_target = None
+        for t in targets:
+            if t.get("role") == "primary":
+                primary_target = t
+                break
+
+        if not primary_target:
+            print(f"{Colors.YELLOW}Warning:{Colors.RESET} Plan {plan_name} has no primary target; skipping.",
+                  file=sys.stderr)
+            continue
+
+        primary_path = primary_target.get("path", "")
+        p_ok, p_result = validate_target(primary_path, config)
+        if not p_ok:
+            print(f"{Colors.RED}Error:{Colors.RESET} Plan {plan_name}: primary target "
+                  f"validation failed: {p_result}",
+                  file=sys.stderr)
+            continue
+
+        primary_resolved = p_result
+        try:
+            primary_pid = compute_project_id(primary_resolved)
+        except ValueError:
+            continue
+
+        # Build all_targets with validated info
+        all_targets_data = []
+        for t in targets:
+            t_path = t.get("path", "")
+            t_ok, t_result = validate_target(t_path, config)
+            if not t_ok:
+                print(f"{Colors.YELLOW}Warning:{Colors.RESET} Plan {plan_name}: "
+                      f"target {t_path} unreachable: {t_result}",
+                      file=sys.stderr)
+                unreachable += 1
+                continue
+
+            t_resolved = t_result
+            try:
+                t_pid = compute_project_id(t_resolved)
+            except ValueError:
+                continue
+
+            all_targets_data.append({
+                "project_id": t_pid,
+                "project_path": str(t_resolved),
+                "role": t.get("role", "secondary"),
+            })
+
+        if not all_targets_data:
+            continue
+
+        primary_plan_path = str(plan_file)
+        successes, errors = write_plan_refs(
+            plan_name, plan_file.name,
+            primary_pid, str(primary_resolved),
+            primary_plan_path, all_targets_data, config,
+            created_by="devkit-plan-sync",
+        )
+        refs_created += successes
+        for err_id, err_msg in errors:
+            print(f"{Colors.YELLOW}Warning:{Colors.RESET} Ref write failed for {err_id}: {err_msg}",
+                  file=sys.stderr)
+
+        plans_synced += 1
+
+    # Remove stale refs: ref files whose plan no longer exists
+    plan_refs_dir = project_dir / "plan-refs"
+    if plan_refs_dir.is_dir():
+        for ref_file in list(plan_refs_dir.glob("*.ref.json")):
+            ref_name = ref_file.stem.replace(".ref", "")
+            try:
+                ref_data = json.loads(ref_file.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+
+            primary_plan_path = ref_data.get("primary_plan_path", "")
+            if primary_plan_path and not Path(primary_plan_path).exists():
+                try:
+                    ref_file.unlink()
+                    stale_removed += 1
+                except OSError:
+                    pass
+
+    print(f"Sync complete: {plans_synced} plan(s) synced, {refs_created} ref(s) created, "
+          f"{stale_removed} stale ref(s) removed"
+          + (f", {unreachable} unreachable target(s)" if unreachable else ""))
+    return 0
+
+
+def _plan_resolve(uri, config):
+    """Resolve a devkit:// URI to an absolute path."""
+    resolved_path, err = resolve_devkit_uri(uri, config)
+    if err:
+        print(f"{Colors.RED}Error:{Colors.RESET} {err}", file=sys.stderr)
+        return 1
+    print(resolved_path)
+    return 0
+
+
+def _plan_archive(target_str, plan_name, config):
+    """Archive a cross-repo plan: remove refs from all involved projects."""
+    ok, result = validate_target(target_str, config)
+    if not ok:
+        print(f"{Colors.RED}Error:{Colors.RESET} {result}", file=sys.stderr)
+        return 1
+    resolved = result
+
+    try:
+        project_dir = get_project_dir(resolved)
+    except ValueError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} {e}", file=sys.stderr)
+        return 1
+
+    # Read ref file to find all involved projects
+    ref_file = project_dir / "plan-refs" / f"{plan_name}.ref.json"
+    if not ref_file.exists():
+        # Check if plan exists as local-only
+        plan_file = project_dir / "plans" / f"{plan_name}.md"
+        if plan_file.exists():
+            print("No cross-repo refs to clean up (local-only plan).")
+        else:
+            print(f"Plan '{plan_name}' not found.")
+        return 0
+
+    try:
+        ref_data = json.loads(ref_file.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} Cannot read ref file: {e}",
+              file=sys.stderr)
+        return 1
+
+    all_targets = ref_data.get("all_targets", [])
+    removed = 0
+    for t in all_targets:
+        t_id = t.get("project_id", "")
+        if not t_id or not PROJECT_ID_RE.match(t_id):
+            continue
+
+        t_ref = Path.home() / ".claude-devkit" / "projects" / t_id / "plan-refs" / f"{plan_name}.ref.json"
+        if t_ref.exists():
+            t_path = t.get("project_path", "")
+            # Validate reachability (skip with warning if unreachable)
+            if t_path:
+                t_ok, _ = validate_target(t_path, config)
+                if not t_ok:
+                    print(f"{Colors.YELLOW}Warning:{Colors.RESET} Target {t_path} unreachable; "
+                          f"removing ref file anyway.", file=sys.stderr)
+
+            try:
+                t_ref.unlink()
+                removed += 1
+            except OSError as e:
+                print(f"{Colors.YELLOW}Warning:{Colors.RESET} Cannot remove {t_ref}: {e}",
+                      file=sys.stderr)
+
+    # Move plan file to archive if it exists locally
+    plan_file = project_dir / "plans" / f"{plan_name}.md"
+    archived = False
+    if plan_file.exists():
+        archive_dir = project_dir / "plans" / "archive" / plan_name
+        try:
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(str(archive_dir), 0o700)
+            shutil.move(str(plan_file), str(archive_dir / f"{plan_name}.md"))
+            archived = True
+        except (OSError, shutil.Error) as e:
+            print(f"{Colors.YELLOW}Warning:{Colors.RESET} Cannot archive plan file: {e}",
+                  file=sys.stderr)
+
+    print(f"Archive complete: {removed} ref(s) removed"
+          + (", plan moved to archive/" if archived else ""))
     return 0
 
 
@@ -1654,11 +2752,19 @@ Usage:
   devkit init <target>                     Initialize project for devkit management
   devkit <skill> <target> [args...]        Run a skill non-interactively in target
   devkit <skill> <target> --detach         Run skill in background, return run ID
+  devkit <skill> <target> --with <t2>      Run skill with multi-target context
   devkit shell <target>                    Open interactive Claude session in target
+  devkit shell <target> --with <t2>        Multi-target interactive session
   devkit status [<target>]                 Show status of one or all projects
   devkit migrate <target>                  Migrate legacy .devkit/ artifacts to central storage
   devkit relink <old-path> <new-path>      Recover artifacts after a project rename/move
   devkit path <target> [subpath]           Print the central artifact directory path
+  devkit plan list <target>                List plans for a project (incl. cross-repo refs)
+  devkit plan show <target> <plan-name>    Show plan details with target info
+  devkit plan validate <target> <plan-file>  Validate plan frontmatter and targets
+  devkit plan sync <target>                Rebuild plan-refs/ from plan frontmatter
+  devkit plan resolve <devkit-uri>         Resolve a devkit:// URI to absolute path
+  devkit plan archive <target> <plan-name> Archive cross-repo plan and remove refs
   devkit jobs [<target>]                   List background runs (all or filtered)
   devkit result <run-id>                   Print result of a completed run
   devkit logs <run-id>                     Print stderr logs of a run
@@ -1672,7 +2778,15 @@ Examples:
   devkit audit ~/projects/my-app
   devkit architect ~/projects/my-app "add user authentication"
   devkit architect ~/projects/my-app "add feature" --detach
+  devkit architect ~/projects/my-app "integrate" --with ~/projects/api
+  devkit shell ~/projects/my-app --with ~/projects/api
   devkit path ~/projects/my-app
+  devkit plan list ~/projects/my-app
+  devkit plan show ~/projects/my-app integrate-cve-api
+  devkit plan validate ~/projects/my-app integrate-cve-api.md
+  devkit plan sync ~/projects/my-app
+  devkit plan resolve devkit://my-api-abc123456789/plans/feature.md
+  devkit plan archive ~/projects/my-app integrate-cve-api
   devkit ship ~/projects/my-app "$(devkit path ~/projects/my-app plans/add-user-auth.md)"
   devkit jobs
   devkit result 20260821-143052-a1b2c3
@@ -1691,6 +2805,12 @@ Notes:
 
   --detach spawns the skill in the background and returns a run ID immediately.
   Use 'devkit jobs' to check status, 'devkit result <id>' to see the output.
+
+  --with <target> adds a secondary target for multi-project operations.
+  Can be repeated: --with ~/projects/a --with ~/projects/b
+  Sets DEVKIT_TARGET_COUNT and DEVKIT_TARGET_N_* env vars for skills.
+  All --with targets must be devkit-initialized and pass the same
+  validation as the primary target.
 
   Skill arguments starting with '--' are rejected unless they come after a
   '--' separator, which forwards everything following it verbatim (standard
@@ -1738,7 +2858,7 @@ def main():
         if not rest:
             print(f"{Colors.RED}Error:{Colors.RESET} devkit shell requires a target path", file=sys.stderr)
             return 2
-        return cmd_shell(rest[0], config)
+        return cmd_shell(rest, config)
 
     if command == "status":
         target = rest[0] if rest else None
@@ -1762,6 +2882,9 @@ def main():
             return 2
         subpath = rest[1] if len(rest) > 1 else None
         return cmd_path(rest[0], config, subpath)
+
+    if command == "plan":
+        return cmd_plan(rest, config)
 
     if command == "deploy":
         return cmd_deploy(rest, config)
@@ -1805,18 +2928,21 @@ def main():
     target = rest[0]
     skill_args = rest[1:]
 
-    # Extract --detach before the split/validate pipeline
+    # 1. Extract --with <path> pairs (before --detach and split_skill_args)
+    skill_args, with_targets = extract_with_targets(skill_args)
+
+    # 2. Extract --detach before the split/validate pipeline
     detach = "--detach" in skill_args
     if detach:
         skill_args = [a for a in skill_args if a != "--detach"]
 
-    # "--" separates devkit-parsed tokens (subject to validate_args()'s
+    # 3. "--" separates devkit-parsed tokens (subject to validate_args()'s
     # '--'-prefix rejection) from skill arguments forwarded verbatim after
     # it -- see split_skill_args() and validate_args() docstrings.
     pre_sep_args, post_sep_args = split_skill_args(skill_args)
 
     return cmd_run_skill(skill, target, pre_sep_args, post_sep_args, config,
-                         detach=detach)
+                         detach=detach, with_targets=with_targets or None)
 
 
 if __name__ == "__main__":

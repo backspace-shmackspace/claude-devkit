@@ -83,7 +83,7 @@ claude-devkit/
     ├── scanner-value-report.sh # Scanner value analysis: cohort comparison by scanner mode
     ├── ship-queue.sh          # Sequential /ship runner for unattended batch execution
     ├── resolve-project-dir.sh # Reusable shell function for project artifact directory resolution
-    └── test-integration.sh    # Integration smoke tests (118 tests)
+    └── test-integration.sh    # Integration smoke tests (147 tests)
 ```
 
 **Centralized Artifact Storage (per-project, outside target repos):**
@@ -105,6 +105,8 @@ claude-devkit/
 └── projects/
     └── <project-id>/                # Per-project artifacts ($DEVKIT_PROJECT_DIR)
         ├── state.json
+        ├── plan-refs/               # Cross-repo plan references (JSON)
+        │   └── <plan-name>.ref.json
         └── plans/
             ├── [feature].md                     # Plans from /architect
             ├── [feature].redteam.md
@@ -145,8 +147,8 @@ Skill invocation → codebase-scanner.py (pre-scan) → structured symbol index 
 
 | Skill | Version | Purpose | Model | Steps |
 |-------|---------|---------|-------|-------|
-| **architect** | 3.4.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Stage 2 plan content scan detects security-sensitive features; invokes security-analyst (Required, not Recommended) when deployed and injects threat-model-gate requirements. Plans include `## Work Groups` in Task Breakdown for /ship parallel execution. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `$DEVKIT_PROJECT_DIR/plans/audit-logs/architect-<run_id>.jsonl`. | opus-4-6 | 6 |
-| **ship** | 3.8.0 | Pre-flight check → Read plan + security requirements validation (Step 1 checks for threat model output and blocks if required gates are unmet) → Pattern validation (warnings) → Security gates (secrets-scan, secure-review with threat model context passing in Step 4d, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate (emits `run_score` before `run_end`) → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `$DEVKIT_PROJECT_DIR/plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. Quantitative scoring (efficiency, security, quality, velocity) emitted as `run_score` event. | opus-4-6 | 8 |
+| **architect** | 3.5.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Stage 2 plan content scan detects security-sensitive features; invokes security-analyst (Required, not Recommended) when deployed and injects threat-model-gate requirements. Plans include `## Work Groups` in Task Breakdown for /ship parallel execution. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `$DEVKIT_PROJECT_DIR/plans/audit-logs/architect-<run_id>.jsonl`. Cross-repo context discovery when `DEVKIT_TARGET_COUNT > 1` (reads CLAUDE.md and runs scanner on all targets). Plan-ref creation via `devkit plan sync` on approval. | opus-4-6 | 6 |
+| **ship** | 3.9.0 | Pre-flight check → Read plan + security requirements validation (Step 1 checks for threat model output and blocks if required gates are unmet; validates CWD against cross-repo plan targets) → Pattern validation (warnings) → Security gates (secrets-scan, secure-review with threat model context passing in Step 4d, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders (filtered by `target:` annotation for cross-repo plans) → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate (emits `run_score` before `run_end`) → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `$DEVKIT_PROJECT_DIR/plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. Quantitative scoring (efficiency, security, quality, velocity) emitted as `run_score` event. Cross-repo plan ref cleanup via `devkit plan archive` on archive step. | opus-4-6 | 8 |
 | **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
 | **audit** | 3.3.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan + Anti-pattern scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. JSONL audit logging to `$DEVKIT_PROJECT_DIR/plans/audit-logs/audit-<run_id>.jsonl`. | opus-4-6 | 7 |
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-6 | 6 |
@@ -507,6 +509,9 @@ devkit clean --days 14              # Remove old completed runs
 # Open interactive session
 devkit shell ~/projects/my-app
 
+# Open multi-target interactive session (cross-repo planning)
+devkit shell ~/projects/my-app --with ~/projects/cve-api
+
 # Check status of all managed projects
 devkit status
 
@@ -515,6 +520,14 @@ devkit status
 devkit architect ~/projects/my-app "add feature" -- --fast
 devkit architect ~/projects/my-app "add feature" --detach -- --fast
 devkit ship ~/projects/my-app $DEVKIT_PROJECT_DIR/plans/feature.md -- --security-override "reason"
+
+# Cross-repo planning (multi-target architect)
+devkit architect ~/projects/my-app "integrate with cve-api" --with ~/projects/cve-api
+
+# Plan lifecycle management
+devkit plan list ~/projects/my-app
+devkit plan show ~/projects/my-app integrate-cve-api
+devkit plan resolve devkit://cve-api-f25db5e61a87/plans/add-v2-endpoint.md
 ```
 
 ## Complete Workflows
@@ -1061,7 +1074,7 @@ Shared configurations and pattern definitions.
 - `skill-patterns.json` — Validation patterns
 - `scanner-languages.json` — Language grammar configuration for codebase scanner (extensions, tree-sitter queries, package versions for Python, TypeScript, Java, Go)
 - `scanner-value-thresholds.json` — Confidence tier configuration for scanner value analysis (INSUFFICIENT/PRELIMINARY/RELIABLE/HIGH_CONFIDENCE thresholds)
-- `devkit-defaults.json` — Default configuration for the meta-harness CLI (registry path, `allowed_roots`, `claude` command/flag, size limits, `clean_retention_days` for detached run cleanup, `scripts_dir_name`). Loaded by `scripts/devkit_cli.py` at startup; hardcoded fallback defaults are used if missing or corrupt.
+- `devkit-defaults.json` — Default configuration for the meta-harness CLI (registry path, `allowed_roots`, `claude` command/flag, size limits, `clean_retention_days` for detached run cleanup, `scripts_dir_name`, `max_cross_repo_targets` for cross-repo plan limits). Loaded by `scripts/devkit_cli.py` at startup; hardcoded fallback defaults are used if missing or corrupt.
 - `tech-stack-definitions/` — Stack-specific configs (7 stacks: python, fastapi, typescript, react, nextjs, astro, security)
 - `base-definitions/` — Reserved for future use (currently empty)
 
@@ -1075,7 +1088,7 @@ Deployment and utility scripts.
 - `uninstall.sh` — Clean uninstallation with backup restoration
 - `validate-all.sh` — Health check - validate all skills in one pass
 - `codebase-scanner.py` — Deterministic codebase symbol index for agent context. Extracts functions, classes, methods, and import graph. Uses tree-sitter (>=0.25.0) when available in `~/.claude-devkit/scanner-venv/`, falls back to regex. Invoked by `/architect` Step 1 and `/ship` Step 1. Tree-sitter venv created by `install.sh`.
-- `devkit_cli.py` — Meta-harness CLI implementation (Python 3.8+, stdlib only). Validates target repositories and skill names, manages per-project state (`~/.claude-devkit/projects/<project-id>/state.json`) and the global registry (`~/.claude-devkit/registry.json`), and delegates skill execution to Claude Code via `subprocess.run(["claude", "--print", ...])` (or `os.execvp` for `devkit shell`). Sets `DEVKIT_PROJECT_DIR` and `DEVKIT_SCRIPTS` env vars before invocation. Supports detached/background execution (`--detach`) with run output capture to `~/.claude-devkit/runs/`. Reads defaults from `configs/devkit-defaults.json` with hardcoded fallback.
+- `devkit_cli.py` — Meta-harness CLI implementation (Python 3.8+, stdlib only). Validates target repositories and skill names, manages per-project state (`~/.claude-devkit/projects/<project-id>/state.json`) and the global registry (`~/.claude-devkit/registry.json`), and delegates skill execution to Claude Code via `subprocess.run(["claude", "--print", ...])` (or `os.execvp` for `devkit shell`). Sets `DEVKIT_PROJECT_DIR`, `DEVKIT_SCRIPTS`, and `DEVKIT_TARGET_*` env vars before invocation. Supports detached/background execution (`--detach`) with run output capture to `~/.claude-devkit/runs/`. Multi-target support via `--with` flag for cross-repo planning. `devkit plan` subcommand for plan lifecycle management (list, show, validate, sync, resolve, archive). Reads defaults from `configs/devkit-defaults.json` with hardcoded fallback.
 - `devkit` — Thin bash entry point wrapper that execs `devkit_cli.py` with `python3`. Installed as a shell alias and added to PATH by `install.sh`.
 - `emit-audit-event.sh` — Standalone helper script for skill audit event emission (invoked by `/ship`, `/architect`, `/audit`)
 - `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, overrides, verify-chain, recent, scores, trend)
@@ -1084,7 +1097,7 @@ Deployment and utility scripts.
 - `scanner-value-report.sh` — Scanner value analysis: cohort comparison of /ship run scores by scanner mode (tree-sitter-partial vs regex-fallback vs absent). No jq dependency.
 - `ship-queue.sh` — Sequential `/ship` runner for unattended batch execution via `devkit ship`. Clean-tree gates between runs prevent cascading failures.
 - `resolve-project-dir.sh` — Reusable shell function for three-tier project artifact directory resolution (`DEVKIT_PROJECT_DIR` env var > computed from CWD > deprecated `.devkit/` fallback)
-- `test-integration.sh` — Integration smoke tests (118 tests): emit-audit-event.sh JSONL correctness,
+- `test-integration.sh` — Integration smoke tests (147 tests): emit-audit-event.sh JSONL correctness,
   L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
   lifecycle, threat model consumption structural tests across /ship, /architect, /secure-review,
   quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
@@ -1096,9 +1109,12 @@ Deployment and utility scripts.
   detached execution tests (20 tests: run ID generation/validation, `--detach` flag
   extraction, watcher lifecycle with mock processes, jobs/result/logs commands, cleanup
   with stale PID detection, directory permissions, path traversal rejection, no shell=True),
-  and zero-project-footprint tests (38 tests: project ID determinism/uniqueness/case-normalization/
+  zero-project-footprint tests (38 tests: project ID determinism/uniqueness/case-normalization/
   sanitization, central storage, env var propagation, migration with rollback, helper script
-  deployment with checksums, security permissions, relink/path commands, backward compatibility)
+  deployment with checksums, security permissions, relink/path commands, backward compatibility),
+  and cross-repo plan tests (29 tests: frontmatter parser, devkit:// URI resolution, plan refs,
+  multi-target shell/dispatch, devkit plan subcommand, read_plan_refs, validate_plan_targets,
+  cmd_path traversal protection, plan archive)
 
 **Usage:**
 ```bash
@@ -1228,10 +1244,11 @@ subprocess.run(["claude", "--print", "/<skill> <args>"], cwd=<resolved target>)
   targets and non-git directories are rejected.
 
 **Commands:** `devkit init <target>`, `devkit <skill> <target> [args]`,
-`devkit shell <target>`, `devkit status [<target>]`, `devkit deploy [--validate]`,
-`devkit jobs [<target>]`, `devkit result <run-id>`, `devkit logs <run-id>`,
-`devkit clean [--days N]`, `devkit migrate <target>`, `devkit relink <old> <new>`,
-`devkit path <target> [subpath]`.
+`devkit shell <target> [--with <target2> ...]`, `devkit status [<target>]`,
+`devkit deploy [--validate]`, `devkit jobs [<target>]`, `devkit result <run-id>`,
+`devkit logs <run-id>`, `devkit clean [--days N]`, `devkit migrate <target>`,
+`devkit relink <old> <new>`, `devkit path <target> [subpath]`,
+`devkit plan list|show|validate|sync|resolve|archive <target> [args]`.
 
 **Detached execution (`--detach`):** Adding `--detach` to any skill invocation
 spawns Claude Code in the background and returns a run ID immediately. A watcher
@@ -1267,6 +1284,17 @@ finalizing) are detected via PID liveness checks.
 | `DEVKIT_PROJECT_DIR` | `devkit_cli.py` (cmd_run_skill, cmd_shell, _spawn_detached) | All skills | `~/.claude-devkit/projects/<project-id>` |
 | `DEVKIT_SCRIPTS` | `devkit_cli.py` (cmd_run_skill, cmd_shell, _spawn_detached) | All skills | `~/.claude-devkit/scripts` |
 | `CLAUDE_DEVKIT` | `install.sh` (shell config) | Generators, development fallback | Path to devkit source repo |
+| `DEVKIT_TARGET_COUNT` | `devkit_cli.py` (cmd_run_skill, cmd_shell, _spawn_detached) | `/architect` Step 0, multi-target skills | Number of targets (always set, even for single-target: `1`) |
+| `DEVKIT_TARGET_N_DIR` | `devkit_cli.py` | Skills needing cross-repo artifact access | `~/.claude-devkit/projects/<project-id>` for target N |
+| `DEVKIT_TARGET_N_PATH` | `devkit_cli.py` | Skills needing cross-repo source access | Resolved repo path for target N |
+| `DEVKIT_TARGET_N_ID` | `devkit_cli.py` | Skills referencing project IDs | Project ID for target N |
+| `DEVKIT_TARGET_N_NAME` | `devkit_cli.py` | Skills displaying project names | Basename of target N's repo path |
+
+**Single-target consistency:** `DEVKIT_TARGET_COUNT=1` and `DEVKIT_TARGET_0_*` vars are
+always set, even for single-target invocations (both `devkit shell` and `devkit <skill>`).
+This provides a consistent interface for skills: they can always read `DEVKIT_TARGET_0_PATH`
+instead of conditionally checking whether indexed vars exist. `DEVKIT_TARGET_COUNT > 1`
+indicates a multi-target session.
 
 Skills use `$DEVKIT_PROJECT_DIR/plans/` for artifact storage. When invoked without the CLI
 (directly in Claude Code), skills compute the project directory from CWD using a three-tier
@@ -1287,6 +1315,9 @@ devkit path ~/projects/my-app
 devkit path ~/projects/my-app plans/feature.md
 ```
 
+`devkit path` validates subpath arguments against path traversal: `..` segments are
+rejected and the resolved path is verified to be under the project's central directory.
+
 `devkit init` creates the project directory at `~/.claude-devkit/projects/<project-id>/` and does
 NOT create any `.devkit/` directory in the target project. Zero runtime footprint in target projects.
 
@@ -1300,6 +1331,43 @@ skill (see `split_skill_args()` in `devkit_cli.py`):
 devkit architect ~/projects/my-app "add feature" -- --fast
 devkit ship ~/projects/my-app $DEVKIT_PROJECT_DIR/plans/feature.md -- --security-override "reason"
 ```
+
+**Cross-repo plan support (`--with` flag and `devkit plan` subcommand):**
+
+Plans that span multiple repositories use a `targets:` field in YAML frontmatter
+to declare all involved projects. Each target has a `role` (`primary` or `secondary`).
+The primary project stores the plan file; secondary projects get lightweight JSON
+reference files (`plan-refs/*.ref.json`) so `devkit status` and `devkit plan list`
+can show cross-repo relationships from any involved project.
+
+```bash
+# Multi-target architect (creates cross-repo plan with targets: frontmatter)
+devkit architect ~/projects/my-app "integrate with cve-api" --with ~/projects/cve-api
+
+# Multi-target shell (sets DEVKIT_TARGET_COUNT and indexed env vars)
+devkit shell ~/projects/my-app --with ~/projects/cve-api
+
+# Plan lifecycle management
+devkit plan list <target>               # List plans + cross-repo refs
+devkit plan show <target> <plan-name>   # Show plan details with target info
+devkit plan validate <target> <file>    # Validate plan frontmatter (targets exist)
+devkit plan sync <target>               # Rebuild plan-refs from frontmatter
+devkit plan resolve <devkit-uri>        # Resolve devkit:// URI to absolute path
+devkit plan archive <target> <plan>     # Archive plan + remove refs from all projects
+```
+
+The `--with` flag is extracted before `validate_args()` runs (same as `--detach`),
+so it does not conflict with the `--`-prefix rejection guard. Each `--with` target
+passes the same validation as primary targets (non-symlink, real git repo, under
+`allowed_roots`, devkit-initialized). Max 10 targets per cross-repo plan (configured
+via `max_cross_repo_targets` in `configs/devkit-defaults.json`).
+
+`devkit://` URIs resolve project-id references to absolute paths:
+```
+devkit://cve-api-f25db5e61a87/plans/add-v2-endpoint.md
+  -> ~/.claude-devkit/projects/cve-api-f25db5e61a87/plans/add-v2-endpoint.md
+```
+Path traversal via `..` segments is rejected. URI path must start with `plans/`.
 
 **Known limitation:** `devkit shell` replaces the harness process via `os.execvp()`,
 so `last_invocation` is written before the interactive session starts and is never
