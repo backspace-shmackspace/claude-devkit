@@ -7,12 +7,20 @@ skill execution to Claude Code (the `claude` CLI). No workflow engine, no
 DAGs -- skills remain SKILL.md files executed by Claude Code with CWD set
 to the target project.
 
+All devkit artifacts (state, plans, audit logs, archives) live under
+~/.claude-devkit/projects/<project-id>/, never inside the target project.
+Skills locate this directory via the DEVKIT_PROJECT_DIR environment
+variable, which this CLI sets before every skill invocation.
+
 Usage:
     devkit init <target>                     Initialize project for devkit management
     devkit <skill> <target> [args...]        Run a skill non-interactively in target
     devkit <skill> <target> --detach         Run skill in background, return run ID
     devkit shell <target>                    Open interactive Claude session in target
     devkit status [<target>]                 Show status of one or all projects
+    devkit migrate <target>                  Migrate legacy .devkit/ artifacts to central storage
+    devkit relink <old-path> <new-path>      Recover artifacts after a project rename/move
+    devkit path <target> [subpath]           Print the central artifact directory path
     devkit jobs [<target>]                   List background runs (all or filtered)
     devkit result <run-id>                   Print result of a completed run
     devkit logs <run-id>                     Print stderr logs of a run
@@ -24,10 +32,12 @@ Usage:
 Stdlib only. Python 3.8+.
 """
 
+import hashlib
 import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -35,9 +45,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
-STATE_SCHEMA_VERSION = "1.0.0"
+STATE_SCHEMA_VERSION = "1.1.0"
 REGISTRY_SCHEMA_VERSION = "1.0.0"
 
 # Hardcoded defaults matching configs/devkit-defaults.json schema.
@@ -46,10 +56,9 @@ REGISTRY_SCHEMA_VERSION = "1.0.0"
 FALLBACK_DEFAULTS = {
     "schema_version": "1.0.0",
     "registry_path": "~/.claude-devkit/registry.json",
-    "state_dir_name": ".devkit",
     "state_file_name": "state.json",
     "allowed_roots": ["~/projects/", "~/workspaces/"],
-    "gitignore_state_dir": True,
+    "scripts_dir_name": "scripts",
     "claude_command": "claude",
     "claude_print_flag": "--print",
     "max_state_file_bytes": 65536,
@@ -62,7 +71,10 @@ FALLBACK_DEFAULTS = {
 # leading-dash flag confusion, and non-filesystem-safe characters.
 SKILL_NAME_RE = re.compile(r'^[a-z][a-z0-9-]*$')
 
-KNOWN_COMMANDS = ("init", "shell", "status", "deploy", "jobs", "result", "logs", "clean")
+KNOWN_COMMANDS = (
+    "init", "shell", "status", "deploy", "jobs", "result", "logs", "clean",
+    "migrate", "relink", "path",
+)
 
 
 class Colors:
@@ -144,6 +156,59 @@ def _atomic_write_json(path, data, mode=0o600):
         return False, f"Cannot write {path}: {e}"
 
 
+# --- Project identity (zero-project-footprint) ------------------------------
+
+def compute_project_id(resolved_path):
+    """Compute a stable, filesystem-safe project ID from an absolute path.
+
+    Returns '<sanitized-basename>-<sha256[:12]>'. The basename prefix is for
+    human navigation only; the hash suffix guarantees uniqueness. Case is
+    normalized before hashing on case-insensitive platforms (macOS, Windows)
+    so the same physical directory always maps to the same ID regardless of
+    how it is cased when referenced.
+
+    Raises ValueError if the path's basename is empty (e.g., filesystem
+    root) -- callers must reject such targets before reaching this point
+    (see validate_target()'s root guard).
+    """
+    canonical = str(resolved_path)
+    if sys.platform == 'darwin' or sys.platform == 'win32':
+        canonical = canonical.lower()
+
+    basename = os.path.basename(str(resolved_path))
+    if not basename:
+        raise ValueError("Cannot use filesystem root as a project target")
+
+    # Sanitize basename: keep only alphanumeric, dot, hyphen, underscore.
+    sanitized = re.sub(r'[^a-zA-Z0-9._-]', '-', basename)
+    sanitized = re.sub(r'-+', '-', sanitized)  # collapse runs of hyphens
+    sanitized = sanitized.strip('-')[:64]       # truncate to reasonable length
+    if not sanitized:
+        sanitized = 'project'  # fallback for all-special-char names
+
+    hash_val = hashlib.sha256(canonical.encode()).hexdigest()[:12]
+    return f"{sanitized}-{hash_val}"
+
+
+def get_project_dir(resolved_path):
+    """Return the central artifact directory Path for a resolved project path.
+
+    ~/.claude-devkit/projects/<project-id>/ -- never inside the target
+    project itself. Raises ValueError (propagated from compute_project_id)
+    if resolved_path is the filesystem root.
+    """
+    project_id = compute_project_id(resolved_path)
+    return Path.home() / ".claude-devkit" / "projects" / project_id
+
+
+def get_scripts_dir(config):
+    """Return the deployed helper-scripts directory (~/.claude-devkit/<scripts_dir_name>)."""
+    scripts_dir_name = config.get(
+        "scripts_dir_name", FALLBACK_DEFAULTS.get("scripts_dir_name", "scripts")
+    )
+    return Path.home() / ".claude-devkit" / scripts_dir_name
+
+
 # --- Validation --------------------------------------------------------
 
 def get_allowed_roots(config):
@@ -166,8 +231,8 @@ def validate_target(path_str, config):
     """Validate a target path is a safe, real git repository.
 
     Checks (in order): non-empty, exists, not a symlink, resolves to a
-    directory, contains .git/, and the resolved path falls under one of
-    the allowed roots.
+    directory, not the filesystem root, contains .git/, and the resolved
+    path falls under one of the allowed roots.
 
     Returns (True, resolved_path) on success, (False, error_msg) on failure.
     All subsequent operations must use the returned resolved_path, never the
@@ -191,6 +256,9 @@ def validate_target(path_str, config):
 
     if not resolved.is_dir():
         return False, f"Target path is not a directory: {resolved}"
+
+    if not os.path.basename(str(resolved)):
+        return False, "Cannot use filesystem root as a project target"
 
     if not (resolved / ".git").exists():
         return False, f"Target path is not a git repository (no .git found): {resolved}"
@@ -268,7 +336,7 @@ def split_skill_args(skill_args):
     return list(skill_args), []
 
 
-# --- State management (.devkit/state.json in target projects) --------------
+# --- State management (~/.claude-devkit/projects/<id>/state.json) ----------
 
 def _validate_state_schema(data):
     """Validate types and max lengths of a loaded state.json dict.
@@ -304,6 +372,18 @@ def _validate_state_schema(data):
     if not isinstance(devkit_version, str) or len(devkit_version) > 20:
         return False, "invalid or missing devkit_version"
 
+    # project_id / project_path were introduced in schema 1.1.0. Older
+    # (1.0.0) state files legitimately omit them -- read_state() fills
+    # them in on first read (schema migration). Only type/length-check
+    # when present.
+    project_id = data.get("project_id")
+    if project_id is not None and (not isinstance(project_id, str) or len(project_id) > 128):
+        return False, "invalid project_id"
+
+    project_path = data.get("project_path")
+    if project_path is not None and (not isinstance(project_path, str) or len(project_path) > 4096):
+        return False, "invalid project_path"
+
     last_invocation = data.get("last_invocation")
     if last_invocation is not None:
         if not isinstance(last_invocation, dict):
@@ -325,16 +405,29 @@ def _validate_state_schema(data):
 
 
 def _state_file_path(target_path, config):
-    return target_path / config["state_dir_name"] / config["state_file_name"]
+    """Return the central state.json path for a resolved target project path.
+
+    Location is always derived from the *current* resolved target path
+    (via get_project_dir()), never from a cached project ID -- this is what
+    makes a renamed/moved project's old artifacts appear "orphaned" until
+    `devkit relink` is run (see plan Directory Rename/Move Handling).
+    """
+    project_dir = get_project_dir(target_path)
+    return project_dir / config.get("state_file_name", FALLBACK_DEFAULTS["state_file_name"])
 
 
 def read_state(target_path, config):
-    """Read and validate .devkit/state.json for `target_path`.
+    """Read and validate the central state.json for `target_path`.
 
     Returns the parsed dict on success, or None (with a stderr warning) on
     any error: missing file, oversize file, malformed JSON, or schema
     validation failure. State is informational only -- callers must treat
     None as "no state available" and proceed.
+
+    Schema migration: state files written before schema 1.1.0 lack
+    `project_id`/`project_path`. Those fields are computed from
+    `target_path` and written back on first read -- a forward-compatible
+    migration that requires no explicit user action.
     """
     state_file = _state_file_path(target_path, config)
     if not state_file.exists():
@@ -368,12 +461,35 @@ def read_state(target_path, config):
         )
         return None
 
+    if "project_id" not in data or "project_path" not in data:
+        try:
+            data["project_id"] = compute_project_id(target_path)
+        except ValueError:
+            pass
+        data["project_path"] = str(target_path)
+        data["schema_version"] = STATE_SCHEMA_VERSION
+        write_state(target_path, data, config)
+
     return data
 
 
 def write_state(target_path, state_dict, config):
-    """Atomically write .devkit/state.json for `target_path` (mode 0o600)."""
+    """Atomically write the central state.json for `target_path` (mode 0o600).
+
+    Ensures the parent project directory exists with 0o700 permissions
+    before writing -- this is what enforces the 0o700 invariant even when
+    a skill is invoked without a prior explicit `devkit init` (see plan
+    Security Controls: Directory permissions).
+    """
     state_file = _state_file_path(target_path, config)
+    try:
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(state_file.parent, 0o700)
+    except OSError as e:
+        print(
+            f"{Colors.YELLOW}Warning:{Colors.RESET} Cannot prepare {state_file.parent}: {e}",
+            file=sys.stderr,
+        )
     ok, err = _atomic_write_json(state_file, state_dict, mode=0o600)
     if not ok:
         print(f"{Colors.YELLOW}Warning:{Colors.RESET} {err}", file=sys.stderr)
@@ -458,8 +574,13 @@ def write_registry(registry_dict, config):
     return ok, err
 
 
-def update_registry(target_path, config, touch=True, register=True):
+def update_registry(target_path, config, touch=True, register=True, project_id=None):
     """Add or update a project entry in the global registry.
+
+    `project_id` is stamped onto the entry when provided (e.g., by
+    cmd_init/cmd_migrate/cmd_relink, which already computed it). When
+    omitted, it is computed from `target_path` on a best-effort basis so
+    entries created via older call sites still gain the field.
 
     No file locking is implemented -- concurrent devkit invocations may
     lose an update to `last_touched`. Accepted limitation given the
@@ -469,62 +590,36 @@ def update_registry(target_path, config, touch=True, register=True):
     now = utc_now_iso()
     path_str = str(target_path)
 
+    if project_id is None:
+        try:
+            project_id = compute_project_id(target_path)
+        except ValueError:
+            project_id = None
+
     projects = registry.setdefault("projects", [])
     entry = next((p for p in projects if p.get("path") == path_str), None)
 
     if entry is None:
         if not register:
             return
-        projects.append({
+        new_entry = {
             "path": path_str,
             "name": target_path.name,
             "registered_at": now,
             "last_touched": now,
-        })
-    elif touch:
-        entry["last_touched"] = now
+        }
+        if project_id:
+            new_entry["project_id"] = project_id
+        projects.append(new_entry)
+    else:
+        if touch:
+            entry["last_touched"] = now
+        if project_id:
+            entry["project_id"] = project_id
 
     registry["schema_version"] = registry.get("schema_version", REGISTRY_SCHEMA_VERSION)
     registry["updated_at"] = now
     write_registry(registry, config)
-
-
-# --- .gitignore management ---------------------------------------------
-
-def ensure_gitignore_entry(target_path, state_dir_name):
-    """Append `<state_dir_name>/` to target_path/.gitignore if not already present."""
-    entry = f"{state_dir_name}/"
-    bare_entry = state_dir_name
-    gitignore_path = target_path / ".gitignore"
-
-    try:
-        if gitignore_path.exists():
-            with open(gitignore_path, "r") as f:
-                content = f.read()
-            existing_lines = {line.strip() for line in content.splitlines()}
-            if entry in existing_lines or bare_entry in existing_lines:
-                return True, ""
-            if content and not content.endswith("\n"):
-                content += "\n"
-            new_content = content + entry + "\n"
-        else:
-            new_content = entry + "\n"
-
-        tmp_path = None
-        try:
-            fd, tmp_path = tempfile.mkstemp(
-                dir=str(target_path), prefix=".gitignore-", suffix=".tmp"
-            )
-            with os.fdopen(fd, "w") as f:
-                f.write(new_content)
-            os.replace(tmp_path, str(gitignore_path))
-        except OSError:
-            if tmp_path and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-            raise
-        return True, ""
-    except OSError as e:
-        return False, f"Cannot update .gitignore: {e}"
 
 
 # --- Pre-flight checks ---------------------------------------------------
@@ -569,6 +664,28 @@ def preflight(skill, target_path, config):
             f"Project not initialized for devkit (no {state_file}). "
             f"Run 'devkit init {target_path}'.",
         ))
+
+    # Central project directory permission check -- if it already exists
+    # (e.g., from a prior run or explicit `devkit init`), it must be 0o700.
+    # write_state()/cmd_init() always create it with 0o700; a mismatch here
+    # means something else modified it after the fact (see plan Security
+    # Controls: Directory permissions).
+    try:
+        project_dir = get_project_dir(target_path)
+    except ValueError:
+        project_dir = None
+    if project_dir is not None and project_dir.exists():
+        try:
+            mode = stat.S_IMODE(project_dir.stat().st_mode)
+        except OSError as e:
+            issues.append(("error", f"Cannot stat {project_dir}: {e}"))
+        else:
+            if mode != 0o700:
+                issues.append((
+                    "error",
+                    f"{project_dir} has insecure permissions ({oct(mode)}). "
+                    f"Expected 0o700. Fix with: chmod 700 {project_dir}",
+                ))
 
     if not _has_tool_allowlist(target_path):
         issues.append((
@@ -660,6 +777,12 @@ def _spawn_watcher(runs_dir, invocation, cwd, env):
     The watcher receives all variable values via sys.argv -- no f-string
     interpolation into source code. This prevents injection if path values
     ever contain Python string metacharacters.
+
+    The watcher process itself is spawned with `env=env` below, so its own
+    `os.environ` (and therefore `os.environ.copy()` inside the inline
+    script) already reflects `env` -- including DEVKIT_PROJECT_DIR and
+    DEVKIT_SCRIPTS. This is how those variables reach the Claude subprocess
+    the watcher spawns as its own child.
     """
     watcher_script = '''
 import os, json, sys, subprocess
@@ -687,7 +810,10 @@ stderr_fd = os.open(str(run_dir / "stderr.log"), os.O_WRONLY | os.O_CREAT | os.O
 stdout_log = os.fdopen(stdout_fd, "w")
 stderr_log = os.fdopen(stderr_fd, "w")
 
-# Spawn Claude as our child -- os.waitpid() works because we are its parent
+# Spawn Claude as our child -- os.waitpid() works because we are its parent.
+# env=os.environ.copy() forwards this watcher process's own environment
+# (which the parent devkit_cli.py already populated with DEVKIT_PROJECT_DIR
+# and DEVKIT_SCRIPTS via the env= kwarg used to spawn this watcher).
 proc = subprocess.Popen(
     invocation, cwd=cwd, env=os.environ.copy(),
     stdout=stdout_log, stderr=stderr_log,
@@ -771,6 +897,12 @@ def _spawn_detached(skill, resolved, args_str, config, run_id):
 
     env = os.environ.copy()
     env["CLAUDE_DEVKIT"] = str(get_devkit_root())
+    # Propagate the same artifact/script locations a synchronous invocation
+    # would get -- without this, detached runs fall through to tier-2/3
+    # path resolution in skills and can recreate .devkit/ in the project
+    # (see plan "Changes to Detached Execution").
+    env["DEVKIT_PROJECT_DIR"] = str(get_project_dir(resolved))
+    env["DEVKIT_SCRIPTS"] = str(get_scripts_dir(config))
 
     # Spawn watcher -- the watcher itself spawns Claude as its child,
     # so it can use os.waitpid() to obtain the real exit code.
@@ -786,11 +918,47 @@ def cmd_init(target_str, config):
         return 1
     resolved = result
 
+    try:
+        project_id = compute_project_id(resolved)
+    except ValueError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} {e}", file=sys.stderr)
+        return 1
+
+    # Collision detection: an existing central directory for this ID that
+    # belongs to a *different* resolved path indicates a genuine project ID
+    # collision (see plan STRIDE Spoofing analysis). read_state() already
+    # resolves the same project dir via get_project_dir(resolved), so this
+    # naturally finds only state that lives at this exact ID.
+    existing_state = read_state(resolved, config)
+    if existing_state is not None:
+        existing_path = existing_state.get("project_path")
+        if existing_path and existing_path != str(resolved):
+            print(
+                f"{Colors.RED}Error:{Colors.RESET} project ID collision detected. "
+                f"Existing project at {existing_path} has the same ID ({project_id}). "
+                f"This should not happen; please report this as a bug.",
+                file=sys.stderr,
+            )
+            return 1
+
+    project_dir = get_project_dir(resolved)
+    try:
+        os.makedirs(project_dir, mode=0o700, exist_ok=True)
+        os.chmod(project_dir, 0o700)
+        plans_dir = project_dir / "plans"
+        os.makedirs(plans_dir, mode=0o700, exist_ok=True)
+        os.chmod(plans_dir, 0o700)
+    except OSError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} Cannot create {project_dir}: {e}", file=sys.stderr)
+        return 1
+
     now = utc_now_iso()
     state = {
         "schema_version": STATE_SCHEMA_VERSION,
         "project_name": resolved.name,
-        "initialized_at": now,
+        "project_id": project_id,
+        "project_path": str(resolved),
+        "initialized_at": (existing_state or {}).get("initialized_at", now),
         "devkit_version": VERSION,
     }
     ok, err = write_state(resolved, state, config)
@@ -798,14 +966,11 @@ def cmd_init(target_str, config):
         print(f"{Colors.RED}Error:{Colors.RESET} {err}", file=sys.stderr)
         return 1
 
-    if config.get("gitignore_state_dir", True):
-        ok, err = ensure_gitignore_entry(resolved, config["state_dir_name"])
-        if not ok:
-            print(f"{Colors.YELLOW}Warning:{Colors.RESET} {err}", file=sys.stderr)
+    update_registry(resolved, config, touch=True, register=True, project_id=project_id)
 
-    update_registry(resolved, config, touch=True, register=True)
-
-    print(f"{Colors.GREEN}Initialized devkit for '{resolved.name}' at {resolved}{Colors.RESET}")
+    print(f"{Colors.GREEN}Initialized devkit for '{resolved.name}'{Colors.RESET}")
+    print(f"  Project path: {resolved}")
+    print(f"  Artifact dir: {project_dir}")
     return 0
 
 
@@ -863,9 +1028,17 @@ def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config,
         return 0
 
     existing_state = read_state(resolved, config) or {}
+    project_id = existing_state.get("project_id")
+    if not project_id:
+        try:
+            project_id = compute_project_id(resolved)
+        except ValueError:
+            project_id = None
     base_state = {
-        "schema_version": existing_state.get("schema_version", STATE_SCHEMA_VERSION),
+        "schema_version": STATE_SCHEMA_VERSION,
         "project_name": resolved.name,
+        "project_id": project_id,
+        "project_path": str(resolved),
         "initialized_at": existing_state.get("initialized_at", utc_now_iso()),
         "devkit_version": VERSION,
     }
@@ -881,10 +1054,12 @@ def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config,
         "exit_code": None,
     }
     write_state(resolved, pre_state, config)
-    update_registry(resolved, config, touch=True, register=True)
+    update_registry(resolved, config, touch=True, register=True, project_id=project_id)
 
     env = os.environ.copy()
     env["CLAUDE_DEVKIT"] = str(get_devkit_root())
+    env["DEVKIT_PROJECT_DIR"] = str(get_project_dir(resolved))
+    env["DEVKIT_SCRIPTS"] = str(get_scripts_dir(config))
 
     prompt = f"/{skill}"
     if args_str:
@@ -926,7 +1101,7 @@ def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config,
             "exit_code": exit_code,
         }
         write_state(resolved, final_state, config)
-        update_registry(resolved, config, touch=True, register=True)
+        update_registry(resolved, config, touch=True, register=True, project_id=project_id)
 
     return exit_code
 
@@ -1024,9 +1199,15 @@ def cmd_shell(target_str, config):
     # remains null for interactive sessions -- see plan State Model section).
     now = utc_now_iso()
     existing_state = read_state(resolved, config) or {}
+    try:
+        project_id = existing_state.get("project_id") or compute_project_id(resolved)
+    except ValueError:
+        project_id = None
     state = {
-        "schema_version": existing_state.get("schema_version", STATE_SCHEMA_VERSION),
+        "schema_version": STATE_SCHEMA_VERSION,
         "project_name": resolved.name,
+        "project_id": project_id,
+        "project_path": str(resolved),
         "initialized_at": existing_state.get("initialized_at", now),
         "devkit_version": VERSION,
         "last_invocation": {
@@ -1037,13 +1218,16 @@ def cmd_shell(target_str, config):
         },
     }
     write_state(resolved, state, config)
-    update_registry(resolved, config, touch=True, register=True)
+    update_registry(resolved, config, touch=True, register=True, project_id=project_id)
 
     claude_cmd = config.get("claude_command", FALLBACK_DEFAULTS["claude_command"])
 
     # Mutate os.environ (not a local copy) so os.execvp's replacement
-    # process inherits CLAUDE_DEVKIT via the real process environment.
+    # process inherits CLAUDE_DEVKIT/DEVKIT_PROJECT_DIR/DEVKIT_SCRIPTS via
+    # the real process environment.
     os.environ["CLAUDE_DEVKIT"] = str(get_devkit_root())
+    os.environ["DEVKIT_PROJECT_DIR"] = str(get_project_dir(resolved))
+    os.environ["DEVKIT_SCRIPTS"] = str(get_scripts_dir(config))
 
     try:
         os.chdir(str(resolved))
@@ -1074,8 +1258,23 @@ def cmd_status(target_str, config):
         if state is None:
             print(f"Status: not initialized (run 'devkit init {resolved}')")
         else:
+            try:
+                project_dir = get_project_dir(resolved)
+                print(f"Artifact directory: {project_dir}")
+            except ValueError:
+                pass
             print(f"Initialized: {state.get('initialized_at', 'unknown')}")
             print(f"Devkit version at init: {state.get('devkit_version', 'unknown')}")
+
+            stored_path = state.get("project_path")
+            if stored_path and stored_path != str(resolved):
+                print(
+                    f"{Colors.YELLOW}Warning:{Colors.RESET} project was previously at "
+                    f"{stored_path}. Artifacts from the old location may still exist "
+                    f"under ~/.claude-devkit/projects/<old-id>/. Use "
+                    f"'devkit relink {stored_path} {resolved}' to migrate them."
+                )
+
             last = state.get("last_invocation")
             if last:
                 print(f"Last invocation: /{last.get('skill')} (args: {last.get('args', '')})")
@@ -1095,8 +1294,11 @@ def cmd_status(target_str, config):
                 maturity = "unknown (settings.json unreadable)"
         print(f"Security maturity: {maturity}")
 
-        audit_log_dir = resolved / "plans" / "audit-logs"
-        log_count = len(list(audit_log_dir.glob("*.jsonl"))) if audit_log_dir.is_dir() else 0
+        try:
+            audit_log_dir = get_project_dir(resolved) / "plans" / "audit-logs"
+            log_count = len(list(audit_log_dir.glob("*.jsonl"))) if audit_log_dir.is_dir() else 0
+        except ValueError:
+            log_count = 0
         print(f"Audit logs: {log_count}")
         return 0
 
@@ -1127,6 +1329,185 @@ def cmd_deploy(args, config):
     except OSError as e:
         print(f"{Colors.RED}Error:{Colors.RESET} Cannot run deploy.sh: {e}", file=sys.stderr)
         return 1
+
+
+def cmd_migrate(target_str, config):
+    """Migrate legacy .devkit/ artifacts to ~/.claude-devkit/projects/<id>/.
+
+    Non-destructive (copies, not moves) and rolls back the partially
+    created central directory if any copy step fails.
+    """
+    ok, result = validate_target(target_str, config)
+    if not ok:
+        print(f"{Colors.RED}Error:{Colors.RESET} {result}", file=sys.stderr)
+        return 1
+    resolved = result
+
+    try:
+        project_id = compute_project_id(resolved)
+    except ValueError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} {e}", file=sys.stderr)
+        return 1
+
+    central_dir = get_project_dir(resolved)
+    old_devkit = resolved / ".devkit"
+
+    if not old_devkit.is_dir():
+        print(f"No .devkit/ directory found in {resolved}. Nothing to migrate.")
+        return 0
+
+    if central_dir.exists():
+        print(f"{Colors.RED}Error:{Colors.RESET} Central directory already exists at {central_dir}.", file=sys.stderr)
+        print("Manual merge may be needed. Aborting.", file=sys.stderr)
+        return 1
+
+    try:
+        os.makedirs(central_dir, mode=0o700)
+        os.chmod(central_dir, 0o700)
+    except OSError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} Cannot create {central_dir}: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        old_state = old_devkit / "state.json"
+        if old_state.exists():
+            shutil.copy2(str(old_state), str(central_dir / "state.json"))
+            os.chmod(central_dir / "state.json", 0o600)
+
+        old_plans = old_devkit / "plans"
+        if old_plans.is_dir():
+            shutil.copytree(str(old_plans), str(central_dir / "plans"))
+        else:
+            os.makedirs(central_dir / "plans", mode=0o700, exist_ok=True)
+            os.chmod(central_dir / "plans", 0o700)
+
+        # Normalize the migrated state: ensure project_id/project_path are
+        # correct for the *current* resolved path (read_state()'s schema
+        # migration handles this if the copied file predates schema 1.1.0;
+        # if no state.json existed at all, seed a minimal one).
+        migrated_state = read_state(resolved, config)
+        if migrated_state is None:
+            migrated_state = {
+                "schema_version": STATE_SCHEMA_VERSION,
+                "project_name": resolved.name,
+                "project_id": project_id,
+                "project_path": str(resolved),
+                "initialized_at": utc_now_iso(),
+                "devkit_version": VERSION,
+            }
+            write_state(resolved, migrated_state, config)
+
+        update_registry(resolved, config, touch=True, register=True, project_id=project_id)
+    except (OSError, shutil.Error) as e:
+        shutil.rmtree(str(central_dir), ignore_errors=True)
+        print(f"{Colors.RED}Error:{Colors.RESET} during migration: {e}", file=sys.stderr)
+        print("Rolled back. Central directory removed.", file=sys.stderr)
+        return 1
+
+    print(f"{Colors.GREEN}Migrated{Colors.RESET} {resolved} artifacts to {central_dir}")
+    print("Verify migration, then remove old directory:")
+    print(f"  rm -rf {old_devkit}")
+    print("  # Also remove .devkit/ from .gitignore if present")
+    return 0
+
+
+def cmd_relink(old_path_str, new_path_str, config):
+    """Recover centralized artifacts after a project directory rename/move.
+
+    Renames ~/.claude-devkit/projects/<old-id>/ to <new-id>/ and updates
+    state.json + the registry entry accordingly. The old path need not
+    still exist on disk (that is the whole point -- it usually doesn't).
+    """
+    if not old_path_str or not new_path_str:
+        print(f"{Colors.RED}Error:{Colors.RESET} devkit relink requires <old-path> <new-path>", file=sys.stderr)
+        return 2
+
+    try:
+        old_resolved = Path(old_path_str).expanduser().resolve(strict=False)
+    except OSError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} Cannot resolve old path {old_path_str}: {e}", file=sys.stderr)
+        return 1
+
+    ok, new_resolved = validate_target(new_path_str, config)
+    if not ok:
+        print(f"{Colors.RED}Error:{Colors.RESET} {new_resolved}", file=sys.stderr)
+        return 1
+
+    try:
+        old_id = compute_project_id(old_resolved)
+        new_id = compute_project_id(new_resolved)
+    except ValueError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} {e}", file=sys.stderr)
+        return 1
+
+    if old_id == new_id:
+        print("Old and new paths resolve to the same project ID; nothing to relink.")
+        return 0
+
+    old_dir = Path.home() / ".claude-devkit" / "projects" / old_id
+    new_dir = Path.home() / ".claude-devkit" / "projects" / new_id
+
+    if not old_dir.is_dir():
+        print(
+            f"{Colors.RED}Error:{Colors.RESET} No central project directory found for "
+            f"old path (expected {old_dir}).",
+            file=sys.stderr,
+        )
+        return 1
+    if new_dir.exists():
+        print(
+            f"{Colors.RED}Error:{Colors.RESET} Central project directory already exists "
+            f"at {new_dir}. Aborting to avoid overwrite.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        os.rename(str(old_dir), str(new_dir))
+    except OSError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} Cannot rename {old_dir} to {new_dir}: {e}", file=sys.stderr)
+        return 1
+
+    state = read_state(new_resolved, config) or {}
+    state["schema_version"] = STATE_SCHEMA_VERSION
+    state["project_id"] = new_id
+    state["project_path"] = str(new_resolved)
+    state.setdefault("project_name", new_resolved.name)
+    state.setdefault("initialized_at", utc_now_iso())
+    state.setdefault("devkit_version", VERSION)
+    write_state(new_resolved, state, config)
+
+    registry = read_registry(config)
+    projects = [p for p in registry.get("projects", []) if p.get("path") != str(old_resolved)]
+    registry["projects"] = projects
+    registry["updated_at"] = utc_now_iso()
+    write_registry(registry, config)
+    update_registry(new_resolved, config, touch=True, register=True, project_id=new_id)
+
+    print(f"{Colors.GREEN}Relinked:{Colors.RESET} {old_resolved} -> {new_resolved}")
+    print(f"  Central directory: {old_dir} -> {new_dir}")
+    return 0
+
+
+def cmd_path(target_str, config, subpath=None):
+    """Print the central artifact directory path for a project."""
+    ok, result = validate_target(target_str, config)
+    if not ok:
+        print(f"{Colors.RED}Error:{Colors.RESET} {result}", file=sys.stderr)
+        return 1
+    resolved = result
+
+    try:
+        project_dir = get_project_dir(resolved)
+    except ValueError as e:
+        print(f"{Colors.RED}Error:{Colors.RESET} {e}", file=sys.stderr)
+        return 1
+
+    if subpath:
+        print(str(project_dir / subpath))
+    else:
+        print(str(project_dir))
+    return 0
 
 
 def cmd_jobs(target_str, config):
@@ -1269,6 +1650,9 @@ Usage:
   devkit <skill> <target> --detach         Run skill in background, return run ID
   devkit shell <target>                    Open interactive Claude session in target
   devkit status [<target>]                 Show status of one or all projects
+  devkit migrate <target>                  Migrate legacy .devkit/ artifacts to central storage
+  devkit relink <old-path> <new-path>      Recover artifacts after a project rename/move
+  devkit path <target> [subpath]           Print the central artifact directory path
   devkit jobs [<target>]                   List background runs (all or filtered)
   devkit result <run-id>                   Print result of a completed run
   devkit logs <run-id>                     Print stderr logs of a run
@@ -1282,7 +1666,8 @@ Examples:
   devkit audit ~/projects/my-app
   devkit architect ~/projects/my-app "add user authentication"
   devkit architect ~/projects/my-app "add feature" --detach
-  devkit ship ~/projects/my-app .devkit/plans/add-user-auth.md
+  devkit path ~/projects/my-app
+  devkit ship ~/projects/my-app "$(devkit path ~/projects/my-app plans/add-user-auth.md)"
   devkit jobs
   devkit result 20260821-143052-a1b2c3
   devkit logs 20260821-143052-a1b2c3
@@ -1290,8 +1675,14 @@ Examples:
   devkit shell ~/projects/my-app
   devkit status
   devkit status ~/projects/my-app
+  devkit migrate ~/projects/my-app
+  devkit relink ~/projects/old-name ~/projects/new-name
 
 Notes:
+  All artifacts (state, plans, audit logs, archives) live under
+  ~/.claude-devkit/projects/<project-id>/ -- devkit never writes into the
+  target project directory itself (see 'devkit path' and 'devkit status').
+
   --detach spawns the skill in the background and returns a run ID immediately.
   Use 'devkit jobs' to check status, 'devkit result <id>' to see the output.
 
@@ -1346,6 +1737,25 @@ def main():
     if command == "status":
         target = rest[0] if rest else None
         return cmd_status(target, config)
+
+    if command == "migrate":
+        if not rest:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit migrate requires a target path", file=sys.stderr)
+            return 2
+        return cmd_migrate(rest[0], config)
+
+    if command == "relink":
+        if len(rest) < 2:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit relink requires <old-path> <new-path>", file=sys.stderr)
+            return 2
+        return cmd_relink(rest[0], rest[1], config)
+
+    if command == "path":
+        if not rest:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit path requires a target path", file=sys.stderr)
+            return 2
+        subpath = rest[1] if len(rest) > 1 else None
+        return cmd_path(rest[0], config, subpath)
 
     if command == "deploy":
         return cmd_deploy(rest, config)

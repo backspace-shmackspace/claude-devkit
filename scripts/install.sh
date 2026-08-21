@@ -138,6 +138,20 @@ SCANNER_REQS="$HOME/.claude-devkit/scanner-requirements.txt"
 mkdir -p "$HOME/.claude-devkit"
 chmod 700 "$HOME/.claude-devkit"
 
+# Deployed helper-script directory (zero-project-footprint design). Skills
+# reference $HOME/.claude-devkit/scripts/ (or $DEVKIT_SCRIPTS) instead of a
+# relative scripts/ path, so they work without $CLAUDE_DEVKIT being set.
+# deploy.sh populates this directory; install.sh only ensures it exists
+# with the correct permissions ahead of the first deploy.
+mkdir -p "$HOME/.claude-devkit/scripts"
+chmod 700 "$HOME/.claude-devkit/scripts"
+
+# Per-project centralized artifact storage (state.json, plans/, audit-logs/,
+# archive/). Created lazily by `devkit init` / `devkit <skill>`, but ensure
+# the parent exists here too so permissions are consistent from install time.
+mkdir -p "$HOME/.claude-devkit/projects"
+chmod 700 "$HOME/.claude-devkit/projects"
+
 # Write pinned requirements
 cat > "$SCANNER_REQS" << 'REQS'
 tree-sitter>=0.25.0,<0.26

@@ -1,10 +1,9 @@
 {
   "schema_version": "1.0.0",
   "registry_path": "~/.claude-devkit/registry.json",
-  "state_dir_name": ".devkit",
   "state_file_name": "state.json",
   "allowed_roots": ["~/projects/", "~/workspaces/"],
-  "gitignore_state_dir": true,
+  "scripts_dir_name": "scripts",
   "claude_command": "claude",
   "claude_print_flag": "--print",
   "max_state_file_bytes": 65536,

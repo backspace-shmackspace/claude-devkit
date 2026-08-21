@@ -16,6 +16,110 @@ SKILLS_DIR="$REPO_DIR/skills"
 CONTRIB_DIR="$REPO_DIR/contrib"
 DEPLOY_DIR="$HOME/.claude/skills"
 
+# --- Helper script deployment (zero-project-footprint) ----------------------
+# Skills reference these via $DEVKIT_SCRIPTS or $HOME/.claude-devkit/scripts/
+# (absolute paths) instead of relative scripts/ paths, so they work without
+# $CLAUDE_DEVKIT being set. Deployed alongside skills so the CLI and skills
+# always ship from the same release (see plan "Atomic Deployment Requirement":
+# CLI changes and skill updates must be deployed together, or skills can fall
+# through to deprecated/mismatched path resolution).
+HELPER_SCRIPTS_DIR="$HOME/.claude-devkit/scripts"
+HELPER_SCRIPTS=(
+    "emit-audit-event.sh"
+    "compute-run-score.sh"
+    "codebase-scanner.py"
+    "score-reflector.sh"
+    "scanner-value-report.sh"
+    "audit-log-query.sh"
+    "resolve-project-dir.sh"
+)
+
+sha256_of() {
+    local file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$file" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$file" | awk '{print $1}'
+    else
+        echo "ERROR: no SHA-256 tool found (need sha256sum or shasum)" >&2
+        return 1
+    fi
+}
+
+# Deploys helper scripts to ~/.claude-devkit/scripts/ with 0o500 (read+exec,
+# no write) permissions and records SHA-256 checksums in .checksums.json.
+# Fails atomically: if any script is missing or fails to copy, everything
+# copied during this invocation is rolled back and the function returns
+# non-zero (deploy.sh then aborts under `set -euo pipefail`).
+deploy_helper_scripts() {
+    mkdir -p "$HELPER_SCRIPTS_DIR"
+    chmod 700 "$HELPER_SCRIPTS_DIR"
+
+    local deployed_files=()
+    local checksums_tmp
+    checksums_tmp="$(mktemp "${TMPDIR:-/tmp}/devkit-checksums.XXXXXX")" || {
+        echo "ERROR: Cannot create temp file for checksums" >&2
+        return 1
+    }
+
+    local first=1
+    echo "{" > "$checksums_tmp"
+
+    for script in "${HELPER_SCRIPTS[@]}"; do
+        local src="$REPO_DIR/scripts/$script"
+        if [ ! -f "$src" ]; then
+            echo "ERROR: Helper script '$script' not found at $src" >&2
+            rm -f "$checksums_tmp"
+            for f in "${deployed_files[@]}"; do rm -f "$f"; done
+            return 1
+        fi
+
+        local dst="$HELPER_SCRIPTS_DIR/$script"
+        local dst_tmp
+        dst_tmp="$(mktemp "$HELPER_SCRIPTS_DIR/.deploy.XXXXXX")" || {
+            echo "ERROR: Cannot create temp file for $script" >&2
+            rm -f "$checksums_tmp"
+            for f in "${deployed_files[@]}"; do rm -f "$f"; done
+            return 1
+        }
+
+        if ! cp "$src" "$dst_tmp"; then
+            echo "ERROR: Failed to copy $script" >&2
+            rm -f "$checksums_tmp" "$dst_tmp"
+            for f in "${deployed_files[@]}"; do rm -f "$f"; done
+            return 1
+        fi
+
+        local checksum
+        if ! checksum="$(sha256_of "$dst_tmp")"; then
+            rm -f "$checksums_tmp" "$dst_tmp"
+            for f in "${deployed_files[@]}"; do rm -f "$f"; done
+            return 1
+        fi
+
+        chmod 500 "$dst_tmp"
+        mv -f "$dst_tmp" "$dst"
+        deployed_files+=("$dst")
+
+        if [ "$first" -eq 1 ]; then
+            first=0
+        else
+            echo "," >> "$checksums_tmp"
+        fi
+        printf '  "%s": "%s"' "$script" "$checksum" >> "$checksums_tmp"
+    done
+
+    {
+        echo ""
+        echo "}"
+    } >> "$checksums_tmp"
+
+    chmod 600 "$checksums_tmp"
+    mv -f "$checksums_tmp" "$HELPER_SCRIPTS_DIR/.checksums.json"
+
+    echo "Deployed ${#HELPER_SCRIPTS[@]} helper script(s) to $HELPER_SCRIPTS_DIR (0o500, checksums recorded)"
+}
+
 validate_skill_name() {
     local skill="$1"
     if [[ "$skill" == */* ]] || [[ "$skill" == *..* ]] || [[ "$skill" == -* ]]; then
@@ -186,6 +290,19 @@ for arg in "$@"; do
     fi
 done
 set -- "${ARGS[@]}"
+
+# Deploy helper scripts alongside skills for every action that actually
+# installs or refreshes something (skip --help and --undeploy, which don't
+# touch skill content). This is the "atomic deployment" enforcement from the
+# plan: the CLI-facing helper scripts and the skills that depend on them
+# (ship, architect, audit, etc.) are kept in lockstep on every deploy run.
+case "${1:-}" in
+    --help|-h|--undeploy)
+        ;;
+    *)
+        deploy_helper_scripts || exit 1
+        ;;
+esac
 
 # Argument parsing
 case "${1:-}" in
