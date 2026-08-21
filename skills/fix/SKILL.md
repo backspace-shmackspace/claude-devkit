@@ -6,6 +6,9 @@ version: 1.0.0
 ---
 # /fix Workflow
 
+## Output Rules
+- **Always print full absolute paths** for all artifact references (plan files, review files, audit logs). This makes paths clickable in terminals like Warp. Use the resolved `$PLANS_DIR` value, never relative paths.
+
 ## Role
 
 This skill is a **pipeline coordinator**. It orchestrates a targeted fix workflow: parse a finding from a review artifact, scope the fix, dispatch a coder agent, run focused verification, and commit with traceability back to the source finding. It does NOT write code directly — it delegates implementation to a coder agent and verification to focused subagent tasks.

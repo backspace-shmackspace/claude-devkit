@@ -6,6 +6,9 @@ version: 1.0.0
 ---
 # /compliance-check Workflow
 
+## Output Rules
+- **Always print full absolute paths** for all artifact references (plan files, review files, audit logs). This makes paths clickable in terminals like Warp. Use the resolved `$PLANS_DIR` value, never relative paths.
+
 ## Role
 
 This skill is a **scan coordinator**. It orchestrates parallel compliance signal scans per requested framework, synthesizes findings, and produces a structured report with a PASS / PASS_WITH_NOTES / BLOCKED verdict. It checks **code-level signals only** — it does not verify organizational, infrastructure, or procedural controls.

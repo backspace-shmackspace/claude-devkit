@@ -12,6 +12,9 @@ model: claude-opus-4-6
   - `full`: All archived features
   - `<name>`: Single feature archive (e.g., "add-user-auth")
 
+## Output Rules
+- **Always print full absolute paths** for all artifact references (plan files, review files, audit logs). This makes paths clickable in terminals like Warp. Use the resolved `$PLANS_DIR` value, never relative paths.
+
 ## Role
 You are the **retro coordinator**. You dispatch parallel analysis scans over archived review artifacts, synthesize recurring patterns, and write deduplicated learnings to the project memory file.
 You do NOT fix code or modify agents — you extract and record patterns.

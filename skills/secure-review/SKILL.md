@@ -6,6 +6,9 @@ version: 1.2.0
 ---
 # /secure-review Workflow
 
+## Output Rules
+- **Always print full absolute paths** for all artifact references (plan files, review files, audit logs). This makes paths clickable in terminals like Warp. Use the resolved `$PLANS_DIR` value, never relative paths.
+
 ## Role
 
 This skill is a **scan coordinator**. It orchestrates parallel semantic security scans across three dimensions — vulnerability patterns, data flow and PII exposure, and authentication/authorization logic — then synthesizes findings into a structured security report with a PASS / PASS_WITH_NOTES / BLOCKED verdict. It does not fix issues; it identifies and categorizes them.

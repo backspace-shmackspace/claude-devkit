@@ -6,6 +6,9 @@ version: 1.1.0
 ---
 # /dependency-audit Workflow
 
+## Output Rules
+- **Always print full absolute paths** for all artifact references (plan files, review files, audit logs). This makes paths clickable in terminals like Warp. Use the resolved `$PLANS_DIR` value, never relative paths.
+
 ## Role
 
 This skill is a **pipeline coordinator**. It orchestrates a sequential supply chain security workflow by delegating scanner invocation and synthesis to appropriate tools. It does NOT perform LLM-based CVE lookup — it coordinates real CLI scanners that use live vulnerability databases, then synthesizes their output. The LLM's training data has a knowledge cutoff and cannot reliably detect post-cutoff CVEs.
