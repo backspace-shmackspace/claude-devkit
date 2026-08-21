@@ -14,7 +14,6 @@ import json
 import os
 import signal
 import sys
-import time
 
 # --- Path setup: import siblings from the same scripts/ directory -----------
 
@@ -134,36 +133,44 @@ def _timeout_handler(signum, frame):
     raise _ScanTimeout("Filesystem scan exceeded timeout")
 
 
-def _discover_learnings_files():
+def _discover_learnings_files(allowed_roots=None):
     """Discover all .claude/learnings.md files.
 
     Discovery strategy (ordered):
-    1. Registry projects
+    1. Registry projects (skipped when allowed_roots is explicitly provided)
     2. allowed_roots scan (maxdepth=4, 30s timeout)
     3. Skip: symlinks, backup dirs, non-git dirs
+
+    When allowed_roots is provided, only those directories are scanned
+    (registry-based discovery is skipped). This is used by tests to
+    constrain scanning to test fixtures.
 
     Returns list of (learnings_path, project_path) tuples.
     """
     discovered = {}  # project_path -> learnings_path (dedup by project)
     warnings = []
 
-    # Step 1: Registry projects
-    for project_path in _load_registry():
-        project_path = os.path.expanduser(project_path)
-        if not os.path.isdir(project_path):
-            continue
+    # Step 1: Registry projects (skip when allowed_roots explicitly provided)
+    if allowed_roots is None:
+        for project_path in _load_registry():
+            project_path = os.path.expanduser(project_path)
+            if not os.path.isdir(project_path):
+                continue
 
-        real_path = os.path.realpath(project_path)
-        if real_path != os.path.abspath(project_path):
-            warnings.append(f"Skipping symlinked registry path: {project_path}")
-            continue
+            real_path = os.path.realpath(project_path)
+            if real_path != os.path.abspath(project_path):
+                warnings.append(f"Skipping symlinked registry path: {project_path}")
+                continue
 
-        learnings = os.path.join(project_path, '.claude', 'learnings.md')
-        if os.path.isfile(learnings):
-            discovered[real_path] = learnings
+            learnings = os.path.join(project_path, '.claude', 'learnings.md')
+            if os.path.isfile(learnings):
+                discovered[real_path] = learnings
 
     # Step 2: Scan allowed_roots
-    roots = _load_allowed_roots()
+    if allowed_roots is not None:
+        roots = [os.path.realpath(os.path.expanduser(r)) for r in allowed_roots]
+    else:
+        roots = _load_allowed_roots()
 
     # Set up timeout (Unix only; on Windows, skip timeout)
     old_handler = None
@@ -242,15 +249,21 @@ def _scan_root(root, discovered, warnings, depth):
 
 # --- Aggregation -------------------------------------------------------------
 
-def aggregate(min_projects=_DEFAULT_MIN_PROJECTS):
+def aggregate(min_projects=_DEFAULT_MIN_PROJECTS, allowed_roots=None):
     """Run full aggregation pipeline.
+
+    When allowed_roots is provided (list of directory paths), only those
+    roots are scanned for learnings files (registry-based discovery is
+    skipped). This is used by tests to constrain scanning to test fixtures.
 
     Returns (index_data, warnings) tuple.
     """
     all_warnings = []
 
     # Discover files
-    discovered, disc_warnings = _discover_learnings_files()
+    discovered, disc_warnings = _discover_learnings_files(
+        allowed_roots=allowed_roots
+    )
     all_warnings.extend(disc_warnings)
 
     if not discovered:
@@ -572,18 +585,21 @@ def main():
 
     Usage: python3 learnings_aggregator.py [--format json|md]
                                            [--min-projects N]
+                                           [--allowed-roots DIR ...]
     """
     args = sys.argv[1:]
 
     fmt = 'json'
     min_projects = _DEFAULT_MIN_PROJECTS
+    allowed_roots = None
 
     i = 0
     while i < len(args):
         if args[i] in ('-h', '--help'):
             print(
                 "Usage: python3 learnings_aggregator.py "
-                "[--format json|md] [--min-projects N]",
+                "[--format json|md] [--min-projects N] "
+                "[--allowed-roots DIR ...]",
                 file=sys.stderr
             )
             print(
@@ -602,6 +618,11 @@ def main():
             print(
                 "  --min-projects N  Minimum projects for promotion "
                 "candidates (default: 3)",
+                file=sys.stderr
+            )
+            print(
+                "  --allowed-roots DIR [DIR ...]  Only scan these root "
+                "directories (skip registry)",
                 file=sys.stderr
             )
             sys.exit(0)
@@ -626,12 +647,27 @@ def main():
                 )
                 sys.exit(2)
             i += 2
+        elif args[i] == '--allowed-roots':
+            # Consume all following non-flag arguments as root directories
+            allowed_roots = []
+            i += 1
+            while i < len(args) and not args[i].startswith('--'):
+                allowed_roots.append(args[i])
+                i += 1
+            if not allowed_roots:
+                print(
+                    "Error: --allowed-roots requires at least one directory",
+                    file=sys.stderr
+                )
+                sys.exit(2)
         else:
             print(f"Error: unknown argument '{args[i]}'", file=sys.stderr)
             sys.exit(2)
 
     # Run aggregation
-    index_data, warnings = aggregate(min_projects=min_projects)
+    index_data, warnings = aggregate(
+        min_projects=min_projects, allowed_roots=allowed_roots
+    )
 
     # Print warnings to stderr
     for w in warnings:

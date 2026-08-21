@@ -31,7 +31,9 @@ Usage:
     devkit plan archive <target> <plan-name> Archive cross-repo plan and remove refs
     devkit learnings [aggregate]             Aggregate cross-project learnings
     devkit learnings status                  Show promotion pipeline status
-    devkit learnings promote <entry-id>      Advance a candidate to PROPOSED
+    devkit learnings promotions              Alias for status
+    devkit learnings propose <entry-id>      Advance a candidate to PROPOSED
+    devkit learnings promote <promo-id>      Advance APPROVED to PROMOTED
     devkit learnings approve <promo-id>      Advance PROPOSED to APPROVED
     devkit learnings reject <promo-id>       Move to REJECTED
     devkit jobs [<target>]                   List background runs (all or filtered)
@@ -2799,6 +2801,9 @@ def cmd_learnings(args, config):
 
     Delegates to learnings_aggregator.py and learnings_promotions.py scripts.
     Does not support --detach (deterministic, completes in seconds).
+
+    All remaining arguments after the action name are forwarded to the
+    underlying script (e.g., --format, --allowed-roots, --reason, --type).
     """
     scripts_dir = get_devkit_root() / "scripts"
 
@@ -2817,37 +2822,50 @@ def cmd_learnings(args, config):
                   file=sys.stderr)
             return 1
 
-    if not args or args[0] == "aggregate":
-        return _run_script("learnings_aggregator.py", ["--format", "json"])
+    # No args or first arg is a flag (not an action): aggregate
+    if not args or args[0].startswith("--"):
+        return _run_script("learnings_aggregator.py", list(args))
 
     action = args[0]
+    rest = args[1:]
 
-    if action == "status":
-        return _run_script("learnings_promotions.py", ["list"])
+    if action == "aggregate":
+        return _run_script("learnings_aggregator.py", rest)
 
-    if action == "promote":
-        if len(args) < 2:
-            print(f"{Colors.RED}Error:{Colors.RESET} devkit learnings promote "
+    if action in ("status", "promotions"):
+        return _run_script("learnings_promotions.py", ["list"] + rest)
+
+    if action == "propose":
+        if not rest:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit learnings propose "
                   f"requires an entry ID", file=sys.stderr)
             return 2
-        return _run_script("learnings_promotions.py", ["propose", args[1]])
+        return _run_script("learnings_promotions.py", ["propose"] + rest)
+
+    if action == "promote":
+        if not rest:
+            print(f"{Colors.RED}Error:{Colors.RESET} devkit learnings promote "
+                  f"requires a promo ID", file=sys.stderr)
+            return 2
+        return _run_script("learnings_promotions.py", ["promote"] + rest)
 
     if action == "approve":
-        if len(args) < 2:
+        if not rest:
             print(f"{Colors.RED}Error:{Colors.RESET} devkit learnings approve "
                   f"requires a promo ID", file=sys.stderr)
             return 2
-        return _run_script("learnings_promotions.py", ["approve", args[1]])
+        return _run_script("learnings_promotions.py", ["approve"] + rest)
 
     if action == "reject":
-        if len(args) < 2:
+        if not rest:
             print(f"{Colors.RED}Error:{Colors.RESET} devkit learnings reject "
                   f"requires a promo ID", file=sys.stderr)
             return 2
-        return _run_script("learnings_promotions.py", ["reject", args[1]])
+        return _run_script("learnings_promotions.py", ["reject"] + rest)
 
     print(f"{Colors.RED}Error:{Colors.RESET} unknown learnings action '{action}'. "
-          f"Valid actions: aggregate, status, promote, approve, reject",
+          f"Valid actions: aggregate, status, promotions, propose, promote, "
+          f"approve, reject",
           file=sys.stderr)
     return 2
 
@@ -2876,9 +2894,11 @@ Usage:
   devkit plan archive <target> <plan-name> Archive cross-repo plan and remove refs
   devkit learnings [aggregate]             Aggregate cross-project learnings (write index.json)
   devkit learnings status                  Show promotion pipeline status
-  devkit learnings promote <entry-id>      Advance a candidate to PROPOSED
+  devkit learnings promotions              Alias for status
+  devkit learnings propose <entry-id>      Advance a candidate to PROPOSED
+  devkit learnings promote <promo-id>      Advance APPROVED to PROMOTED (--commit <sha>)
   devkit learnings approve <promo-id>      Advance PROPOSED to APPROVED
-  devkit learnings reject <promo-id>       Move to REJECTED
+  devkit learnings reject <promo-id>       Move to REJECTED (--reason "...")
   devkit jobs [<target>]                   List background runs (all or filtered)
   devkit result <run-id>                   Print result of a completed run
   devkit logs <run-id>                     Print stderr logs of a run

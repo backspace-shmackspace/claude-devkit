@@ -122,6 +122,7 @@ cleanup() {
     rm -f "$CRP_SYMLINK" 2>/dev/null || true
     # Clean up learnings layer test fixtures
     rm -rf "$LEARN_TEST_DIR" 2>/dev/null || true
+    rm -f /tmp/learnings-promo-id.txt /tmp/learnings-sha-id.txt 2>/dev/null || true
     if [ -d "$HOME/.claude-devkit/learnings" ]; then
         rm -rf "$HOME/.claude-devkit/learnings/${LEARN_CENTRAL_CLEANUP_PREFIX}"* 2>/dev/null || true
     fi
@@ -3080,8 +3081,9 @@ with open(idx) as f:
     data = json.load(f)
 assert isinstance(data.get('entries'), list), 'entries should be a list'
 print('PASS: devkit learnings --format json writes valid index.json')
-\" && \
-     rm -rf \"\$AGGR_PROJ\" 2>/dev/null || true" \
+\"; STATUS=\$?; \
+     rm -rf \"\$AGGR_PROJ\" 2>/dev/null || true; \
+     [ \"\$STATUS\" -eq 0 ]" \
     0
 
 # Test 164 (T16): devkit learnings promotions lists promotions and exits 0
