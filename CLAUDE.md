@@ -28,7 +28,7 @@ claude-devkit/
 │   ├── architect/           # Planning with approval gates
 │   ├── ship/            # Implementation pipeline
 │   ├── retro/           # Retrospective and learnings capture
-│   ├── audit/           # Security and performance scanning
+│   ├── audit/           # Security, performance, and anti-pattern scanning
 │   ├── sync/            # Documentation synchronization
 │   ├── compliance-check/      # Regulatory framework validation
 │   ├── dependency-audit/      # Supply chain security
@@ -83,7 +83,7 @@ claude-devkit/
     ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
     ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
     ├── scanner-value-report.sh # Scanner value analysis: cohort comparison by scanner mode
-    └── test-integration.sh    # Integration smoke tests (54 tests)
+    └── test-integration.sh    # Integration smoke tests (60 tests)
 ```
 
 ### Data Flow
@@ -118,7 +118,7 @@ Skill invocation → codebase-scanner.py (pre-scan) → structured symbol index 
 | **architect** | 3.4.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Stage 2 plan content scan detects security-sensitive features; invokes security-analyst (Required, not Recommended) when deployed and injects threat-model-gate requirements. Plans include `## Work Groups` in Task Breakdown for /ship parallel execution. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `.devkit/plans/audit-logs/architect-<run_id>.jsonl`. | opus-4-6 | 6 |
 | **ship** | 3.8.0 | Pre-flight check → Read plan + security requirements validation (Step 1 checks for threat model output and blocks if required gates are unmet) → Pattern validation (warnings) → Security gates (secrets-scan, secure-review with threat model context passing in Step 4d, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate (emits `run_score` before `run_end`) → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `.devkit/plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. Quantitative scoring (efficiency, security, quality, velocity) emitted as `run_score` event. | opus-4-6 | 8 |
 | **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
-| **audit** | 3.2.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. JSONL audit logging to `.devkit/plans/audit-logs/audit-<run_id>.jsonl`. | opus-4-6 | 6 |
+| **audit** | 3.3.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan + Anti-pattern scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. JSONL audit logging to `.devkit/plans/audit-logs/audit-<run_id>.jsonl`. | opus-4-6 | 7 |
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-6 | 6 |
 | **receiving-code-review** | 1.0.0 | Code review reception discipline: 6-step response pattern (READ through IMPLEMENT), anti-performative-agreement, YAGNI enforcement, source-specific handling, pushback guidelines. Reference archetype. | claude-sonnet-4-6 | Reference |
 | **verification-before-completion** | 1.0.0 | Evidence-before-claims gate: 5-step verification (IDENTIFY, RUN, READ, VERIFY, CLAIM). Requires fresh test/build output before any completion claim. Red flags, rationalization table, key patterns for TDD and bug fixes. Reference archetype. | claude-sonnet-4-6 | Reference |
@@ -855,6 +855,7 @@ Do not attempt `/threat-model` -- knowledge-base skills have no workflow steps t
 ├── audit-[timestamp].security.md          # Security scan results
 ├── audit-[timestamp].performance.md       # Performance scan results
 ├── audit-[timestamp].qa.md                # QA regression results
+├── audit-[timestamp].antipatterns.md      # Anti-pattern scan results
 ├── sync-[timestamp].review.md             # Documentation reviews
 ├── retro-[timestamp].coder-scan.md        # Coder calibration scan (from /retro)
 ├── retro-[timestamp].reviewer-scan.md     # Reviewer calibration scan (from /retro)
@@ -1040,12 +1041,13 @@ Deployment and utility scripts.
 - `compute-run-score.sh` — Compute per-dimension quantitative scores from a JSONL audit log (python3, no jq)
 - `score-reflector.sh` — Deterministic score reflector for candidate learnings generation (python3, no jq)
 - `scanner-value-report.sh` — Scanner value analysis: cohort comparison of /ship run scores by scanner mode (tree-sitter-partial vs regex-fallback vs absent). No jq dependency.
-- `test-integration.sh` — Integration smoke tests (54 tests): emit-audit-event.sh JSONL correctness,
+- `test-integration.sh` — Integration smoke tests (60 tests): emit-audit-event.sh JSONL correctness,
   L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
   lifecycle, threat model consumption structural tests across /ship, /architect, /secure-review,
   quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
   codebase-scanner integration tests (8 tests),
   scanner value instrumentation tests (5 tests),
+  anti-pattern scan structural tests (6 tests),
   and meta-harness tests (13 tests: 8 functional, 5 security -- symlink rejection, allowed_roots
   enforcement, oversized state file, invalid skill name, `--`-prefixed argument injection)
 

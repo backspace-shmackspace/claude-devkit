@@ -1,7 +1,7 @@
 ---
 name: audit
 description: Deep security and performance scan with structured reporting.
-version: 3.2.0
+version: 3.3.0
 model: claude-opus-4-6
 ---
 # /audit Workflow
@@ -51,7 +51,7 @@ state = {
     'run_id': '${RUN_ID}',
     'audit_log': '${AUDIT_LOG}',
     'skill': 'audit',
-    'skill_version': '3.2.0',
+    'skill_version': '3.3.0',
     'security_maturity': 'advisory',
     'hmac_key': ''
 }
@@ -271,9 +271,9 @@ bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_3_performance_scan","step_name":"Performance scan","agent_type":"coordinator"}'
 ```
 
-## Step 4 — QA regression (conditional)
+## Step 4 — Anti-pattern scan (conditional)
 
-**Trigger:** Only run if scope is "code" or "full" (skip for "plan")
+**Trigger:** Only run if scope is "code" or "full" (skip for "plan"). Plan scope is skipped because six of seven anti-pattern categories (code smells, dead code, duplicated logic, naming violations, error handling, testing) are code-level concerns that cannot be detected in a plan document. This matches the QA regression step, which also skips plan scope.
 
 **Emit step_start for Step 4:**
 
@@ -281,7 +281,79 @@ Tool: `Bash`
 
 ```bash
 bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
-  '{"event_type":"step_start","step":"step_4_qa_regression","step_name":"QA regression","agent_type":"coordinator"}'
+  '{"event_type":"step_start","step":"step_4_antipattern_scan","step_name":"Anti-pattern scan","agent_type":"coordinator"}'
+```
+
+**If scope is "plan":**
+- Output: "Scope is 'plan' -- skipping anti-pattern scan (code-level analysis not applicable to plan documents)."
+- Continue to Step 5 (QA regression).
+
+**If scope is "code":**
+
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
+
+Prompt: "Analyze uncommitted changes for code anti-patterns across these categories:
+- Code smells: methods > 50 lines, functions with > 5 parameters, deeply nested conditionals (> 4 levels)
+- Dead code: unreachable branches, unused imports/variables/functions, commented-out code blocks
+- Duplicated logic: near-identical code blocks, repeated conditional chains, duplicated utility functions
+- Naming convention violations: mixed naming styles, single-letter variables outside loops, misleading boolean names. For naming analysis, first check for project-specific style configuration (e.g., .eslintrc, pyproject.toml [tool.ruff], .editorconfig) and align findings to the project's declared conventions. If no style configuration exists, report only clearly misleading names, not style preference differences.
+- Architectural anti-patterns: god classes (> 500 lines or > 20 methods), circular dependencies, layer violations
+- Error handling anti-patterns: empty catch/except blocks, catching generic Exception, swallowed errors, missing error propagation
+- Testing anti-patterns: test code in production paths, commented-out test assertions, tests without assertions, hardcoded test data shared across tests
+
+Do not flag error handling or architectural issues that are primarily security vulnerabilities (those belong in the security scan).
+
+Rate findings: Critical / High / Medium / Low.
+- Critical: Dead code masking security vulnerabilities only (must identify both the dead code and the specific vulnerability it masks)
+- High: God classes, circular dependencies, empty catch blocks in error-sensitive paths, high duplication (> 3 identical blocks), deeply nested conditionals in business logic
+- Medium: Naming violations, unused imports, test code quality issues
+- Low: Minor code smells, style inconsistencies, single instances of duplicated logic
+
+Write to `.devkit/plans/audit-[timestamp].antipatterns.md`"
+
+**If scope is "full":**
+
+Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
+
+Prompt: "Full codebase anti-pattern audit across these categories:
+- Code smells: methods > 50 lines, functions with > 5 parameters, deeply nested conditionals (> 4 levels)
+- Dead code: unreachable branches, unused imports/variables/functions, commented-out code blocks
+- Duplicated logic: near-identical code blocks, repeated conditional chains, duplicated utility functions
+- Naming convention violations: mixed naming styles, single-letter variables outside loops, misleading boolean names. For naming analysis, first check for project-specific style configuration (e.g., .eslintrc, pyproject.toml [tool.ruff], .editorconfig) and align findings to the project's declared conventions. If no style configuration exists, report only clearly misleading names, not style preference differences.
+- Architectural anti-patterns: god classes (> 500 lines or > 20 methods), circular dependencies, layer violations
+- Error handling anti-patterns: empty catch/except blocks, catching generic Exception, swallowed errors, missing error propagation
+- Testing anti-patterns: test code in production paths, commented-out test assertions, tests without assertions, hardcoded test data shared across tests
+
+Do not flag error handling or architectural issues that are primarily security vulnerabilities (those belong in the security scan).
+
+Rate findings: Critical / High / Medium / Low.
+- Critical: Dead code masking security vulnerabilities only (must identify both the dead code and the specific vulnerability it masks)
+- High: God classes, circular dependencies, empty catch blocks in error-sensitive paths, high duplication (> 3 identical blocks), deeply nested conditionals in business logic
+- Medium: Naming violations, unused imports, test code quality issues
+- Low: Minor code smells, style inconsistencies, single instances of duplicated logic
+
+Write to `.devkit/plans/audit-[timestamp].antipatterns.md`"
+
+**Emit step_end for Step 4:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_end","step":"step_4_antipattern_scan","step_name":"Anti-pattern scan","agent_type":"coordinator"}'
+```
+
+## Step 5 — QA regression (conditional)
+
+**Trigger:** Only run if scope is "code" or "full" (skip for "plan")
+
+**Emit step_start for Step 5:**
+
+Tool: `Bash`
+
+```bash
+bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+  '{"event_type":"step_start","step":"step_5_qa_regression","step_name":"QA regression","agent_type":"coordinator"}'
 ```
 
 **Pre-check:** Verify qa-engineer agent exists
@@ -304,7 +376,7 @@ Pattern: `.claude/agents/qa-engineer*.md` or `.claude/agents/qa*.md`
   python3 ~/workspaces/claude-devkit/generators/generate_agents.py . --type qa-engineer
   ```
   ```
-- Continue to Step 5 (do not block workflow).
+- Continue to Step 6 (do not block workflow).
 
 **If QA agent exists:**
 
@@ -325,24 +397,24 @@ Write `.devkit/plans/audit-[timestamp].qa.md` with:
 
 If no test command is found or tests cannot run, document this limitation."
 
-**Emit step_end for Step 4:**
+**Emit step_end for Step 5:**
 
 Tool: `Bash`
 
 ```bash
 bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
-  '{"event_type":"step_end","step":"step_4_qa_regression","step_name":"QA regression","agent_type":"coordinator"}'
+  '{"event_type":"step_end","step":"step_5_qa_regression","step_name":"QA regression","agent_type":"coordinator"}'
 ```
 
-## Step 5 — Synthesis
+## Step 6 — Synthesis
 
-**Emit step_start for Step 5:**
+**Emit step_start for Step 6:**
 
 Tool: `Bash`
 
 ```bash
 bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
-  '{"event_type":"step_start","step":"step_5_synthesis","step_name":"Synthesis","agent_type":"coordinator"}'
+  '{"event_type":"step_start","step":"step_6_synthesis","step_name":"Synthesis","agent_type":"coordinator"}'
 ```
 
 Tool: `Read` (direct — coordinator does this)
@@ -350,6 +422,7 @@ Tool: `Read` (direct — coordinator does this)
 Read all audit reports:
 - `.devkit/plans/audit-[timestamp].security.md`
 - `.devkit/plans/audit-[timestamp].performance.md`
+- `.devkit/plans/audit-[timestamp].antipatterns.md` (if exists — not produced for plan scope)
 - `.devkit/plans/audit-[timestamp].qa.md` (if exists)
 
 Generate `.devkit/plans/audit-[timestamp].summary.md` with this structure:
@@ -395,6 +468,7 @@ Generate `.devkit/plans/audit-[timestamp].summary.md` with this structure:
 ## Reports
 - Security: .devkit/plans/audit-[timestamp].security.md
 - Performance: .devkit/plans/audit-[timestamp].performance.md
+- Anti-patterns: .devkit/plans/audit-[timestamp].antipatterns.md (if run)
 - QA: .devkit/plans/audit-[timestamp].qa.md (if run)
 ```
 
@@ -403,24 +477,24 @@ Generate `.devkit/plans/audit-[timestamp].summary.md` with this structure:
 - **PASS_WITH_NOTES**: 1-2 High findings OR 3+ Medium findings
 - **PASS**: Only Medium/Low findings
 
-**Emit step_end for Step 5:**
+**Emit step_end for Step 6:**
 
 Tool: `Bash`
 
 ```bash
 bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
-  '{"event_type":"step_end","step":"step_5_synthesis","step_name":"Synthesis","agent_type":"coordinator"}'
+  '{"event_type":"step_end","step":"step_6_synthesis","step_name":"Synthesis","agent_type":"coordinator"}'
 ```
 
-## Step 6 — Gate
+## Step 7 — Gate
 
-**Emit step_start for Step 6:**
+**Emit step_start for Step 7:**
 
 Tool: `Bash`
 
 ```bash
 bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
-  '{"event_type":"step_start","step":"step_6_gate","step_name":"Gate","agent_type":"coordinator"}'
+  '{"event_type":"step_start","step":"step_7_gate","step_name":"Gate","agent_type":"coordinator"}'
 ```
 
 Read `.devkit/plans/audit-[timestamp].summary.md` and check verdict.
@@ -455,20 +529,20 @@ Only minor findings to consider.
 Medium findings: [count]
 Low findings: [count]"
 
-**Emit verdict, run_end, and step_end for Step 6:**
+**Emit verdict, run_end, and step_end for Step 7:**
 
 Tool: `Bash`
 
 ```bash
 # AUDIT_FINAL_VERDICT: "PASS", "PASS_WITH_NOTES", or "BLOCKED"
 bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
-  "{\"event_type\":\"verdict\",\"step\":\"step_6_gate\",\"verdict\":\"${AUDIT_FINAL_VERDICT:-PASS}\",\"verdict_source\":\"synthesis\",\"agent_type\":\"coordinator\"}"
+  "{\"event_type\":\"verdict\",\"step\":\"step_7_gate\",\"verdict\":\"${AUDIT_FINAL_VERDICT:-PASS}\",\"verdict_source\":\"synthesis\",\"agent_type\":\"coordinator\"}"
 
 bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"run_end\",\"outcome\":\"${AUDIT_FINAL_VERDICT:-PASS}\",\"scope\":\"${AUDIT_SCOPE:-unknown}\"}"
 
 bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
-  '{"event_type":"step_end","step":"step_6_gate","step_name":"Gate","agent_type":"coordinator"}'
+  '{"event_type":"step_end","step":"step_7_gate","step_name":"Gate","agent_type":"coordinator"}'
 
 # Clean up state file
 rm -f ".audit-audit-state-${RUN_ID}.json"

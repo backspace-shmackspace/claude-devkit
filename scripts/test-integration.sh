@@ -9,13 +9,14 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 55 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+# 60 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
 #           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
 #           threat model consumption structural tests (10 tests),
 #           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
 #           fix skill structural tests (2 tests),
 #           codebase-scanner integration tests (8 tests),
 #           scanner value instrumentation tests (5 tests),
+#           anti-pattern scan structural tests (6 tests),
 #           meta-harness CLI tests (13 tests: help/version, init lifecycle,
 #           validation rejections, status, deploy delegation, security guards), cleanup
 
@@ -565,6 +566,38 @@ run_test 41 "scanner-value-report.sh produces cohort table for synthetic run_sco
 # Test 42: scanner_invocation is registered in audit-event-schema.json
 run_test 42 "scanner_invocation is in audit-event-schema.json event_type enum" \
     "grep -q '\"scanner_invocation\"' '$REPO_DIR/configs/audit-event-schema.json'" \
+    0
+
+# --- Anti-pattern scan structural tests (56-61) ---
+
+# Test 56: audit SKILL.md version is 3.3.0
+run_test 56 "audit SKILL.md version is 3.3.0" \
+    "grep -q 'version: 3.3.0' '$REPO_DIR/skills/audit/SKILL.md'" \
+    0
+
+# Test 57: audit SKILL.md contains anti-pattern scan step identifier
+run_test 57 "audit SKILL.md contains step_4_antipattern_scan identifier" \
+    "grep -q 'step_4_antipattern_scan' '$REPO_DIR/skills/audit/SKILL.md'" \
+    0
+
+# Test 58: audit SKILL.md contains antipatterns.md artifact reference
+run_test 58 "audit SKILL.md contains antipatterns.md artifact reference" \
+    "grep -q 'antipatterns.md' '$REPO_DIR/skills/audit/SKILL.md'" \
+    0
+
+# Test 59: audit SKILL.md contains renumbered QA regression step
+run_test 59 "audit SKILL.md contains step_5_qa_regression identifier" \
+    "grep -q 'step_5_qa_regression' '$REPO_DIR/skills/audit/SKILL.md'" \
+    0
+
+# Test 60: audit SKILL.md contains renumbered synthesis step
+run_test 60 "audit SKILL.md contains step_6_synthesis identifier" \
+    "grep -q 'step_6_synthesis' '$REPO_DIR/skills/audit/SKILL.md'" \
+    0
+
+# Test 61: audit SKILL.md contains renumbered gate step
+run_test 61 "audit SKILL.md contains step_7_gate identifier" \
+    "grep -q 'step_7_gate' '$REPO_DIR/skills/audit/SKILL.md'" \
     0
 
 # --- Meta-harness CLI tests (43-55) ---
