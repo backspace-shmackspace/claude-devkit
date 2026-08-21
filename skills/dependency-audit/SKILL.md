@@ -17,6 +17,32 @@ This skill is a **pipeline coordinator**. It orchestrates a sequential supply ch
 
 ## Step 0 — Pre-flight: detect manifest and scanner availability
 
+**Resolve devkit paths (MUST be first action in Step 0):**
+
+Tool: `Bash`
+
+```bash
+# --- Devkit Path Resolution ---
+DEVKIT_SCRIPTS="${CLAUDE_DEVKIT:-$HOME/.claude-devkit}/scripts"
+
+# Source path resolution helper
+if [ -f "$DEVKIT_SCRIPTS/resolve-project-dir.sh" ]; then
+  . "$DEVKIT_SCRIPTS/resolve-project-dir.sh"
+  DEVKIT_PROJECT_DIR_RESOLVED=$(resolve_devkit_project_dir) || {
+    echo "Failed to resolve project directory" >&2; exit 1
+  }
+elif [ -n "${DEVKIT_PROJECT_DIR:-}" ]; then
+  DEVKIT_PROJECT_DIR_RESOLVED="$DEVKIT_PROJECT_DIR"
+else
+  echo "WARNING: devkit is not installed. Using deprecated .devkit/ fallback." >&2
+  DEVKIT_PROJECT_DIR_RESOLVED=".devkit"
+fi
+
+PLANS_DIR="$DEVKIT_PROJECT_DIR_RESOLVED/plans"
+mkdir -p "$PLANS_DIR"
+echo "Plans directory: $PLANS_DIR"
+```
+
 Tool: `Bash` (direct — coordinator does this), `Glob`
 
 **Detect manifest type** by searching for known manifest files:
@@ -143,7 +169,7 @@ Run the scanner. Note: non-zero exit codes from vulnerability scanners indicate 
 
 ```bash
 # Run scanner — non-zero exit = findings found, not a command error
-SCANNER_OUTPUT_FILE=".devkit/plans/dependency-audit-${TIMESTAMP}.scanner-raw.json"
+SCANNER_OUTPUT_FILE="$PLANS_DIR/dependency-audit-${TIMESTAMP}.scanner-raw.json"
 
 case "$SCANNER" in
   npm)
@@ -180,7 +206,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 Prompt:
 "You are a security analyst synthesizing vulnerability scanner output for a dependency audit report.
 
-Read the scanner output file at `.devkit/plans/dependency-audit-[TIMESTAMP].scanner-raw.json`.
+Read the scanner output file at `$PLANS_DIR/dependency-audit-[TIMESTAMP].scanner-raw.json`.
 Also read the manifest file at `[MANIFEST]`.
 
 **Your task:**
@@ -202,7 +228,7 @@ Also read the manifest file at `[MANIFEST]`.
 
 4. Note any findings where the scanner could not complete (e.g., network errors, auth required).
 
-**Output:** Write your synthesis to `.devkit/plans/dependency-audit-[TIMESTAMP].cve-synthesis.md` with:
+**Output:** Write your synthesis to `$PLANS_DIR/dependency-audit-[TIMESTAMP].cve-synthesis.md` with:
 ```
 ## CVE Findings
 
@@ -256,7 +282,7 @@ Analyze the dependencies for license compliance concerns. LLM analysis is approp
 3. **Approve without concern:**
    - MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Unlicense, CC0
 
-**Output:** Write to `.devkit/plans/dependency-audit-[TIMESTAMP].license-check.md` with:
+**Output:** Write to `$PLANS_DIR/dependency-audit-[TIMESTAMP].license-check.md` with:
 ```
 ## License Compliance
 
@@ -355,7 +381,7 @@ for full assessment."
 For HIGH-risk dependencies, suggest well-maintained alternatives where known.
 Do not fabricate alternatives -- only suggest packages you can verify exist.
 
-**Output:** Write to `.devkit/plans/dependency-audit-[TIMESTAMP].supply-chain.md` with the supply chain risk table and summary findings."
+**Output:** Write to `$PLANS_DIR/dependency-audit-[TIMESTAMP].supply-chain.md` with the supply chain risk table and summary findings."
 
 ## Step 6 — Generate consolidated report
 
@@ -365,15 +391,15 @@ Prompt:
 "You are generating a consolidated dependency audit report from three analysis documents.
 
 Read all three analysis files:
-- `.devkit/plans/dependency-audit-[TIMESTAMP].cve-synthesis.md`
-- `.devkit/plans/dependency-audit-[TIMESTAMP].license-check.md`
-- `.devkit/plans/dependency-audit-[TIMESTAMP].supply-chain.md`
+- `$PLANS_DIR/dependency-audit-[TIMESTAMP].cve-synthesis.md`
+- `$PLANS_DIR/dependency-audit-[TIMESTAMP].license-check.md`
+- `$PLANS_DIR/dependency-audit-[TIMESTAMP].supply-chain.md`
 
 Also read the manifest at `[MANIFEST]`.
 
 **Your task:**
 
-Write a consolidated report to `.devkit/plans/dependency-audit-[TIMESTAMP].report.md` with:
+Write a consolidated report to `$PLANS_DIR/dependency-audit-[TIMESTAMP].report.md` with:
 
 ```
 # Dependency Audit Report
@@ -423,7 +449,7 @@ Preliminary verdict guidance for your report (final verdict set in Step 7):
 
 Tool: `Read` (direct — coordinator does this)
 
-Read `.devkit/plans/dependency-audit-[TIMESTAMP].report.md` and determine final verdict.
+Read `$PLANS_DIR/dependency-audit-[TIMESTAMP].report.md` and determine final verdict.
 
 **Verdict rules (in priority order):**
 
@@ -439,18 +465,18 @@ Read `.devkit/plans/dependency-audit-[TIMESTAMP].report.md` and determine final 
 Tool: `Bash`
 
 ```bash
-mkdir -p .devkit/plans/archive/dependency-audit/${TIMESTAMP}
-mv .devkit/plans/dependency-audit-${TIMESTAMP}.scanner-raw.json \
-   .devkit/plans/dependency-audit-${TIMESTAMP}.cve-synthesis.md \
-   .devkit/plans/dependency-audit-${TIMESTAMP}.license-check.md \
-   .devkit/plans/dependency-audit-${TIMESTAMP}.supply-chain.md \
-   .devkit/plans/archive/dependency-audit/${TIMESTAMP}/ 2>/dev/null || true
-echo "Archived analysis files to .devkit/plans/archive/dependency-audit/${TIMESTAMP}/"
+mkdir -p $PLANS_DIR/archive/dependency-audit/${TIMESTAMP}
+mv $PLANS_DIR/dependency-audit-${TIMESTAMP}.scanner-raw.json \
+   $PLANS_DIR/dependency-audit-${TIMESTAMP}.cve-synthesis.md \
+   $PLANS_DIR/dependency-audit-${TIMESTAMP}.license-check.md \
+   $PLANS_DIR/dependency-audit-${TIMESTAMP}.supply-chain.md \
+   $PLANS_DIR/archive/dependency-audit/${TIMESTAMP}/ 2>/dev/null || true
+echo "Archived analysis files to $PLANS_DIR/archive/dependency-audit/${TIMESTAMP}/"
 ```
 
 **Final output by verdict:**
 
-- **PASS:** "Dependency audit PASS. No vulnerabilities, license issues, or supply chain concerns found. Report: `.devkit/plans/dependency-audit-[TIMESTAMP].report.md`"
-- **PASS_WITH_NOTES:** "Dependency audit PASS_WITH_NOTES. Review findings in report: `.devkit/plans/dependency-audit-[TIMESTAMP].report.md`. Address High severity items before next release."
-- **INCOMPLETE:** "Dependency audit INCOMPLETE. No vulnerability scanner available for [ecosystem]. Install [scanner] to enable CVE scanning. License and supply chain analysis: `.devkit/plans/dependency-audit-[TIMESTAMP].report.md`"
-- **BLOCKED:** "Dependency audit BLOCKED. Critical vulnerabilities found — do not ship until resolved. Report: `.devkit/plans/dependency-audit-[TIMESTAMP].report.md`"
+- **PASS:** "Dependency audit PASS. No vulnerabilities, license issues, or supply chain concerns found. Report: `$PLANS_DIR/dependency-audit-[TIMESTAMP].report.md`"
+- **PASS_WITH_NOTES:** "Dependency audit PASS_WITH_NOTES. Review findings in report: `$PLANS_DIR/dependency-audit-[TIMESTAMP].report.md`. Address High severity items before next release."
+- **INCOMPLETE:** "Dependency audit INCOMPLETE. No vulnerability scanner available for [ecosystem]. Install [scanner] to enable CVE scanning. License and supply chain analysis: `$PLANS_DIR/dependency-audit-[TIMESTAMP].report.md`"
+- **BLOCKED:** "Dependency audit BLOCKED. Critical vulnerabilities found — do not ship until resolved. Report: `$PLANS_DIR/dependency-audit-[TIMESTAMP].report.md`"

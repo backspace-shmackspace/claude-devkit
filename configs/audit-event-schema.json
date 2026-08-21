@@ -101,7 +101,7 @@
             "plan_file": {
               "type": "string",
               "description": "Relative path to the plan being shipped. OTel: span attribute devkit.ship.plan_file.",
-              "examples": [".devkit/plans/add-user-auth.md"]
+              "examples": ["$DEVKIT_PROJECT_DIR/plans/add-user-auth.md"]
             },
             "security_override_active": {
               "type": "boolean",
@@ -146,7 +146,7 @@
             "plan_file": {
               "type": "string",
               "description": "Relative path to the plan that was shipped.",
-              "examples": [".devkit/plans/add-user-auth.md"]
+              "examples": ["$DEVKIT_PROJECT_DIR/plans/add-user-auth.md"]
             }
           },
           "required": ["event_type", "outcome"]
@@ -215,7 +215,7 @@
             "artifact": {
               "type": "string",
               "description": "Path to the review artifact containing the full verdict.",
-              "examples": [".devkit/plans/feature-x.code-review.md"]
+              "examples": ["$DEVKIT_PROJECT_DIR/plans/feature-x.code-review.md"]
             }
           },
           "required": ["event_type", "step", "verdict", "verdict_source"]

@@ -22,7 +22,7 @@
 
 set -uo pipefail
 
-AUDIT_LOG_DIR="${AUDIT_LOG_DIR:-.devkit/plans/audit-logs}"
+AUDIT_LOG_DIR="${AUDIT_LOG_DIR:-${DEVKIT_PROJECT_DIR:-.devkit}/plans/audit-logs}"
 
 # --help flag
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || -z "${1:-}" ]]; then
@@ -45,7 +45,10 @@ Commands:
   trend [N] [--dimension name]  Show composite score trend for last N runs (default: 10)
 
 Environment:
-  AUDIT_LOG_DIR            Directory containing .jsonl files (default: .devkit/plans/audit-logs)
+  DEVKIT_PROJECT_DIR       Project artifact directory (set by devkit CLI). When set, default
+                           AUDIT_LOG_DIR becomes $DEVKIT_PROJECT_DIR/plans/audit-logs.
+  AUDIT_LOG_DIR            Directory containing .jsonl files
+                           (default: $DEVKIT_PROJECT_DIR/plans/audit-logs, or .devkit/plans/audit-logs)
 
 Options for verify-chain:
   --key <keyfile>          Path to HMAC key file (default: .ship-audit-key-<run_id>)

@@ -23,6 +23,32 @@ This skill is a **pipeline coordinator**. It orchestrates a sequential secrets d
 
 ## Step 0 — Pre-flight checks
 
+**Resolve devkit paths (MUST be first action in Step 0):**
+
+Tool: `Bash`
+
+```bash
+# --- Devkit Path Resolution ---
+DEVKIT_SCRIPTS="${CLAUDE_DEVKIT:-$HOME/.claude-devkit}/scripts"
+
+# Source path resolution helper
+if [ -f "$DEVKIT_SCRIPTS/resolve-project-dir.sh" ]; then
+  . "$DEVKIT_SCRIPTS/resolve-project-dir.sh"
+  DEVKIT_PROJECT_DIR_RESOLVED=$(resolve_devkit_project_dir) || {
+    echo "Failed to resolve project directory" >&2; exit 1
+  }
+elif [ -n "${DEVKIT_PROJECT_DIR:-}" ]; then
+  DEVKIT_PROJECT_DIR_RESOLVED="$DEVKIT_PROJECT_DIR"
+else
+  echo "WARNING: devkit is not installed. Using deprecated .devkit/ fallback." >&2
+  DEVKIT_PROJECT_DIR_RESOLVED=".devkit"
+fi
+
+PLANS_DIR="$DEVKIT_PROJECT_DIR_RESOLVED/plans"
+mkdir -p "$PLANS_DIR"
+echo "Plans directory: $PLANS_DIR"
+```
+
 Tool: `Bash` (direct — coordinator does this)
 
 ```bash
@@ -116,7 +142,7 @@ Run pattern-based detection across the collected scan target. Each pattern targe
 **Note:** Pattern-based detection only. Entropy analysis not yet included; planned for a future release after false-positive calibration against real codebases.
 
 ```bash
-FINDINGS_FILE=".devkit/plans/secrets-scan-${TIMESTAMP}.raw-findings.txt"
+FINDINGS_FILE="$PLANS_DIR/secrets-scan-${TIMESTAMP}.raw-findings.txt"
 touch "$FINDINGS_FILE"
 
 echo "=== PATTERN SCAN RESULTS ===" >> "$FINDINGS_FILE"
@@ -246,7 +272,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 Prompt:
 "You are a security analyst reviewing raw pattern-match output for false positive elimination.
 
-Read the raw findings file at `.devkit/plans/secrets-scan-[TIMESTAMP].raw-findings.txt`.
+Read the raw findings file at `$PLANS_DIR/secrets-scan-[TIMESTAMP].raw-findings.txt`.
 
 **Your task:**
 
@@ -280,7 +306,7 @@ Review each finding and classify as CONFIRMED or FALSE_POSITIVE.
 
 **CRITICAL REDACTION RULE:** Your output must NEVER include actual secret values. The raw findings file already has patterns redacted. Do NOT attempt to reconstruct or show the original value. Report type, file path, and line number only.
 
-Write your analysis to `.devkit/plans/secrets-scan-[TIMESTAMP].filtered-findings.md`:
+Write your analysis to `$PLANS_DIR/secrets-scan-[TIMESTAMP].filtered-findings.md`:
 
 ```
 ## Secrets Scan Filtered Findings
@@ -314,7 +340,7 @@ Write your analysis to `.devkit/plans/secrets-scan-[TIMESTAMP].filtered-findings
 
 Tool: `Read` (direct — coordinator does this)
 
-Read `.devkit/plans/secrets-scan-[TIMESTAMP].filtered-findings.md` and count confirmed secrets.
+Read `$PLANS_DIR/secrets-scan-[TIMESTAMP].filtered-findings.md` and count confirmed secrets.
 
 **Verdict rules — zero tolerance:**
 
@@ -360,9 +386,9 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 Prompt:
 "Generate a final secrets scan report.
 
-Read `.devkit/plans/secrets-scan-[TIMESTAMP].filtered-findings.md`.
+Read `$PLANS_DIR/secrets-scan-[TIMESTAMP].filtered-findings.md`.
 
-Write the final report to `.devkit/plans/secrets-scan-[TIMESTAMP].report.md`:
+Write the final report to `$PLANS_DIR/secrets-scan-[TIMESTAMP].report.md`:
 
 ```
 # Secrets Scan Report
@@ -405,16 +431,16 @@ Note: Pattern-based detection only. Entropy-based detection (for unstructured se
 Tool: `Bash`
 
 ```bash
-mkdir -p .devkit/plans/archive/secrets-scan/${TIMESTAMP}
-mv .devkit/plans/secrets-scan-${TIMESTAMP}.raw-findings.txt \
-   .devkit/plans/secrets-scan-${TIMESTAMP}.filtered-findings.md \
-   .devkit/plans/archive/secrets-scan/${TIMESTAMP}/ 2>/dev/null || true
-echo "Archived intermediate artifacts to .devkit/plans/archive/secrets-scan/${TIMESTAMP}/"
-echo "Final report: .devkit/plans/secrets-scan-${TIMESTAMP}.report.md"
+mkdir -p $PLANS_DIR/archive/secrets-scan/${TIMESTAMP}
+mv $PLANS_DIR/secrets-scan-${TIMESTAMP}.raw-findings.txt \
+   $PLANS_DIR/secrets-scan-${TIMESTAMP}.filtered-findings.md \
+   $PLANS_DIR/archive/secrets-scan/${TIMESTAMP}/ 2>/dev/null || true
+echo "Archived intermediate artifacts to $PLANS_DIR/archive/secrets-scan/${TIMESTAMP}/"
+echo "Final report: $PLANS_DIR/secrets-scan-${TIMESTAMP}.report.md"
 ```
 
 **Final output:**
 
 "Secrets scan PASS. No secrets detected in [scope] scan.
-Report: `.devkit/plans/secrets-scan-[TIMESTAMP].report.md`
-Archived artifacts: `.devkit/plans/archive/secrets-scan/[TIMESTAMP]/`"
+Report: `$PLANS_DIR/secrets-scan-[TIMESTAMP].report.md`
+Archived artifacts: `$PLANS_DIR/archive/secrets-scan/[TIMESTAMP]/`"

@@ -36,7 +36,7 @@ cd ~/projects/claude-devkit
 ```bash
 # In any Claude Code session
 /architect add user authentication
-/ship .devkit/plans/add-user-authentication.md
+/ship $DEVKIT_PROJECT_DIR/plans/add-user-authentication.md
 /audit
 /sync
 ```
@@ -74,7 +74,7 @@ Pre-built workflows for common development tasks:
 | Skill | Purpose | Usage |
 |-------|---------|-------|
 | `/architect` | Create implementation plans with context alignment and approval gates. Detects security-sensitive features via keyword heuristic and Stage 2 plan content scan; requires threat modeling when threat-model-gate is deployed. | `/architect add shopping cart` |
-| `/ship` | Execute plans with pattern validation, security gates (secrets/code/deps), testing, QA, and retro capture. Supports security maturity levels (L1/L2/L3) and `--security-override`. | `/ship .devkit/plans/feature.md` |
+| `/ship` | Execute plans with pattern validation, security gates (secrets/code/deps), testing, QA, and retro capture. Supports security maturity levels (L1/L2/L3) and `--security-override`. | `/ship $DEVKIT_PROJECT_DIR/plans/feature.md` |
 | `/retro` | Mine review artifacts for recurring patterns and capture learnings | `/retro` or `/retro feature-name` |
 | `/audit` | Security, performance, and anti-pattern scanning. Composable: invokes /secure-review when deployed. | `/audit` or `/audit code` |
 | `/sync` | Update documentation and CLAUDE.md | `/sync` or `/sync full` |
@@ -85,7 +85,7 @@ Pre-built workflows for common development tasks:
 | `/secrets-scan` | Pre-commit secrets detection for API keys, tokens, credentials | `/secrets-scan staged` |
 | `/secure-review` | Deep semantic security review with data flow tracing, taint analysis, and trust boundary validation. When invoked with threat model context, produces a `## Threat Model Coverage` section mapping STRIDE threats to implementation status. | `/secure-review changes` |
 | `/threat-model-gate` | Security planning reference for authentication, authorization, data handling | `/threat-model-gate` |
-| `/fix` | Targeted finding remediation — parse a finding from a review artifact, dispatch a scoped coder, run focused verification, and commit with traceability. Supports `--dry-run`. | `/fix .devkit/plans/audit-findings.md --finding SEC-01` |
+| `/fix` | Targeted finding remediation — parse a finding from a review artifact, dispatch a scoped coder, run focused verification, and commit with traceability. Supports `--dry-run`. | `/fix $DEVKIT_PROJECT_DIR/plans/audit-findings.md --finding SEC-01` |
 
 **Knowledge-base skills** (reference guides invoked on demand, no multi-step workflow):
 
@@ -99,7 +99,7 @@ Pre-built workflows for common development tasks:
 | `/container-hardening` | Container security: non-root, read-only filesystem, capability restrictions | `/container-hardening` |
 | `/threat-model` | Full STRIDE+DREAD threat modeling with OTM v0.2.0 JSON output, MITRE ATT&CK mapping | `/threat-model` |
 
-**Audit Logging:** `/ship`, `/architect`, and `/audit` emit structured JSONL events to `.devkit/plans/audit-logs/`
+**Audit Logging:** `/ship`, `/architect`, and `/audit` emit structured JSONL events to `$DEVKIT_PROJECT_DIR/plans/audit-logs/`
 on every run. At L2/L3, logs are committed to git. Query with `./scripts/audit-log-query.sh`.
 See [CLAUDE.md](CLAUDE.md) for full details.
 
@@ -153,7 +153,7 @@ Reusable templates for skills and agents:
 /architect add shopping cart functionality
 
 # 2. Implement the plan
-/ship .devkit/plans/add-shopping-cart.md
+/ship $DEVKIT_PROJECT_DIR/plans/add-shopping-cart.md
 
 # 3. Update documentation
 /sync
@@ -169,7 +169,7 @@ Reusable templates for skills and agents:
 /architect add user authentication with JWT tokens
 
 # 2. Implement with security gates (requires security skills deployed)
-/ship .devkit/plans/add-user-authentication.md
+/ship $DEVKIT_PROJECT_DIR/plans/add-user-authentication.md
 
 # Security gates run automatically:
 # - Step 0: Secrets scan (blocks if secrets found)
@@ -177,7 +177,7 @@ Reusable templates for skills and agents:
 # - Step 6: Dependency audit (blocks at L2/L3 if vulnerable deps found)
 
 # 3. Override security gate if needed (false positive or time-sensitive)
-/ship .devkit/plans/add-user-authentication.md --security-override "False positive: test fixture data"
+/ship $DEVKIT_PROJECT_DIR/plans/add-user-authentication.md --security-override "False positive: test fixture data"
 
 # 4. Final comprehensive audit
 /audit
@@ -240,7 +240,7 @@ claude-code
 
 # Use with skills
 /architect add checkout flow
-/ship .devkit/plans/add-checkout-flow.md
+/ship $DEVKIT_PROJECT_DIR/plans/add-checkout-flow.md
 ```
 
 ## Available Skills
@@ -256,10 +256,10 @@ Creates detailed implementation plans with red team review and approval gates.
 ```
 
 **Output:**
-- `.devkit/plans/[feature].md` — Approved implementation plan
-- `.devkit/plans/[feature].redteam.md` — Red team critique
-- `.devkit/plans/[feature].feasibility.md` — Feasibility review
-- `.devkit/plans/[feature].review.md` — Librarian review
+- `$DEVKIT_PROJECT_DIR/plans/[feature].md` — Approved implementation plan
+- `$DEVKIT_PROJECT_DIR/plans/[feature].redteam.md` — Red team critique
+- `$DEVKIT_PROJECT_DIR/plans/[feature].feasibility.md` — Feasibility review
+- `$DEVKIT_PROJECT_DIR/plans/[feature].review.md` — Librarian review
 
 **Workflow:**
 1. Context discovery (read project CLAUDE.md and docs)
@@ -275,8 +275,8 @@ Executes implementation plans with code review, testing, and QA validation.
 
 **Usage:**
 ```bash
-/ship .devkit/plans/add-user-authentication.md
-/ship .devkit/plans/feature.md --security-override "reason"
+/ship $DEVKIT_PROJECT_DIR/plans/add-user-authentication.md
+/ship $DEVKIT_PROJECT_DIR/plans/feature.md --security-override "reason"
 ```
 
 **Options:**
@@ -284,8 +284,8 @@ Executes implementation plans with code review, testing, and QA validation.
 
 **Output:**
 - Implemented code changes
-- `.devkit/plans/archive/[feature]/[feature].code-review.md` — Code review
-- `.devkit/plans/archive/[feature]/[feature].qa-report.md` — QA report
+- `$DEVKIT_PROJECT_DIR/plans/archive/[feature]/[feature].code-review.md` — Code review
+- `$DEVKIT_PROJECT_DIR/plans/archive/[feature]/[feature].qa-report.md` — QA report
 - Git commit (on approval)
 
 **Workflow:**
@@ -322,11 +322,11 @@ Runs comprehensive security, performance, and QA scans.
 ```
 
 **Output:**
-- `.devkit/plans/audit-[timestamp].summary.md` — Audit summary
-- `.devkit/plans/audit-[timestamp].security.md` — Security findings
-- `.devkit/plans/audit-[timestamp].performance.md` — Performance findings
-- `.devkit/plans/audit-[timestamp].antipatterns.md` — Anti-pattern findings
-- `.devkit/plans/audit-[timestamp].qa.md` — QA regression results
+- `$DEVKIT_PROJECT_DIR/plans/audit-[timestamp].summary.md` — Audit summary
+- `$DEVKIT_PROJECT_DIR/plans/audit-[timestamp].security.md` — Security findings
+- `$DEVKIT_PROJECT_DIR/plans/audit-[timestamp].performance.md` — Performance findings
+- `$DEVKIT_PROJECT_DIR/plans/audit-[timestamp].antipatterns.md` — Anti-pattern findings
+- `$DEVKIT_PROJECT_DIR/plans/audit-[timestamp].qa.md` — QA regression results
 
 **Workflow:**
 1. Detect scope (plan/code/full)
@@ -348,7 +348,7 @@ Updates CLAUDE.md and documentation with current patterns.
 ```
 
 **Output:**
-- `.devkit/plans/sync-[timestamp].review.md` — Librarian review
+- `$DEVKIT_PROJECT_DIR/plans/sync-[timestamp].review.md` — Librarian review
 - Updated `CLAUDE.md`
 - Updated `README.md` (if needed)
 
@@ -833,8 +833,9 @@ venv/
 # Logs
 *.log
 
-# Audit logs (L1 ephemeral — gitignored at advisory maturity)
-.devkit/plans/audit-logs/*.jsonl
+# L2/L3 compliance artifacts (staged into project for git tracking)
+.devkit-audit-logs/
+.devkit-plans/
 
 # Audit run state files (ephemeral — deleted at run end)
 .ship-audit-state-*

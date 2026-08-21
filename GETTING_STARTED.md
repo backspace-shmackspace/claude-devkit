@@ -137,7 +137,7 @@ claude-code
 - Red team + Librarian review in parallel
 - Revision loop (up to 2 iterations)
 - Approval gate with APPROVED/NEEDS_WORK verdict
-- Plan saved to `.devkit/plans/add-user-authentication.md`
+- Plan saved to `$DEVKIT_PROJECT_DIR/plans/add-user-authentication.md`
 
 ### Step 3: Create Your First Custom Skill
 
@@ -250,7 +250,7 @@ claude-code
 
 # Use /ship skill (requires coder, code-reviewer, qa-engineer agents)
 /architect add README file
-/ship .devkit/plans/add-readme-file.md
+/ship $DEVKIT_PROJECT_DIR/plans/add-readme-file.md
 ```
 
 **What happens:**
@@ -301,7 +301,7 @@ Run long-running skills in the background with `--detach`. The CLI returns a run
 
 ```bash
 # Launch a skill in the background
-devkit ship ~/projects/my-app .devkit/plans/feature.md --detach
+devkit ship ~/projects/my-app $DEVKIT_PROJECT_DIR/plans/feature.md --detach
 # => Detached: run-id 20260821-143052-a1b2c3
 
 # List all background runs

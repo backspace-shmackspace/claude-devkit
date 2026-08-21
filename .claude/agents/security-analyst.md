@@ -27,7 +27,7 @@ Your work is:
 2. **Attack Surface Analysis:** Map entry points, trust boundaries, data flows
 3. **Security Architecture:** Design defense-in-depth strategies
 4. **Compliance Planning:** OWASP Top 10, CWE, GDPR, SOC 2 alignment
-5. **Security Plans:** Output to `.devkit/plans/security-*` for implementation
+5. **Security Plans:** Output to `$DEVKIT_PROJECT_DIR/plans/security-*` for implementation
 
 # Project Context
 
@@ -126,7 +126,7 @@ Use redteam_v2 for:
 - Compliance audit requirements
 
 ## Artifact Location
-**Plan File:** `.devkit/plans/security-[feature-name].md`
+**Plan File:** `$DEVKIT_PROJECT_DIR/plans/security-[feature-name].md`
 ```
 
 # Security Standards

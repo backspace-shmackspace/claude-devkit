@@ -41,7 +41,7 @@ All skills must follow the [architectural patterns](CLAUDE.md#skill-architectura
 3. Tool declarations per step
 4. Verdict gates (PASS/FAIL/BLOCKED)
 5. Timestamped artifacts
-6. Structured reporting to `.devkit/plans/`
+6. Structured reporting to `$DEVKIT_PROJECT_DIR/plans/`
 7. Bounded iterations (max N revisions)
 8. Model selection in frontmatter
 9. Scope parameters with `$ARGUMENTS`

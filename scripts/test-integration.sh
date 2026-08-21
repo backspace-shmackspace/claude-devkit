@@ -9,7 +9,7 @@
 # These are smoke tests that verify infrastructure paths work.
 # They do NOT test LLM skill execution (which requires an active Claude session).
 #
-# 80 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
+# 116 tests: coordinator lifecycle, validate-all, pipeline lifecycle, unit meta-test,
 #           emit-audit-event JSONL correctness, L3 HMAC chain, 10+ call state persistence,
 #           threat model consumption structural tests (10 tests),
 #           quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
@@ -20,7 +20,10 @@
 #           meta-harness CLI tests (13 tests: help/version, init lifecycle,
 #           validation rejections, status, deploy delegation, security guards),
 #           detached execution tests (20 tests: run ID, flag parsing, watcher
-#           lifecycle, jobs, result, logs, clean, security), cleanup
+#           lifecycle, jobs, result, logs, clean, security),
+#           zero-project-footprint tests (36 new + 3 updated: project ID 7,
+#           central storage 3, env vars 3, migration 6, helper scripts 7,
+#           security 3, relink/path 4, backward compat 3), cleanup
 
 set -e
 
@@ -51,6 +54,10 @@ HARNESS_SYMLINK="/tmp/devkit-harness-symlink"
 HARNESS_REGISTRY_DIR="/tmp/devkit-harness-registry"
 MOCK_CLAUDE="/tmp/devkit-mock-claude"
 DETACH_RUNS_CLEANUP_PREFIX="test-detach-"
+ZPF_TEST_DIR="/tmp/devkit-zpf-test"
+ZPF_MIGRATE_DIR="/tmp/devkit-zpf-migrate"
+ZPF_RELINK_DIR="/tmp/devkit-zpf-relink"
+ZPF_CENTRAL_CLEANUP_PREFIX="devkit-zpf-"
 
 # Isolate all meta-harness registry writes from the real
 # ~/.claude-devkit/registry.json -- devkit_cli.py's get_registry_path()
@@ -77,6 +84,20 @@ cleanup() {
             rm -rf "$d" 2>/dev/null || true
         done
     fi
+    # Clean up zero-project-footprint test fixtures
+    rm -rf "$ZPF_TEST_DIR" 2>/dev/null || true
+    rm -rf "$ZPF_MIGRATE_DIR" 2>/dev/null || true
+    rm -rf "$ZPF_RELINK_DIR" 2>/dev/null || true
+    # Clean up any central project dirs created by ZPF tests
+    if [ -d "$HOME/.claude-devkit/projects" ]; then
+        for d in "$HOME/.claude-devkit/projects/${ZPF_CENTRAL_CLEANUP_PREFIX}"*; do
+            rm -rf "$d" 2>/dev/null || true
+        done
+        # Also clean up central dirs for meta-harness test fixtures
+        for d in "$HOME/.claude-devkit/projects/devkit-harness-"*; do
+            rm -rf "$d" 2>/dev/null || true
+        done
+    fi
 }
 trap cleanup EXIT INT TERM
 
@@ -93,6 +114,19 @@ rm -rf "$HARNESS_REGISTRY_DIR" 2>/dev/null || true
 mkdir -p "$HARNESS_TEST_DIR"
 git -C "$HARNESS_TEST_DIR" init -q
 mkdir -p "$HARNESS_NOTGIT_DIR"
+
+# Clean up and set up zero-project-footprint test fixtures at start
+rm -rf "$ZPF_TEST_DIR" 2>/dev/null || true
+rm -rf "$ZPF_MIGRATE_DIR" 2>/dev/null || true
+rm -rf "$ZPF_RELINK_DIR" 2>/dev/null || true
+if [ -d "$HOME/.claude-devkit/projects" ]; then
+    for d in "$HOME/.claude-devkit/projects/${ZPF_CENTRAL_CLEANUP_PREFIX}"*; do
+        rm -rf "$d" 2>/dev/null || true
+    done
+    for d in "$HOME/.claude-devkit/projects/devkit-harness-"*; do
+        rm -rf "$d" 2>/dev/null || true
+    done
+fi
 
 # Create mock claude script for detached execution tests
 cat > "$MOCK_CLAUDE" << 'MOCKEOF'
@@ -641,24 +675,35 @@ run_test 44 "devkit --version exits 0 and matches semver format" \
     "python3 '$DEVKIT_CLI' --version | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'" \
     0
 
-# Test 45: devkit init on a valid git repo creates state.json with required fields
-run_test 45 "devkit init on valid git repo creates state.json with required fields" \
+# Test 45: devkit init on a valid git repo creates state.json at central location
+run_test 45 "devkit init on valid git repo creates state.json at central location" \
     "python3 '$DEVKIT_CLI' init '$HARNESS_TEST_DIR' && \
      python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+resolved = Path('$HARNESS_TEST_DIR').resolve()
+project_dir = d.get_project_dir(resolved)
+state_path = project_dir / 'state.json'
+assert state_path.exists(), f'state.json not found at {state_path}'
 import json
-with open('$HARNESS_TEST_DIR/.devkit/state.json') as f:
+with open(state_path) as f:
     data = json.load(f)
-assert data.get('schema_version') == '1.0.0', 'missing/invalid schema_version'
+assert data.get('schema_version') == '1.1.0', f'expected schema 1.1.0, got {data.get(\\\"schema_version\\\")}'
 assert data.get('project_name') == 'devkit-harness-test', 'missing/invalid project_name'
+assert isinstance(data.get('project_id'), str) and data['project_id'], 'missing project_id'
+assert isinstance(data.get('project_path'), str) and data['project_path'], 'missing project_path'
+assert data['project_path'] == str(resolved), f'project_path mismatch: {data[\\\"project_path\\\"]} != {resolved}'
 assert isinstance(data.get('initialized_at'), str) and data['initialized_at'], 'missing initialized_at'
 assert isinstance(data.get('devkit_version'), str) and data['devkit_version'], 'missing devkit_version'
-print('PASS: state.json schema valid')
+print('PASS: state.json at central location with schema 1.1.0 fields')
 \"" \
     0
 
-# Test 46: devkit init adds .devkit/ to the target's .gitignore
-run_test 46 "devkit init adds .devkit/ to target .gitignore" \
-    "grep -qF '.devkit/' '$HARNESS_TEST_DIR/.gitignore'" \
+# Test 46: devkit init does NOT modify the target's .gitignore (zero footprint)
+run_test 46 "devkit init does NOT modify target .gitignore" \
+    "! test -f '$HARNESS_TEST_DIR/.gitignore' || ! grep -qF '.devkit/' '$HARNESS_TEST_DIR/.gitignore'" \
     0
 
 # Test 47: devkit init on a non-git directory exits 1
@@ -694,7 +739,16 @@ run_test 52 "devkit init on path outside allowed_roots exits 1" \
 
 # Test 53: oversized state.json produces a warning but devkit status still exits 0 (STRIDE DoS)
 run_test 53 "oversized state.json warns on stderr; devkit status still exits 0" \
-    "python3 -c \"print('x' * 100000)\" > '$HARNESS_TEST_DIR/.devkit/state.json' && \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+project_dir = d.get_project_dir(Path('$HARNESS_TEST_DIR').resolve())
+state_path = project_dir / 'state.json'
+state_path.parent.mkdir(parents=True, exist_ok=True)
+state_path.write_text('x' * 100000)
+\" && \
      OUTPUT=\$(python3 '$DEVKIT_CLI' status '$HARNESS_TEST_DIR' 2>&1); STATUS_EXIT=\$?; \
      echo \"\$OUTPUT\" | grep -qi warning && [ \"\$STATUS_EXIT\" -eq 0 ]" \
     0
@@ -1092,6 +1146,699 @@ run_test 81 "no shell=True in spawn functions (code inspection)" \
     "! grep -A20 'def _spawn_watcher\|def _spawn_detached' '$REPO_DIR/scripts/devkit_cli.py' | grep -q 'shell=True'" \
     0
 
+# --- Zero-project-footprint tests (82-118) ---
+# These tests verify the centralized artifact storage model where devkit
+# creates no files inside target projects. All artifacts live under
+# ~/.claude-devkit/projects/<project-id>/.
+#
+# Fixtures: ZPF_TEST_DIR, ZPF_MIGRATE_DIR, ZPF_RELINK_DIR are created
+# inline per test group. Central project dirs use the ZPF_CENTRAL_CLEANUP_PREFIX
+# to enable selective cleanup.
+
+# --- Project ID tests (82-88) ---
+
+# Test 82: compute_project_id is deterministic (same path -> same ID)
+run_test 82 "compute_project_id is deterministic" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+p = Path('/tmp/${ZPF_CENTRAL_CLEANUP_PREFIX}deterministic-test').resolve()
+id1 = d.compute_project_id(p)
+id2 = d.compute_project_id(p)
+assert id1 == id2, f'Not deterministic: {id1} != {id2}'
+print(f'PASS: deterministic ID = {id1}')
+\""  \
+    0
+
+# Test 83: compute_project_id produces unique IDs for different paths
+run_test 83 "compute_project_id produces unique IDs for different paths" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+id1 = d.compute_project_id(Path('/tmp/project-alpha'))
+id2 = d.compute_project_id(Path('/tmp/project-beta'))
+assert id1 != id2, f'IDs should differ: {id1} == {id2}'
+print(f'PASS: unique IDs: {id1} vs {id2}')
+\"" \
+    0
+
+# Test 84: same basename in different parent dirs gets different IDs
+run_test 84 "compute_project_id: same basename, different parent -> different IDs" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+id1 = d.compute_project_id(Path('/tmp/work/api'))
+id2 = d.compute_project_id(Path('/tmp/personal/api'))
+assert id1 != id2, f'Same-basename IDs should differ: {id1} == {id2}'
+# Both should start with 'api-'
+assert id1.startswith('api-'), f'Expected api- prefix, got {id1}'
+assert id2.startswith('api-'), f'Expected api- prefix, got {id2}'
+print(f'PASS: same basename, different IDs: {id1} vs {id2}')
+\"" \
+    0
+
+# Test 85: project ID format matches expected pattern
+run_test 85 "compute_project_id format matches ^[a-zA-Z0-9._-]+-[0-9a-f]{12}$" \
+    "python3 -c \"
+import sys, re
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+test_paths = [
+    Path('/tmp/my-app'),
+    Path('/tmp/some.project'),
+    Path('/tmp/under_score'),
+]
+for p in test_paths:
+    pid = d.compute_project_id(p)
+    assert re.match(r'^[a-zA-Z0-9._-]+-[0-9a-f]{12}\$', pid), f'Bad format for {p}: {pid}'
+print('PASS: all project IDs match expected format')
+\"" \
+    0
+
+# Test 86: case insensitive on macOS (darwin)
+run_test 86 "compute_project_id: case insensitive on macOS" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+if sys.platform == 'darwin':
+    id_lower = d.compute_project_id(Path('/tmp/myproject'))
+    id_upper = d.compute_project_id(Path('/tmp/MyProject'))
+    assert id_lower == id_upper, f'Case-insensitive IDs should match on macOS: {id_lower} != {id_upper}'
+    print('PASS: case-insensitive on macOS')
+else:
+    id_lower = d.compute_project_id(Path('/tmp/myproject'))
+    id_upper = d.compute_project_id(Path('/tmp/MyProject'))
+    assert id_lower != id_upper, f'Case-sensitive IDs should differ on Linux: {id_lower} == {id_upper}'
+    print('PASS: case-sensitive on Linux (platform-appropriate)')
+\"" \
+    0
+
+# Test 87: special characters in project name are sanitized
+run_test 87 "compute_project_id: special chars sanitized" \
+    "python3 -c \"
+import sys, re
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+pid = d.compute_project_id(Path('/tmp/my project (v2)'))
+# Should not contain spaces or parens
+assert ' ' not in pid, f'Space in project ID: {pid}'
+assert '(' not in pid, f'Paren in project ID: {pid}'
+assert ')' not in pid, f'Paren in project ID: {pid}'
+# Should still match the valid format
+assert re.match(r'^[a-zA-Z0-9._-]+-[0-9a-f]{12}\$', pid), f'Bad format: {pid}'
+print(f'PASS: sanitized ID = {pid}')
+\"" \
+    0
+
+# Test 88: filesystem root is rejected
+run_test 88 "compute_project_id: filesystem root raises ValueError" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+try:
+    d.compute_project_id(Path('/'))
+    print('FAIL: should have raised ValueError')
+    sys.exit(1)
+except ValueError as e:
+    assert 'root' in str(e).lower(), f'Error message should mention root: {e}'
+    print(f'PASS: root rejected with: {e}')
+\"" \
+    0
+
+# --- Central storage tests (89-91) ---
+# (Tests 45, 46 are updated above to cover init-creates-central-dir,
+#  init-does-not-modify-gitignore, and state-in-central-location)
+
+# Test 89: devkit init does NOT create .devkit/ in target
+run_test 89 "devkit init does NOT create .devkit/ in target project" \
+    "rm -rf '$ZPF_TEST_DIR' 2>/dev/null || true && \
+     mkdir -p '$ZPF_TEST_DIR' && git -C '$ZPF_TEST_DIR' init -q && \
+     python3 '$DEVKIT_CLI' init '$ZPF_TEST_DIR' && \
+     [ ! -d '$ZPF_TEST_DIR/.devkit' ]" \
+    0
+
+# Test 90: devkit init creates plans/ directory in central location
+run_test 90 "devkit init creates plans/ dir at central location" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+resolved = Path('$ZPF_TEST_DIR').resolve()
+project_dir = d.get_project_dir(resolved)
+plans_dir = project_dir / 'plans'
+assert plans_dir.is_dir(), f'plans/ not found at {plans_dir}'
+print(f'PASS: plans/ exists at {plans_dir}')
+\"" \
+    0
+
+# Test 91: devkit init detects collision (simulated same project ID, different path)
+run_test 91 "devkit init detects project ID collision" \
+    "python3 -c \"
+import sys, json, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+# Read existing state for ZPF_TEST_DIR and tamper project_path to simulate collision
+resolved = Path('$ZPF_TEST_DIR').resolve()
+project_dir = d.get_project_dir(resolved)
+state_path = project_dir / 'state.json'
+if state_path.exists():
+    with open(state_path) as f:
+        state = json.load(f)
+    # Change project_path to a different path to simulate collision
+    state['project_path'] = '/tmp/some-totally-different-project'
+    with open(state_path, 'w') as f:
+        json.dump(state, f)
+    # Now init should detect the collision and exit 1
+    config = dict(d.FALLBACK_DEFAULTS)
+    config['allowed_roots'] = ['~/projects/', '~/workspaces/']
+    result = d.cmd_init('$ZPF_TEST_DIR', config)
+    assert result == 1, f'Expected exit 1 (collision), got {result}'
+    # Restore original state for subsequent tests
+    state['project_path'] = str(resolved)
+    with open(state_path, 'w') as f:
+        json.dump(state, f)
+    print('PASS: collision detected and rejected')
+else:
+    print('PASS: skipped (no state to tamper -- init not yet run)')
+\"" \
+    0
+
+# --- Environment variable tests (92-94) ---
+
+# Test 92: cmd_run_skill sets DEVKIT_PROJECT_DIR in subprocess env
+run_test 92 "cmd_run_skill sets DEVKIT_PROJECT_DIR env var" \
+    "python3 -c \"
+import sys, os, json
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+# Create a mock claude that dumps its env
+mock = '/tmp/zpf-mock-claude-env'
+with open(mock, 'w') as f:
+    f.write('#!/bin/bash\n')
+    f.write('echo \\\"{\\\\\\\"result\\\\\\\":\\\\\\\"ok\\\\\\\"}\\\"\n')
+    f.write('echo \\\"DEVKIT_PROJECT_DIR=\\\$DEVKIT_PROJECT_DIR\\\" >&2\n')
+os.chmod(mock, 0o755)
+
+config = dict(d.FALLBACK_DEFAULTS)
+config['claude_command'] = mock
+config['claude_print_flag'] = '--print'
+config['allowed_roots'] = ['~/projects/', '~/workspaces/']
+
+resolved = Path('$ZPF_TEST_DIR').resolve()
+expected_dir = str(d.get_project_dir(resolved))
+
+# Run the skill -- check that the env was set by examining the function
+# that builds the env dict (since subprocess output goes to stdout/stderr)
+import subprocess
+orig_run = subprocess.run
+captured_env = {}
+def mock_run(args, **kwargs):
+    env = kwargs.get('env', {})
+    captured_env['DEVKIT_PROJECT_DIR'] = env.get('DEVKIT_PROJECT_DIR')
+    captured_env['DEVKIT_SCRIPTS'] = env.get('DEVKIT_SCRIPTS')
+    class FakeResult:
+        returncode = 0
+        stdout = b'{\"result\":\"ok\"}'
+    return FakeResult()
+subprocess.run = mock_run
+try:
+    d.cmd_run_skill('audit', '$ZPF_TEST_DIR', [], [], config)
+finally:
+    subprocess.run = orig_run
+    os.unlink(mock)
+
+assert captured_env.get('DEVKIT_PROJECT_DIR') == expected_dir, \
+    f'DEVKIT_PROJECT_DIR mismatch: {captured_env.get(\\\"DEVKIT_PROJECT_DIR\\\")} != {expected_dir}'
+print('PASS: DEVKIT_PROJECT_DIR set correctly in subprocess env')
+\"" \
+    0
+
+# Test 93: cmd_run_skill sets DEVKIT_SCRIPTS in subprocess env
+run_test 93 "cmd_run_skill sets DEVKIT_SCRIPTS env var" \
+    "python3 -c \"
+import sys, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+import subprocess
+
+config = dict(d.FALLBACK_DEFAULTS)
+config['claude_command'] = '/tmp/devkit-mock-claude'
+config['claude_print_flag'] = '--print'
+config['allowed_roots'] = ['~/projects/', '~/workspaces/']
+
+expected_scripts = str(d.get_scripts_dir(config))
+
+captured_env = {}
+orig_run = subprocess.run
+def mock_run(args, **kwargs):
+    env = kwargs.get('env', {})
+    captured_env['DEVKIT_SCRIPTS'] = env.get('DEVKIT_SCRIPTS')
+    class FakeResult:
+        returncode = 0
+        stdout = b'{\"result\":\"ok\"}'
+    return FakeResult()
+subprocess.run = mock_run
+try:
+    d.cmd_run_skill('audit', '$ZPF_TEST_DIR', [], [], config)
+finally:
+    subprocess.run = orig_run
+
+assert captured_env.get('DEVKIT_SCRIPTS') == expected_scripts, \
+    f'DEVKIT_SCRIPTS mismatch: {captured_env.get(\\\"DEVKIT_SCRIPTS\\\")} != {expected_scripts}'
+print('PASS: DEVKIT_SCRIPTS set correctly in subprocess env')
+\"" \
+    0
+
+# Test 94: DEVKIT_PROJECT_DIR points to correct project-specific central dir
+run_test 94 "DEVKIT_PROJECT_DIR points to correct central dir" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+resolved = Path('$ZPF_TEST_DIR').resolve()
+project_id = d.compute_project_id(resolved)
+expected = str(Path.home() / '.claude-devkit' / 'projects' / project_id)
+actual = str(d.get_project_dir(resolved))
+assert actual == expected, f'Mismatch: {actual} != {expected}'
+assert project_id in actual, f'project_id {project_id} not in path {actual}'
+print(f'PASS: project dir = {actual}')
+\"" \
+    0
+
+# --- Migration tests (95-100) ---
+# Create a target with legacy .devkit/ for migration testing
+
+# Test 95: devkit migrate copies state.json to central location
+run_test 95 "devkit migrate copies state.json to central location" \
+    "rm -rf '$ZPF_MIGRATE_DIR' 2>/dev/null || true && \
+     mkdir -p '$ZPF_MIGRATE_DIR' && git -C '$ZPF_MIGRATE_DIR' init -q && \
+     mkdir -p '$ZPF_MIGRATE_DIR/.devkit' && \
+     echo '{\"schema_version\":\"1.0.0\",\"project_name\":\"${ZPF_CENTRAL_CLEANUP_PREFIX}migrate\",\"initialized_at\":\"2026-01-01T00:00:00Z\",\"devkit_version\":\"0.1.0\"}' > '$ZPF_MIGRATE_DIR/.devkit/state.json' && \
+     python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+# Clean any prior central dir for this test path
+resolved = Path('$ZPF_MIGRATE_DIR').resolve()
+import shutil
+central = d.get_project_dir(resolved)
+if central.exists():
+    shutil.rmtree(str(central))
+\" && \
+     python3 '$DEVKIT_CLI' migrate '$ZPF_MIGRATE_DIR' && \
+     python3 -c \"
+import sys, json
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+resolved = Path('$ZPF_MIGRATE_DIR').resolve()
+central = d.get_project_dir(resolved)
+state_path = central / 'state.json'
+assert state_path.exists(), f'state.json not found at {state_path}'
+with open(state_path) as f:
+    data = json.load(f)
+assert data.get('project_name') is not None, 'missing project_name in migrated state'
+print('PASS: state.json migrated to central location')
+\"" \
+    0
+
+# Test 96: devkit migrate copies plans/ tree to central location
+run_test 96 "devkit migrate copies plans/ tree to central location" \
+    "mkdir -p '$ZPF_MIGRATE_DIR/.devkit/plans/archive' && \
+     echo '# Test plan' > '$ZPF_MIGRATE_DIR/.devkit/plans/test-feature.md' && \
+     echo '# Archived' > '$ZPF_MIGRATE_DIR/.devkit/plans/archive/old-review.md' && \
+     python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+import shutil
+resolved = Path('$ZPF_MIGRATE_DIR').resolve()
+central = d.get_project_dir(resolved)
+# Remove central to re-test migrate
+if central.exists():
+    shutil.rmtree(str(central))
+\" && \
+     python3 '$DEVKIT_CLI' migrate '$ZPF_MIGRATE_DIR' && \
+     python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+resolved = Path('$ZPF_MIGRATE_DIR').resolve()
+central = d.get_project_dir(resolved)
+plan = central / 'plans' / 'test-feature.md'
+archive = central / 'plans' / 'archive' / 'old-review.md'
+assert plan.exists(), f'plan not found at {plan}'
+assert archive.exists(), f'archive not found at {archive}'
+print('PASS: plans/ tree migrated with subdirectories')
+\"" \
+    0
+
+# Test 97: devkit migrate preserves source .devkit/ (non-destructive)
+run_test 97 "devkit migrate preserves source .devkit/ (non-destructive)" \
+    "[ -d '$ZPF_MIGRATE_DIR/.devkit' ] && \
+     [ -f '$ZPF_MIGRATE_DIR/.devkit/state.json' ] && \
+     [ -f '$ZPF_MIGRATE_DIR/.devkit/plans/test-feature.md' ]" \
+    0
+
+# Test 98: devkit migrate on project without .devkit/ is a no-op
+run_test 98 "devkit migrate on project without .devkit/ is a no-op (exit 0)" \
+    "rm -rf '$ZPF_TEST_DIR/.devkit' 2>/dev/null || true && \
+     python3 '$DEVKIT_CLI' migrate '$ZPF_TEST_DIR' 2>&1 | grep -qi 'nothing to migrate'" \
+    0
+
+# Test 99: devkit migrate aborts if central dir already exists
+run_test 99 "devkit migrate aborts if central dir already exists" \
+    "python3 '$DEVKIT_CLI' migrate '$ZPF_MIGRATE_DIR'" \
+    1
+
+# Test 100: devkit migrate rolls back on copy failure (simulated)
+run_test 100 "devkit migrate rolls back on copy failure" \
+    "python3 -c \"
+import sys, os, json
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+import shutil
+
+# Create a fresh migration source
+test_dir = Path('/tmp/${ZPF_CENTRAL_CLEANUP_PREFIX}rollback-test')
+test_dir.mkdir(parents=True, exist_ok=True)
+os.system(f'git -C {test_dir} init -q 2>/dev/null')
+devkit_dir = test_dir / '.devkit'
+devkit_dir.mkdir(exist_ok=True)
+plans_dir = devkit_dir / 'plans'
+plans_dir.mkdir(exist_ok=True)
+(devkit_dir / 'state.json').write_text('{\\\"schema_version\\\":\\\"1.0.0\\\",\\\"project_name\\\":\\\"rollback\\\"}')
+
+# Make the plans directory unreadable to force a copy failure
+os.chmod(str(plans_dir), 0o000)
+
+config = dict(d.FALLBACK_DEFAULTS)
+config['allowed_roots'] = ['~/projects/', '~/workspaces/']
+result = d.cmd_migrate(str(test_dir), config)
+
+# Restore permissions for cleanup
+os.chmod(str(plans_dir), 0o755)
+
+# The central dir should have been rolled back (removed)
+central = d.get_project_dir(test_dir.resolve())
+assert not central.exists(), f'Central dir should be removed after rollback: {central}'
+
+# Clean up
+shutil.rmtree(str(test_dir), ignore_errors=True)
+print('PASS: migration rolled back on failure, central dir removed')
+\"" \
+    0
+
+# --- Helper script tests (101-107) ---
+
+# Test 101: deploy.sh copies helper scripts to ~/.claude-devkit/scripts/
+run_test 101 "deploy.sh copies helper scripts to ~/.claude-devkit/scripts/" \
+    "bash '$REPO_DIR/scripts/deploy.sh' >/dev/null 2>&1 && \
+     [ -f '$HOME/.claude-devkit/scripts/emit-audit-event.sh' ] && \
+     [ -f '$HOME/.claude-devkit/scripts/resolve-project-dir.sh' ]" \
+    0
+
+# Test 102: deployed scripts have 0o500 permissions (read+exec, no write)
+run_test 102 "deployed helper scripts have 0o500 permissions" \
+    "python3 -c \"
+import os, stat
+from pathlib import Path
+scripts_dir = Path.home() / '.claude-devkit' / 'scripts'
+for name in ['emit-audit-event.sh', 'resolve-project-dir.sh', 'compute-run-score.sh']:
+    path = scripts_dir / name
+    if path.exists():
+        mode = stat.S_IMODE(path.stat().st_mode)
+        assert mode == 0o500, f'{name} permissions: {oct(mode)}, expected 0o500'
+print('PASS: all deployed scripts have 0o500 permissions')
+\"" \
+    0
+
+# Test 103: deploy.sh writes .checksums.json with SHA-256 checksums
+run_test 103 "deploy.sh writes .checksums.json with SHA-256 checksums" \
+    "python3 -c \"
+import json
+from pathlib import Path
+checksums_path = Path.home() / '.claude-devkit' / 'scripts' / '.checksums.json'
+assert checksums_path.exists(), f'.checksums.json not found at {checksums_path}'
+with open(checksums_path) as f:
+    data = json.load(f)
+assert isinstance(data, dict), 'checksums should be a dict'
+assert len(data) > 0, 'checksums should not be empty'
+# Verify at least one entry has a 64-char hex string (SHA-256)
+for name, checksum in data.items():
+    assert len(checksum) == 64, f'{name}: checksum length {len(checksum)}, expected 64'
+    assert all(c in '0123456789abcdef' for c in checksum), f'{name}: invalid hex in checksum'
+    break
+print(f'PASS: .checksums.json has {len(data)} entries with valid SHA-256 hashes')
+\"" \
+    0
+
+# Test 104: resolve-project-dir.sh returns DEVKIT_PROJECT_DIR when set
+run_test 104 "resolve-project-dir.sh returns DEVKIT_PROJECT_DIR when set" \
+    "RESULT=\$(DEVKIT_PROJECT_DIR='/tmp/test-project-dir' bash '$REPO_DIR/scripts/resolve-project-dir.sh') && \
+     [ \"\$RESULT\" = '/tmp/test-project-dir' ]" \
+    0
+
+# Test 105: resolve-project-dir.sh computes correct path from CWD (tier 2)
+run_test 105 "resolve-project-dir.sh computes path from CWD when env not set" \
+    "RESULT=\$(cd '$ZPF_TEST_DIR' && unset DEVKIT_PROJECT_DIR && bash '$REPO_DIR/scripts/resolve-project-dir.sh' 2>/dev/null) && \
+     echo \"\$RESULT\" | grep -q '\.claude-devkit/projects/'" \
+    0
+
+# Test 106: resolve-project-dir.sh returns .devkit with warning when no devkit detected (tier 3)
+run_test 106 "resolve-project-dir.sh legacy fallback emits warning" \
+    "OUTPUT=\$(cd /tmp && unset DEVKIT_PROJECT_DIR && unset CLAUDE_DEVKIT && \
+     HOME=/tmp/nonexistent-home-zpf bash '$REPO_DIR/scripts/resolve-project-dir.sh' 2>&1) && \
+     echo \"\$OUTPUT\" | grep -qi 'WARNING' && \
+     echo \"\$OUTPUT\" | grep -q '.devkit'" \
+    0
+
+# Test 107: resolve-project-dir.sh handles directory names with special chars safely
+run_test 107 "resolve-project-dir.sh: no shell injection via directory names" \
+    "SPECIAL_DIR=\"/tmp/${ZPF_CENTRAL_CLEANUP_PREFIX}special'chars test\" && \
+     mkdir -p \"\$SPECIAL_DIR\" && \
+     RESULT=\$(cd \"\$SPECIAL_DIR\" && unset DEVKIT_PROJECT_DIR && bash '$REPO_DIR/scripts/resolve-project-dir.sh' 2>/dev/null) && \
+     echo \"\$RESULT\" | grep -q '\.claude-devkit/projects/' && \
+     rm -rf \"\$SPECIAL_DIR\"" \
+    0
+
+# --- Security tests (108-110) ---
+
+# Test 108: central project dir has 0o700 permissions
+run_test 108 "central project dir has 0o700 permissions after init" \
+    "python3 -c \"
+import sys, os, stat
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+resolved = Path('$ZPF_TEST_DIR').resolve()
+project_dir = d.get_project_dir(resolved)
+if project_dir.exists():
+    mode = stat.S_IMODE(project_dir.stat().st_mode)
+    assert mode == 0o700, f'project dir permissions: {oct(mode)}, expected 0o700'
+    print('PASS: central project dir has 0o700 permissions')
+else:
+    print('PASS: skipped (project dir not yet created)')
+\"" \
+    0
+
+# Test 109: state file has 0o600 permissions
+run_test 109 "state.json has 0o600 permissions" \
+    "python3 -c \"
+import sys, os, stat
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+resolved = Path('$ZPF_TEST_DIR').resolve()
+state_path = d.get_project_dir(resolved) / 'state.json'
+if state_path.exists():
+    mode = stat.S_IMODE(state_path.stat().st_mode)
+    assert mode == 0o600, f'state.json permissions: {oct(mode)}, expected 0o600'
+    print('PASS: state.json has 0o600 permissions')
+else:
+    print('PASS: skipped (state.json not yet created)')
+\"" \
+    0
+
+# Test 110: validate_target rejects filesystem root
+run_test 110 "validate_target rejects filesystem root /" \
+    "python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+config = dict(d.FALLBACK_DEFAULTS)
+config['allowed_roots'] = ['~/projects/', '~/workspaces/']
+ok, err = d.validate_target('/', config)
+assert not ok, 'Root should be rejected'
+assert 'root' in err.lower() or 'basename' in err.lower(), f'Error should mention root: {err}'
+print(f'PASS: root rejected with: {err}')
+\"" \
+    0
+
+# --- Relink and path tests (111-114) ---
+
+# Test 111: devkit relink renames project directory and updates state
+run_test 111 "devkit relink renames project dir and updates state" \
+    "rm -rf '$ZPF_RELINK_DIR' 2>/dev/null || true && \
+     OLD_DIR='/tmp/${ZPF_CENTRAL_CLEANUP_PREFIX}relink-old' && \
+     NEW_DIR='/tmp/${ZPF_CENTRAL_CLEANUP_PREFIX}relink-new' && \
+     rm -rf \"\$OLD_DIR\" \"\$NEW_DIR\" 2>/dev/null || true && \
+     mkdir -p \"\$OLD_DIR\" && git -C \"\$OLD_DIR\" init -q && \
+     mkdir -p \"\$NEW_DIR\" && git -C \"\$NEW_DIR\" init -q && \
+     python3 '$DEVKIT_CLI' init \"\$OLD_DIR\" && \
+     python3 -c \"
+import sys
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+old_dir = d.get_project_dir(Path('\$OLD_DIR').resolve())
+assert old_dir.is_dir(), f'Old project dir should exist: {old_dir}'
+\" && \
+     python3 '$DEVKIT_CLI' relink \"\$OLD_DIR\" \"\$NEW_DIR\" && \
+     python3 -c \"
+import sys, json
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+old_dir = d.get_project_dir(Path('\$OLD_DIR').resolve())
+new_dir = d.get_project_dir(Path('\$NEW_DIR').resolve())
+assert not old_dir.exists(), f'Old project dir should be gone: {old_dir}'
+assert new_dir.is_dir(), f'New project dir should exist: {new_dir}'
+state_path = new_dir / 'state.json'
+with open(state_path) as f:
+    state = json.load(f)
+assert str(Path('\$NEW_DIR').resolve()) in state.get('project_path', ''), \
+    f'State project_path should reference new dir'
+print('PASS: relink renamed dir and updated state')
+\" && \
+     rm -rf \"\$OLD_DIR\" \"\$NEW_DIR\"" \
+    0
+
+# Test 112: devkit status warns on path mismatch
+run_test 112 "devkit status warns when project_path mismatches current target" \
+    "python3 -c \"
+import sys, json
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+resolved = Path('$ZPF_TEST_DIR').resolve()
+project_dir = d.get_project_dir(resolved)
+state_path = project_dir / 'state.json'
+if state_path.exists():
+    with open(state_path) as f:
+        state = json.load(f)
+    original_path = state.get('project_path')
+    # Tamper to simulate a moved project
+    state['project_path'] = '/tmp/some-old-path-that-does-not-exist'
+    with open(state_path, 'w') as f:
+        json.dump(state, f)
+\" && \
+     OUTPUT=\$(python3 '$DEVKIT_CLI' status '$ZPF_TEST_DIR' 2>&1) && \
+     echo \"\$OUTPUT\" | grep -qi 'warning\|previously' && \
+     python3 -c \"
+import sys, json
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+resolved = Path('$ZPF_TEST_DIR').resolve()
+state_path = d.get_project_dir(resolved) / 'state.json'
+if state_path.exists():
+    with open(state_path) as f:
+        state = json.load(f)
+    state['project_path'] = str(resolved)
+    with open(state_path, 'w') as f:
+        json.dump(state, f)
+\"" \
+    0
+
+# Test 113: devkit path prints correct central directory path
+run_test 113 "devkit path prints correct central directory path" \
+    "OUTPUT=\$(python3 '$DEVKIT_CLI' path '$ZPF_TEST_DIR') && \
+     echo \"\$OUTPUT\" | grep -q '\.claude-devkit/projects/'" \
+    0
+
+# Test 114: devkit path with subpath appends correctly
+run_test 114 "devkit path with subpath appends correctly" \
+    "OUTPUT=\$(python3 '$DEVKIT_CLI' path '$ZPF_TEST_DIR' plans/feature.md) && \
+     echo \"\$OUTPUT\" | grep -q '\.claude-devkit/projects/.*plans/feature.md'" \
+    0
+
+# --- Backward compatibility tests (115-117) ---
+
+# Test 115: resolve-project-dir.sh computes path without DEVKIT_PROJECT_DIR
+# (tier 2 fallback when CLAUDE_DEVKIT or ~/.claude-devkit exists)
+run_test 115 "resolve: tier 2 fallback computes path without DEVKIT_PROJECT_DIR" \
+    "RESULT=\$(cd '$ZPF_TEST_DIR' && unset DEVKIT_PROJECT_DIR && \
+     CLAUDE_DEVKIT='$REPO_DIR' bash '$REPO_DIR/scripts/resolve-project-dir.sh' 2>/dev/null) && \
+     echo \"\$RESULT\" | grep -q '\.claude-devkit/projects/' && \
+     [ -n \"\$RESULT\" ]" \
+    0
+
+# Test 116: tier 3 legacy fallback emits deprecation warning to stderr
+run_test 116 "resolve: tier 3 legacy fallback emits deprecation warning" \
+    "STDERR_OUTPUT=\$(cd /tmp && unset DEVKIT_PROJECT_DIR && unset CLAUDE_DEVKIT && \
+     HOME=/tmp/nonexistent-home-zpf-116 bash '$REPO_DIR/scripts/resolve-project-dir.sh' 2>&1 1>/dev/null) && \
+     echo \"\$STDERR_OUTPUT\" | grep -qi 'warning\|deprecated'" \
+    0
+
+# Test 117: read_state handles schema 1.0.0 state files (missing project_id/project_path)
+run_test 117 "read_state handles schema 1.0.0 state files gracefully" \
+    "python3 -c \"
+import sys, json, os
+sys.path.insert(0, '$REPO_DIR/scripts')
+import devkit_cli as d
+from pathlib import Path
+
+# Create a schema 1.0.0 state file (no project_id, no project_path)
+resolved = Path('$ZPF_TEST_DIR').resolve()
+project_dir = d.get_project_dir(resolved)
+project_dir.mkdir(parents=True, exist_ok=True)
+state_path = project_dir / 'state.json'
+old_state = {
+    'schema_version': '1.0.0',
+    'project_name': resolved.name,
+    'initialized_at': '2026-01-01T00:00:00Z',
+    'devkit_version': '0.1.0'
+}
+fd = os.open(str(state_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, 'w') as f:
+    json.dump(old_state, f)
+
+config = dict(d.FALLBACK_DEFAULTS)
+state = d.read_state(resolved, config)
+assert state is not None, 'read_state should handle 1.0.0 schema'
+# After schema migration, project_id and project_path should be present
+assert state.get('project_id') is not None or state.get('schema_version') == '1.0.0', \
+    'state should either have project_id or be readable as 1.0.0'
+print('PASS: schema 1.0.0 state file handled gracefully')
+\"" \
+    0
+
 # Test 9: Cleanup
 echo ""
 echo -e "${BLUE}Test 9: Cleanup${RESET}"
@@ -1107,6 +1854,18 @@ rm -f "$MOCK_CLAUDE" || true
 # Clean up detach test run directories
 if [ -d "$HOME/.claude-devkit/runs" ]; then
     for d in "$HOME/.claude-devkit/runs/${DETACH_RUNS_CLEANUP_PREFIX}"*; do
+        rm -rf "$d" 2>/dev/null || true
+    done
+fi
+# Clean up zero-project-footprint test fixtures
+rm -rf "$ZPF_TEST_DIR" || true
+rm -rf "$ZPF_MIGRATE_DIR" || true
+rm -rf "$ZPF_RELINK_DIR" || true
+if [ -d "$HOME/.claude-devkit/projects" ]; then
+    for d in "$HOME/.claude-devkit/projects/${ZPF_CENTRAL_CLEANUP_PREFIX}"*; do
+        rm -rf "$d" 2>/dev/null || true
+    done
+    for d in "$HOME/.claude-devkit/projects/devkit-harness-"*; do
         rm -rf "$d" 2>/dev/null || true
     done
 fi

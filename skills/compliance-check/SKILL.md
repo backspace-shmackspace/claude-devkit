@@ -24,6 +24,32 @@ Multiple frameworks can be specified: `/compliance-check fips owasp`
 
 ## Step 0 — Parse and validate framework arguments
 
+**Resolve devkit paths (MUST be first action in Step 0):**
+
+Tool: `Bash`
+
+```bash
+# --- Devkit Path Resolution ---
+DEVKIT_SCRIPTS="${CLAUDE_DEVKIT:-$HOME/.claude-devkit}/scripts"
+
+# Source path resolution helper
+if [ -f "$DEVKIT_SCRIPTS/resolve-project-dir.sh" ]; then
+  . "$DEVKIT_SCRIPTS/resolve-project-dir.sh"
+  DEVKIT_PROJECT_DIR_RESOLVED=$(resolve_devkit_project_dir) || {
+    echo "Failed to resolve project directory" >&2; exit 1
+  }
+elif [ -n "${DEVKIT_PROJECT_DIR:-}" ]; then
+  DEVKIT_PROJECT_DIR_RESOLVED="$DEVKIT_PROJECT_DIR"
+else
+  echo "WARNING: devkit is not installed. Using deprecated .devkit/ fallback." >&2
+  DEVKIT_PROJECT_DIR_RESOLVED=".devkit"
+fi
+
+PLANS_DIR="$DEVKIT_PROJECT_DIR_RESOLVED/plans"
+mkdir -p "$PLANS_DIR"
+echo "Plans directory: $PLANS_DIR"
+```
+
 Tool: `Read`
 
 Parse `$ARGUMENTS` as a space-separated list of framework names.
@@ -94,7 +120,7 @@ System and Communications Protection (SC):
 - Encryption at rest patterns (use of encryption libraries for stored sensitive data)
 
 Rate each finding: Critical / High / Medium / Low.
-Write to `.devkit/plans/compliance-check-[timestamp].fedramp.md`"
+Write to `$PLANS_DIR/compliance-check-[timestamp].fedramp.md`"
 
 ---
 
@@ -134,7 +160,7 @@ High: Non-FIPS algorithm used but context unclear, or key length below minimum.
 Medium: Potentially non-FIPS pattern requiring manual review.
 Low: Informational — approved algorithm but suboptimal configuration.
 
-Write to `.devkit/plans/compliance-check-[timestamp].fips.md`"
+Write to `$PLANS_DIR/compliance-check-[timestamp].fips.md`"
 
 ---
 
@@ -195,7 +221,7 @@ A10 - Server-Side Request Forgery (SSRF):
 - DNS rebinding exposure patterns
 
 Rate each finding: Critical / High / Medium / Low.
-Write to `.devkit/plans/compliance-check-[timestamp].owasp.md`"
+Write to `$PLANS_DIR/compliance-check-[timestamp].owasp.md`"
 
 ---
 
@@ -236,7 +262,7 @@ Data Protection Patterns:
 - PII minimization (collect only what is needed)
 
 Rate each finding: Critical / High / Medium / Low.
-Write to `.devkit/plans/compliance-check-[timestamp].soc2.md`"
+Write to `$PLANS_DIR/compliance-check-[timestamp].soc2.md`"
 
 ## Step 2 — Synthesis
 
@@ -245,12 +271,12 @@ Read all completed scan reports and synthesize into a unified compliance summary
 Tool: `Read` (direct — coordinator does this)
 
 Read all reports that were generated (only the frameworks that were requested):
-- `.devkit/plans/compliance-check-[timestamp].fedramp.md` (if fedramp was scanned)
-- `.devkit/plans/compliance-check-[timestamp].fips.md` (if fips was scanned)
-- `.devkit/plans/compliance-check-[timestamp].owasp.md` (if owasp was scanned)
-- `.devkit/plans/compliance-check-[timestamp].soc2.md` (if soc2 was scanned)
+- `$PLANS_DIR/compliance-check-[timestamp].fedramp.md` (if fedramp was scanned)
+- `$PLANS_DIR/compliance-check-[timestamp].fips.md` (if fips was scanned)
+- `$PLANS_DIR/compliance-check-[timestamp].owasp.md` (if owasp was scanned)
+- `$PLANS_DIR/compliance-check-[timestamp].soc2.md` (if soc2 was scanned)
 
-Generate `.devkit/plans/compliance-check-[timestamp].summary.md` with this structure:
+Generate `$PLANS_DIR/compliance-check-[timestamp].summary.md` with this structure:
 
 ```markdown
 # Compliance Check Summary — [frameworks] — [timestamp]
@@ -326,7 +352,7 @@ are NOT verifiable from source code analysis and require separate verification:
 
 ## Step 3 — Verdict gate
 
-Read `.devkit/plans/compliance-check-[timestamp].summary.md` and report verdict.
+Read `$PLANS_DIR/compliance-check-[timestamp].summary.md` and report verdict.
 
 Tool: `Read`
 
@@ -334,7 +360,7 @@ Tool: `Read`
 Report:
 "compliance-check BLOCKED — Critical compliance gaps require remediation.
 
-Summary: .devkit/plans/compliance-check-[timestamp].summary.md
+Summary: $PLANS_DIR/compliance-check-[timestamp].summary.md
 All Critical findings must be resolved before making any compliance claims.
 
 Frameworks checked: [list]
@@ -347,7 +373,7 @@ This report is a development aid, not a compliance certification."
 Report:
 "compliance-check PASS WITH NOTES — Compliance gaps found but not blocking.
 
-Summary: .devkit/plans/compliance-check-[timestamp].summary.md
+Summary: $PLANS_DIR/compliance-check-[timestamp].summary.md
 Review High findings before making compliance claims. Merging is not blocked.
 
 Frameworks checked: [list]
@@ -360,7 +386,7 @@ This report is a development aid, not a compliance certification."
 Report:
 "compliance-check PASS — No blocking compliance gaps found.
 
-Summary: .devkit/plans/compliance-check-[timestamp].summary.md
+Summary: $PLANS_DIR/compliance-check-[timestamp].summary.md
 
 Frameworks checked: [list]
 Medium findings: [count]
@@ -374,11 +400,11 @@ Move scan artifacts to archive.
 
 Tool: `Bash`
 
-Archive path: `.devkit/plans/archive/compliance-check/[timestamp]/`
+Archive path: `$PLANS_DIR/archive/compliance-check/[timestamp]/`
 
 ```bash
-mkdir -p ".devkit/plans/archive/compliance-check/[timestamp]"
-mv .devkit/plans/compliance-check-[timestamp].* ".devkit/plans/archive/compliance-check/[timestamp]/"
+mkdir -p "$PLANS_DIR/archive/compliance-check/[timestamp]"
+mv $PLANS_DIR/compliance-check-[timestamp].* "$PLANS_DIR/archive/compliance-check/[timestamp]/"
 ```
 
-Report: "Scan complete. Results archived to .devkit/plans/archive/compliance-check/[timestamp]/"
+Report: "Scan complete. Results archived to $PLANS_DIR/archive/compliance-check/[timestamp]/"

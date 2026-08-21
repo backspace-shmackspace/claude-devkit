@@ -17,6 +17,32 @@ You do NOT make documentation changes yourself — you coordinate the process.
 
 ## Step 1 — Detect changes
 
+**Resolve devkit paths (MUST be first action in Step 1):**
+
+Tool: `Bash`
+
+```bash
+# --- Devkit Path Resolution ---
+DEVKIT_SCRIPTS="${CLAUDE_DEVKIT:-$HOME/.claude-devkit}/scripts"
+
+# Source path resolution helper
+if [ -f "$DEVKIT_SCRIPTS/resolve-project-dir.sh" ]; then
+  . "$DEVKIT_SCRIPTS/resolve-project-dir.sh"
+  DEVKIT_PROJECT_DIR_RESOLVED=$(resolve_devkit_project_dir) || {
+    echo "Failed to resolve project directory" >&2; exit 1
+  }
+elif [ -n "${DEVKIT_PROJECT_DIR:-}" ]; then
+  DEVKIT_PROJECT_DIR_RESOLVED="$DEVKIT_PROJECT_DIR"
+else
+  echo "WARNING: devkit is not installed. Using deprecated .devkit/ fallback." >&2
+  DEVKIT_PROJECT_DIR_RESOLVED=".devkit"
+fi
+
+PLANS_DIR="$DEVKIT_PROJECT_DIR_RESOLVED/plans"
+mkdir -p "$PLANS_DIR"
+echo "Plans directory: $PLANS_DIR"
+```
+
 Tool: `Bash` (direct — coordinator does this)
 
 **Determine scope:**
@@ -72,7 +98,7 @@ Prompt: "You are reviewing documentation for currency and accuracy.
 2. Compare them against the recent code changes
 3. Identify documentation that is now stale, missing, or incorrect
 
-Write `.devkit/plans/sync-[timestamp].review.md` with this structure:
+Write `$PLANS_DIR/sync-[timestamp].review.md` with this structure:
 
 ## Verdict
 [CURRENT / UPDATES_NEEDED]
@@ -104,12 +130,12 @@ Write `.devkit/plans/sync-[timestamp].review.md` with this structure:
 
 ## Step 4 — Update documentation (conditional)
 
-Read `.devkit/plans/sync-[timestamp].review.md` and check verdict.
+Read `$PLANS_DIR/sync-[timestamp].review.md` and check verdict.
 
 **If verdict is CURRENT:**
 Output: "✅ Documentation is current. No updates needed.
 
-Review: .devkit/plans/sync-[timestamp].review.md"
+Review: $PLANS_DIR/sync-[timestamp].review.md"
 
 Stop the workflow.
 
@@ -119,7 +145,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-sonnet-4-6`
 
 Prompt: "You are updating project documentation based on a librarian review.
 
-Read the review at `.devkit/plans/sync-[timestamp].review.md`.
+Read the review at `$PLANS_DIR/sync-[timestamp].review.md`.
 
 Apply all **Required Updates** to `CLAUDE.md` and `README.md`.
 Use the Edit tool to make precise changes.
@@ -157,7 +183,7 @@ git commit -m \"docs: sync with codebase
 
 Updates documentation to reflect recent code changes.
 
-Review: .devkit/plans/sync-[timestamp].review.md
+Review: $PLANS_DIR/sync-[timestamp].review.md
 
 Co-Authored-By: Claude Sonnet <noreply@anthropic.com>\"
 ```
@@ -167,12 +193,12 @@ To reject:
 git restore CLAUDE.md README.md
 ```
 
-Review: .devkit/plans/sync-[timestamp].review.md"
+Review: $PLANS_DIR/sync-[timestamp].review.md"
 
 ## Step 6 — Archive review
 
 Tool: `Bash` (direct — coordinator does this)
 
-Run: `mkdir -p .devkit/plans/archive/sync && mv .devkit/plans/sync-[timestamp].review.md .devkit/plans/archive/sync/`
+Run: `mkdir -p $PLANS_DIR/archive/sync && mv $PLANS_DIR/sync-[timestamp].review.md $PLANS_DIR/archive/sync/`
 
-Output: "Review archived to .devkit/plans/archive/sync/sync-[timestamp].review.md"
+Output: "Review archived to $PLANS_DIR/archive/sync/sync-[timestamp].review.md"

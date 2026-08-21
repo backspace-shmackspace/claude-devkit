@@ -48,11 +48,11 @@
     {
       "id": 6,
       "name": "Structured Reporting",
-      "description": "Output paths reference .devkit/plans/ directory",
+      "description": "Output paths reference the artifact directory ($DEVKIT_PROJECT_DIR/plans/ or $PLANS_DIR)",
       "type": "keyword",
-      "rule": ".devkit/plans/",
+      "rule": "(DEVKIT_PROJECT_DIR|PLANS_DIR|.devkit/plans/)",
       "severity": "warning",
-      "message": "Pattern 6 (Structured Reporting): Skill outputs should typically be written to .devkit/plans/ directory for consistency."
+      "message": "Pattern 6 (Structured Reporting): Skill outputs should reference $DEVKIT_PROJECT_DIR/plans/ (or $PLANS_DIR) for centralized artifact storage."
     },
     {
       "id": 7,
@@ -84,11 +84,11 @@
     {
       "id": 10,
       "name": "Archive on Success",
-      "description": "Reference to .devkit/plans/archive/ or explicit archive step",
+      "description": "Reference to the archive directory ($PLANS_DIR/archive/ or $DEVKIT_PROJECT_DIR/plans/archive/) or explicit archive step",
       "type": "keyword",
-      "rule": "(.devkit/plans/archive/|archive|mv .+ archive)",
+      "rule": "(PLANS_DIR/archive|DEVKIT_PROJECT_DIR/plans/archive|.devkit/plans/archive/|archive|mv .+ archive)",
       "severity": "warning",
-      "message": "Pattern 10 (Archive on Success): Consider moving artifacts to .devkit/plans/archive/ on successful completion to keep the plans directory clean."
+      "message": "Pattern 10 (Archive on Success): Consider moving artifacts to $PLANS_DIR/archive/ (or $DEVKIT_PROJECT_DIR/plans/archive/) on successful completion to keep the plans directory clean."
     }
   ],
   "structural_requirements": [

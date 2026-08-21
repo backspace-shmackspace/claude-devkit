@@ -18,6 +18,32 @@ You do NOT fix issues yourself — you identify and report them with severity ra
 
 ## Step 1 — Determine scope
 
+**Resolve devkit paths (MUST be first action in Step 1):**
+
+Tool: `Bash`
+
+```bash
+# --- Devkit Path Resolution ---
+DEVKIT_SCRIPTS="${CLAUDE_DEVKIT:-$HOME/.claude-devkit}/scripts"
+
+# Source path resolution helper
+if [ -f "$DEVKIT_SCRIPTS/resolve-project-dir.sh" ]; then
+  . "$DEVKIT_SCRIPTS/resolve-project-dir.sh"
+  DEVKIT_PROJECT_DIR_RESOLVED=$(resolve_devkit_project_dir) || {
+    echo "Failed to resolve project directory" >&2; exit 1
+  }
+elif [ -n "${DEVKIT_PROJECT_DIR:-}" ]; then
+  DEVKIT_PROJECT_DIR_RESOLVED="$DEVKIT_PROJECT_DIR"
+else
+  echo "WARNING: devkit is not installed. Using deprecated .devkit/ fallback." >&2
+  DEVKIT_PROJECT_DIR_RESOLVED=".devkit"
+fi
+
+PLANS_DIR="$DEVKIT_PROJECT_DIR_RESOLVED/plans"
+mkdir -p "$PLANS_DIR"
+echo "Plans directory: $PLANS_DIR"
+```
+
 Tool: `Bash` (direct — coordinator does this)
 
 Run: `git status --porcelain`
@@ -40,7 +66,7 @@ Tool: `Bash`
 ```bash
 # --- Audit Logging Setup ---
 RUN_ID=$(date +%Y%m%d-%H%M%S)-$(cat /dev/urandom | LC_ALL=C tr -dc 'a-z0-9' | head -c 6)
-AUDIT_LOG_DIR=".devkit/plans/audit-logs"
+AUDIT_LOG_DIR="$PLANS_DIR/audit-logs"
 mkdir -p "$AUDIT_LOG_DIR"
 AUDIT_LOG="$AUDIT_LOG_DIR/audit-${RUN_ID}.jsonl"
 STATE_FILE=".audit-audit-state-${RUN_ID}.json"
@@ -60,10 +86,10 @@ with open('${STATE_FILE}', 'w') as f:
 print('Audit skill state file created: ${STATE_FILE}')
 "
 
-bash scripts/emit-audit-event.sh "$STATE_FILE" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" "$STATE_FILE" \
   "{\"event_type\":\"run_start\",\"scope\":\"${AUDIT_SCOPE:-unknown}\"}"
 
-bash scripts/emit-audit-event.sh "$STATE_FILE" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" "$STATE_FILE" \
   '{"event_type":"step_start","step":"step_1_determine_scope","step_name":"Determine scope","agent_type":"coordinator"}'
 
 echo "Audit skill log: $AUDIT_LOG"
@@ -74,7 +100,7 @@ echo "Audit skill log: $AUDIT_LOG"
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_1_determine_scope","step_name":"Determine scope","agent_type":"coordinator"}'
 ```
 
@@ -85,7 +111,7 @@ bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_2_security_scan","step_name":"Security scan","agent_type":"coordinator"}'
 ```
 
@@ -109,7 +135,7 @@ Execute its full scanning workflow (vulnerability, data flow, auth/authz scans).
 
 Scope: [map audit scope to secure-review scope: 'code' -> 'changes', 'full' -> 'full']
 
-Write your findings to `.devkit/plans/audit-[timestamp].security.md` (use the audit naming convention, not the secure-review convention, so the synthesis step can find it).
+Write your findings to `$PLANS_DIR/audit-[timestamp].security.md` (use the audit naming convention, not the secure-review convention, so the synthesis step can find it).
 
 Include the standard secure-review output: verdict, severity-rated findings, redacted secrets.
 
@@ -143,7 +169,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
   - Secrets management
 
   Rate findings: Critical / High / Medium / Low.
-  Write to `.devkit/plans/audit-[timestamp].security.md`"
+  Write to `$PLANS_DIR/audit-[timestamp].security.md`"
 
 - **If security-analyst agent not found:** Prompt: "Read the plan file at `$ARGUMENTS` (after 'plan' keyword). Analyze for security risks:
   - Authentication/authorization gaps
@@ -153,7 +179,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
   - Secrets management
 
   Rate findings: Critical / High / Medium / Low.
-  Write to `.devkit/plans/audit-[timestamp].security.md`"
+  Write to `$PLANS_DIR/audit-[timestamp].security.md`"
 
 **If scope is "code":**
 
@@ -167,7 +193,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
   - Dependency vulnerabilities
 
   Rate findings: Critical / High / Medium / Low.
-  Write to `.devkit/plans/audit-[timestamp].security.md`"
+  Write to `$PLANS_DIR/audit-[timestamp].security.md`"
 
 - **If security-analyst agent not found:** Prompt: "Scan uncommitted changes for:
   - SQL injection vulnerabilities
@@ -179,7 +205,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
   - Dependency vulnerabilities
 
   Rate findings: Critical / High / Medium / Low.
-  Write to `.devkit/plans/audit-[timestamp].security.md`"
+  Write to `$PLANS_DIR/audit-[timestamp].security.md`"
 
 **If scope is "full":**
 
@@ -192,7 +218,7 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
   - OWASP Top 10 compliance
 
   Rate findings: Critical / High / Medium / Low.
-  Write to `.devkit/plans/audit-[timestamp].security.md`"
+  Write to `$PLANS_DIR/audit-[timestamp].security.md`"
 
 - **If security-analyst agent not found:** Prompt: "Full codebase security audit:
   - SQL injection, XSS, CSRF vulnerabilities
@@ -203,14 +229,14 @@ Tool: `Task`, `subagent_type=general-purpose`, `model=claude-opus-4-6`
   - OWASP Top 10 compliance
 
   Rate findings: Critical / High / Medium / Low.
-  Write to `.devkit/plans/audit-[timestamp].security.md`"
+  Write to `$PLANS_DIR/audit-[timestamp].security.md`"
 
 **Emit step_end for Step 2:**
 
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_2_security_scan","step_name":"Security scan","agent_type":"coordinator"}'
 ```
 
@@ -221,7 +247,7 @@ bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_3_performance_scan","step_name":"Performance scan","agent_type":"coordinator"}'
 ```
 
@@ -236,7 +262,7 @@ Analyze for performance risks:
 - Scalability bottlenecks
 
 Rate findings: Critical / High / Medium / Low.
-Write to `.devkit/plans/audit-[timestamp].performance.md`"
+Write to `$PLANS_DIR/audit-[timestamp].performance.md`"
 
 **If scope is "code":**
 Prompt: "Analyze uncommitted changes for:
@@ -248,7 +274,7 @@ Prompt: "Analyze uncommitted changes for:
 - Unnecessary I/O operations
 
 Rate findings: Critical / High / Medium / Low.
-Write to `.devkit/plans/audit-[timestamp].performance.md`"
+Write to `$PLANS_DIR/audit-[timestamp].performance.md`"
 
 **If scope is "full":**
 Prompt: "Full codebase performance audit:
@@ -260,14 +286,14 @@ Prompt: "Full codebase performance audit:
 - I/O bottlenecks
 
 Rate findings: Critical / High / Medium / Low.
-Write to `.devkit/plans/audit-[timestamp].performance.md`"
+Write to `$PLANS_DIR/audit-[timestamp].performance.md`"
 
 **Emit step_end for Step 3:**
 
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_3_performance_scan","step_name":"Performance scan","agent_type":"coordinator"}'
 ```
 
@@ -280,7 +306,7 @@ bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_4_antipattern_scan","step_name":"Anti-pattern scan","agent_type":"coordinator"}'
 ```
 
@@ -309,7 +335,7 @@ Rate findings: Critical / High / Medium / Low.
 - Medium: Naming violations, unused imports, test code quality issues
 - Low: Minor code smells, style inconsistencies, single instances of duplicated logic
 
-Write to `.devkit/plans/audit-[timestamp].antipatterns.md`"
+Write to `$PLANS_DIR/audit-[timestamp].antipatterns.md`"
 
 **If scope is "full":**
 
@@ -332,14 +358,14 @@ Rate findings: Critical / High / Medium / Low.
 - Medium: Naming violations, unused imports, test code quality issues
 - Low: Minor code smells, style inconsistencies, single instances of duplicated logic
 
-Write to `.devkit/plans/audit-[timestamp].antipatterns.md`"
+Write to `$PLANS_DIR/audit-[timestamp].antipatterns.md`"
 
 **Emit step_end for Step 4:**
 
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_4_antipattern_scan","step_name":"Anti-pattern scan","agent_type":"coordinator"}'
 ```
 
@@ -352,7 +378,7 @@ bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_5_qa_regression","step_name":"QA regression","agent_type":"coordinator"}'
 ```
 
@@ -363,7 +389,7 @@ Tool: `Glob` (direct — coordinator does this)
 Pattern: `.claude/agents/qa-engineer*.md` or `.claude/agents/qa*.md`
 
 **If no files match:**
-- Write note to `.devkit/plans/audit-[timestamp].qa.md`:
+- Write note to `$PLANS_DIR/audit-[timestamp].qa.md`:
   ```markdown
   # QA Regression — Skipped
 
@@ -388,7 +414,7 @@ Follow that agent's testing standards.
 
 Run the full test suite and analyze results.
 
-Write `.devkit/plans/audit-[timestamp].qa.md` with:
+Write `$PLANS_DIR/audit-[timestamp].qa.md` with:
 - **Test results** (passed/failed/skipped counts)
 - **Coverage delta** (if measurable)
 - **Flaky tests** (tests that fail intermittently)
@@ -402,7 +428,7 @@ If no test command is found or tests cannot run, document this limitation."
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_5_qa_regression","step_name":"QA regression","agent_type":"coordinator"}'
 ```
 
@@ -413,19 +439,19 @@ bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_6_synthesis","step_name":"Synthesis","agent_type":"coordinator"}'
 ```
 
 Tool: `Read` (direct — coordinator does this)
 
 Read all audit reports:
-- `.devkit/plans/audit-[timestamp].security.md`
-- `.devkit/plans/audit-[timestamp].performance.md`
-- `.devkit/plans/audit-[timestamp].antipatterns.md` (if exists — not produced for plan scope)
-- `.devkit/plans/audit-[timestamp].qa.md` (if exists)
+- `$PLANS_DIR/audit-[timestamp].security.md`
+- `$PLANS_DIR/audit-[timestamp].performance.md`
+- `$PLANS_DIR/audit-[timestamp].antipatterns.md` (if exists — not produced for plan scope)
+- `$PLANS_DIR/audit-[timestamp].qa.md` (if exists)
 
-Generate `.devkit/plans/audit-[timestamp].summary.md` with this structure:
+Generate `$PLANS_DIR/audit-[timestamp].summary.md` with this structure:
 
 ```markdown
 # Audit Summary — [scope] — [timestamp]
@@ -466,10 +492,10 @@ Generate `.devkit/plans/audit-[timestamp].summary.md` with this structure:
 ...
 
 ## Reports
-- Security: .devkit/plans/audit-[timestamp].security.md
-- Performance: .devkit/plans/audit-[timestamp].performance.md
-- Anti-patterns: .devkit/plans/audit-[timestamp].antipatterns.md (if run)
-- QA: .devkit/plans/audit-[timestamp].qa.md (if run)
+- Security: $PLANS_DIR/audit-[timestamp].security.md
+- Performance: $PLANS_DIR/audit-[timestamp].performance.md
+- Anti-patterns: $PLANS_DIR/audit-[timestamp].antipatterns.md (if run)
+- QA: $PLANS_DIR/audit-[timestamp].qa.md (if run)
 ```
 
 **Verdict rules:**
@@ -482,7 +508,7 @@ Generate `.devkit/plans/audit-[timestamp].summary.md` with this structure:
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_6_synthesis","step_name":"Synthesis","agent_type":"coordinator"}'
 ```
 
@@ -493,17 +519,17 @@ bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_7_gate","step_name":"Gate","agent_type":"coordinator"}'
 ```
 
-Read `.devkit/plans/audit-[timestamp].summary.md` and check verdict.
+Read `$PLANS_DIR/audit-[timestamp].summary.md` and check verdict.
 
 **If BLOCKED:**
 Output:
 "🚫 Audit BLOCKED — Critical security or performance issues found.
 
-Summary: .devkit/plans/audit-[timestamp].summary.md
+Summary: $PLANS_DIR/audit-[timestamp].summary.md
 Action items must be resolved before proceeding.
 
 Critical findings: [count]
@@ -513,7 +539,7 @@ High findings: [count]"
 Output:
 "⚠️ Audit PASS with notes — Review recommended but not blocking.
 
-Summary: .devkit/plans/audit-[timestamp].summary.md
+Summary: $PLANS_DIR/audit-[timestamp].summary.md
 Consider addressing high-priority findings.
 
 High findings: [count]
@@ -523,7 +549,7 @@ Medium findings: [count]"
 Output:
 "✅ Audit PASS — No blocking issues found.
 
-Summary: .devkit/plans/audit-[timestamp].summary.md
+Summary: $PLANS_DIR/audit-[timestamp].summary.md
 Only minor findings to consider.
 
 Medium findings: [count]
@@ -535,16 +561,16 @@ Tool: `Bash`
 
 ```bash
 # AUDIT_FINAL_VERDICT: "PASS", "PASS_WITH_NOTES", or "BLOCKED"
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"verdict\",\"step\":\"step_7_gate\",\"verdict\":\"${AUDIT_FINAL_VERDICT:-PASS}\",\"verdict_source\":\"synthesis\",\"agent_type\":\"coordinator\"}"
 
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"run_end\",\"outcome\":\"${AUDIT_FINAL_VERDICT:-PASS}\",\"scope\":\"${AUDIT_SCOPE:-unknown}\"}"
 
-bash scripts/emit-audit-event.sh ".audit-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".audit-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_7_gate","step_name":"Gate","agent_type":"coordinator"}'
 
 # Clean up state file
 rm -f ".audit-audit-state-${RUN_ID}.json"
-echo "Audit skill log complete: .devkit/plans/audit-logs/audit-${RUN_ID}.jsonl"
+echo "Audit skill log complete: $PLANS_DIR/audit-logs/audit-${RUN_ID}.jsonl"
 ```

@@ -7,7 +7,7 @@ model: claude-opus-4-6
 # /ship Workflow
 
 ## Inputs
-- Plan file: $ARGUMENTS   # e.g. .devkit/plans/feature-x.md
+- Plan file: $ARGUMENTS   # e.g. $PLANS_DIR/feature-x.md
 
 ## Role
 You are the **work coordinator**. You dispatch work to agents and check their results.
@@ -18,7 +18,33 @@ Your job: read the plan once, dispatch each step, check verdicts, gate progressi
 
 Tool: `Bash` (git status, cleanup), `Glob` (agent checks) — **Run all checks in parallel in a single message**
 
-**Parse --security-override flag (MUST be first action in Step 0):**
+**Resolve devkit paths (MUST be first action in Step 0):**
+
+Tool: `Bash`
+
+```bash
+# --- Devkit Path Resolution ---
+DEVKIT_SCRIPTS="${CLAUDE_DEVKIT:-$HOME/.claude-devkit}/scripts"
+
+# Source path resolution helper
+if [ -f "$DEVKIT_SCRIPTS/resolve-project-dir.sh" ]; then
+  . "$DEVKIT_SCRIPTS/resolve-project-dir.sh"
+  DEVKIT_PROJECT_DIR_RESOLVED=$(resolve_devkit_project_dir) || {
+    echo "Failed to resolve project directory" >&2; exit 1
+  }
+elif [ -n "${DEVKIT_PROJECT_DIR:-}" ]; then
+  DEVKIT_PROJECT_DIR_RESOLVED="$DEVKIT_PROJECT_DIR"
+else
+  echo "WARNING: devkit is not installed. Using deprecated .devkit/ fallback." >&2
+  DEVKIT_PROJECT_DIR_RESOLVED=".devkit"
+fi
+
+PLANS_DIR="$DEVKIT_PROJECT_DIR_RESOLVED/plans"
+mkdir -p "$PLANS_DIR"
+echo "Plans directory: $PLANS_DIR"
+```
+
+**Parse --security-override flag (MUST be second action in Step 0):**
 
 If `$ARGUMENTS` contains `--security-override`:
 - Extract the reason string (quoted text after `--security-override`)
@@ -73,7 +99,7 @@ Tool: `Bash`
 
 ```bash
 # --- Audit Logging Setup ---
-AUDIT_LOG_DIR=".devkit/plans/audit-logs"
+AUDIT_LOG_DIR="$PLANS_DIR/audit-logs"
 mkdir -p "$AUDIT_LOG_DIR"
 AUDIT_LOG="$AUDIT_LOG_DIR/ship-${RUN_ID}.jsonl"
 STATE_FILE=".ship-audit-state-${RUN_ID}.json"
@@ -111,11 +137,11 @@ print('Audit state file created: ${STATE_FILE}')
 # Emit run_start event
 OVERRIDE_ACTIVE="false"
 [ -n "${SECURITY_OVERRIDE_REASON:-}" ] && OVERRIDE_ACTIVE="true"
-bash scripts/emit-audit-event.sh "$STATE_FILE" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" "$STATE_FILE" \
   "{\"event_type\":\"run_start\",\"plan_file\":\"${PLAN_PATH:-${ARGUMENTS:-unknown}}\",\"security_override_active\":${OVERRIDE_ACTIVE}}"
 
 # Emit step_start for step_0
-bash scripts/emit-audit-event.sh "$STATE_FILE" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" "$STATE_FILE" \
   '{"event_type":"step_start","step":"step_0_preflight","step_name":"Pre-flight checks","agent_type":"coordinator"}'
 
 echo "Audit log: $AUDIT_LOG"
@@ -232,7 +258,7 @@ Tool: `Bash`
 #   GATE_VERDICT: "PASS", "BLOCKED", or "not-run" (if skill not deployed)
 #   ACTION: "pass", "block", "override", or "skip" (if not deployed)
 #   EFFECTIVE_VERDICT: "PASS", "BLOCKED", or "PASS_WITH_NOTES" (if overridden)
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"security_decision\",\"step\":\"step_0_preflight\",\"gate\":\"secrets_scan\",\"gate_verdict\":\"${SECRETS_GATE_VERDICT:-not-run}\",\"action\":\"${SECRETS_ACTION:-skip}\",\"effective_verdict\":\"${SECRETS_EFFECTIVE_VERDICT:-PASS}\"}"
 ```
 
@@ -241,7 +267,7 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_0_preflight","step_name":"Pre-flight checks","agent_type":"coordinator"}'
 ```
 
@@ -252,7 +278,7 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_1_read_plan","step_name":"Coordinator reads plan","agent_type":"coordinator"}'
 ```
 
@@ -301,7 +327,7 @@ against the plan body text:
 **If no security signals found in plan content:**
 - No output (plan is not security-sensitive, no check needed)
 
-Derive `[name]` from the plan filename (e.g. `.devkit/plans/feature-x.md` → `feature-x`).
+Derive `[name]` from the plan filename (e.g. `$PLANS_DIR/feature-x.md` → `feature-x`).
 
 **Parse work groups (optional):** Look for a `## Work Groups` section inside the Task Breakdown. Format:
 
@@ -331,10 +357,7 @@ Tool: `Bash`
 ```bash
 # Run codebase scanner (degrades gracefully if tree-sitter not installed)
 SCANNER_PYTHON="${HOME}/.claude-devkit/scanner-venv/bin/python3"
-SCANNER_SCRIPT="${CLAUDE_DEVKIT:-./}/scripts/codebase-scanner.py"
-if [ ! -f "$SCANNER_SCRIPT" ]; then
-  SCANNER_SCRIPT="./scripts/codebase-scanner.py"
-fi
+SCANNER_SCRIPT="$DEVKIT_SCRIPTS/codebase-scanner.py"
 if [ -x "$SCANNER_PYTHON" ]; then
   SCANNER_OUTPUT=$("$SCANNER_PYTHON" "$SCANNER_SCRIPT" --format summary --quiet 2>/dev/null || echo "")
 else
@@ -350,7 +373,7 @@ if [ -n "$SCANNER_OUTPUT" ]; then
   SCANNER_SYMBOL_COUNT=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Symbols:\s*\K[0-9]+' 2>/dev/null || echo "0")
   SCANNER_PARSER_MODE=$(printf '%s' "$SCANNER_OUTPUT" | grep -oP 'Parser:\s*\K\S+' 2>/dev/null || echo "unknown")
   SCANNER_TOKEN_COUNT=$(printf '%s' "$SCANNER_OUTPUT" | wc -c | awk '{printf "%.0f", $1 / 4}')
-  bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
     "{\"event_type\":\"scanner_invocation\",\"scanner_version\":\"${SCANNER_VERSION}\",\"parser_mode\":\"${SCANNER_PARSER_MODE}\",\"file_count\":${SCANNER_FILE_COUNT},\"symbol_count\":${SCANNER_SYMBOL_COUNT},\"output_sha256\":\"${SCANNER_HASH}\",\"output_token_count\":${SCANNER_TOKEN_COUNT}}"
 fi
 ```
@@ -363,7 +386,7 @@ Tool: `Bash`
 
 ```bash
 # SEC_REQ_PRESENT: "true" if ## Security Requirements section was found in the plan, "false" otherwise
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"step_end\",\"step\":\"step_1_read_plan\",\"step_name\":\"Coordinator reads plan\",\"agent_type\":\"coordinator\",\"security_requirements_present\":${SEC_REQ_PRESENT:-false}}"
 ```
 
@@ -374,7 +397,7 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_2_pattern_validation","step_name":"Pattern validation","agent_type":"coordinator"}'
 ```
 
@@ -428,7 +451,7 @@ Continue to Step 3 regardless of warnings.
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_2_pattern_validation","step_name":"Pattern validation","agent_type":"coordinator"}'
 ```
 
@@ -447,7 +470,7 @@ section exists, skip directly to Step 3b.
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_3a_shared_deps","step_name":"Shared dependencies","agent_type":"coder"}'
 ```
 
@@ -484,7 +507,7 @@ Created by: /ship skill v3.7.0"
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_3a_shared_deps","step_name":"Shared dependencies","agent_type":"coder"}'
 ```
 
@@ -495,7 +518,7 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_3b_create_worktrees","step_name":"Create worktrees","agent_type":"coordinator"}'
 ```
 
@@ -551,7 +574,7 @@ Output: "✓ Created worktree for Work Group ${wg_num}: ${wg_name} at $WORKTREE_
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_3b_create_worktrees","step_name":"Create worktrees","agent_type":"coordinator"}'
 ```
 
@@ -563,7 +586,7 @@ Tool: `Bash`
 
 ```bash
 # WG_COUNT = number of work groups dispatched
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"step_start\",\"step\":\"step_3c_dispatch_coders\",\"step_name\":\"Dispatch coders to worktrees\",\"agent_type\":\"coder\",\"work_groups\":${WG_COUNT:-1}}"
 ```
 
@@ -619,7 +642,7 @@ If any worktree has BLOCKED.md, stop workflow and output: "❌ Implementation bl
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_3c_dispatch_coders","step_name":"Dispatch coders to worktrees","agent_type":"coder"}'
 ```
 
@@ -630,7 +653,7 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_3d_boundary_validation","step_name":"File boundary validation","agent_type":"coordinator"}'
 ```
 
@@ -710,10 +733,10 @@ Tool: `Bash`
 
 ```bash
 # BOUNDARY_VERDICT: "PASS" if no violations, "BLOCKED" if violations detected
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"verdict\",\"step\":\"step_3d_boundary_validation\",\"verdict\":\"${BOUNDARY_VERDICT:-PASS}\",\"verdict_source\":\"boundary_check\",\"agent_type\":\"coordinator\"}"
 
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_3d_boundary_validation","step_name":"File boundary validation","agent_type":"coordinator"}'
 ```
 
@@ -726,7 +749,7 @@ If no violations, continue to Step 3e.
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_3e_merge","step_name":"Merge worktrees","agent_type":"coordinator"}'
 ```
 
@@ -776,10 +799,10 @@ Tool: `Bash`
 # Emit one file_modification event per work group using actual loop values.
 # Construct FILES_JSON as a JSON array of the scoped files for this work group.
 # Example (replace WG_NUM, WG_NAME, and FILES_JSON with actual values):
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"file_modification\",\"step\":\"step_3e_merge\",\"work_group\":${WG_NUM},\"work_group_name\":\"${WG_NAME}\",\"files_modified\":${FILES_JSON}}"
 
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_3e_merge","step_name":"Merge worktrees","agent_type":"coordinator"}'
 ```
 
@@ -790,7 +813,7 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_3f_cleanup","step_name":"Cleanup worktrees","agent_type":"coordinator"}'
 ```
 
@@ -828,7 +851,7 @@ rm -f .ship-worktrees-${RUN_ID}.tmp .ship-violations-${RUN_ID}.tmp
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_3f_cleanup","step_name":"Cleanup worktrees","agent_type":"coordinator"}'
 ```
 
@@ -841,10 +864,7 @@ Tool: `Bash`
 ```bash
 # Extract import graph for files changed in this ship run, for blast radius assessment
 SCANNER_PYTHON="${HOME}/.claude-devkit/scanner-venv/bin/python3"
-SCANNER_SCRIPT="${CLAUDE_DEVKIT:-./}/scripts/codebase-scanner.py"
-if [ ! -f "$SCANNER_SCRIPT" ]; then
-  SCANNER_SCRIPT="./scripts/codebase-scanner.py"
-fi
+SCANNER_SCRIPT="$DEVKIT_SCRIPTS/codebase-scanner.py"
 
 # Get list of changed files
 CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null || echo "")
@@ -912,7 +932,7 @@ the changed files and may be affected by this change.
 
 $IMPORT_GRAPH_DATA
 
-Write your review to `.devkit/plans/[name].code-review.md` with this structure:
+Write your review to `$PLANS_DIR/[name].code-review.md` with this structure:
 - **Verdict:** PASS / REVISION_NEEDED / FAIL
 - **Critical findings** (must fix — correctness, security, data loss)
 - **Major findings** (should fix — performance, maintainability, missing requirements)
@@ -932,7 +952,7 @@ Tool: `Bash` (direct — coordinator does this)
 Run the test command extracted from the plan in Step 1.
 
 If exit code is non-zero:
-- Write the test output to `.devkit/plans/[name].test-failure.log`
+- Write the test output to `$PLANS_DIR/[name].test-failure.log`
 
 ### 4c — QA validation
 
@@ -947,7 +967,7 @@ Follow that agent's validation standards.
 Check every acceptance criterion in the plan against the current code.
 Run any test commands from the plan if they haven't been run.
 
-Write `.devkit/plans/[name].qa-report.md` with:
+Write `$PLANS_DIR/[name].qa-report.md` with:
 - **Verdict:** PASS / PASS_WITH_NOTES / FAIL
 - **Acceptance criteria coverage** (checklist: criterion → met/not met)
 - **Missing tests or edge cases**
@@ -995,7 +1015,7 @@ Include evidence (file path and line reference) for each status.
 
 Scope: `changes` (uncommitted modifications in the working directory).
 
-Write your security review summary to `.devkit/plans/[name].secure-review.md` with the
+Write your security review summary to `$PLANS_DIR/[name].secure-review.md` with the
 standard secure-review output format including verdict (PASS / PASS_WITH_NOTES / BLOCKED),
 severity-rated findings, and redacted secrets (if any).
 
@@ -1016,7 +1036,7 @@ files modified in this implementation.
 
 Scope: `changes` (uncommitted modifications in the working directory).
 
-Write your security review summary to `.devkit/plans/[name].secure-review.md` with the
+Write your security review summary to `$PLANS_DIR/[name].secure-review.md` with the
 standard secure-review output format including verdict (PASS / PASS_WITH_NOTES / BLOCKED),
 severity-rated findings, and redacted secrets (if any).
 
@@ -1058,13 +1078,13 @@ At L1, secure-review BLOCKED is reported but does not stop the workflow (parent 
 | Any | Any | Any | BLOCKED (no override, revision loop exhausted) | Stop workflow |
 
 If stopping due to secure review BLOCKED (L2/L3, post-revision):
-- "Secure review BLOCKED after revision loop. See `.devkit/plans/[name].secure-review.md`. Fix security findings or re-run with --security-override."
+- "Secure review BLOCKED after revision loop. See `$PLANS_DIR/[name].secure-review.md`. Fix security findings or re-run with --security-override."
 
 If proceeding with security override (L2/L3):
 - Log: "Secure review BLOCKED — overridden: [reason]. Proceeding with PASS_WITH_NOTES."
 
 If auto-downgrading at L1:
-- Log: "Secure review BLOCKED (L1 advisory — non-blocking). Review findings: `.devkit/plans/[name].secure-review.md`."
+- Log: "Secure review BLOCKED (L1 advisory — non-blocking). Review findings: `$PLANS_DIR/[name].secure-review.md`."
 
 **Emit retrospective per-substep audit events for Step 4 results:**
 
@@ -1077,55 +1097,55 @@ Tool: `Bash`
 ```bash
 # Step 4a -- Code review retrospective markers
 # CODE_REVIEW_VERDICT: "PASS", "REVISION_NEEDED", or "FAIL"
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_4a_code_review","step_name":"Code review (retrospective)","agent_type":"coordinator"}'
 
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"verdict\",\"step\":\"step_4a_code_review\",\"verdict\":\"${CODE_REVIEW_VERDICT}\",\"verdict_source\":\"code_review\",\"agent_type\":\"code-reviewer\"}"
 
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_4a_code_review","step_name":"Code review (retrospective)","agent_type":"coordinator"}'
 
 # Step 4b -- Tests retrospective markers
 # TEST_VERDICT: "PASS" or "FAIL"
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_4b_tests","step_name":"Tests (retrospective)","agent_type":"coordinator"}'
 
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"verdict\",\"step\":\"step_4b_tests\",\"verdict\":\"${TEST_VERDICT}\",\"verdict_source\":\"tests\",\"agent_type\":\"coordinator\"}"
 
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_4b_tests","step_name":"Tests (retrospective)","agent_type":"coordinator"}'
 
 # Step 4c -- QA retrospective markers
 # QA_VERDICT: "PASS", "PASS_WITH_NOTES", or "FAIL"
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_4c_qa","step_name":"QA (retrospective)","agent_type":"coordinator"}'
 
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"verdict\",\"step\":\"step_4c_qa\",\"verdict\":\"${QA_VERDICT}\",\"verdict_source\":\"qa\",\"agent_type\":\"qa-engineer\"}"
 
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_4c_qa","step_name":"QA (retrospective)","agent_type":"coordinator"}'
 
 # Step 4d -- Secure review retrospective markers (conditional: only if gate ran)
 # SECURE_REVIEW_GATE_VERDICT: "PASS", "PASS_WITH_NOTES", "BLOCKED", or "not-run"
 # SECURE_REVIEW_ACTION: "pass", "block", "override", or "skip"
 # SECURE_REVIEW_EFFECTIVE_VERDICT: "PASS", "PASS_WITH_NOTES", or "BLOCKED"
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_4d_secure_review","step_name":"Secure review (retrospective)","agent_type":"coordinator"}'
 
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"security_decision\",\"step\":\"step_4d_secure_review\",\"gate\":\"secure_review\",\"gate_verdict\":\"${SECURE_REVIEW_GATE_VERDICT:-not-run}\",\"action\":\"${SECURE_REVIEW_ACTION:-skip}\",\"effective_verdict\":\"${SECURE_REVIEW_EFFECTIVE_VERDICT:-PASS}\"}"
 
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_4d_secure_review","step_name":"Secure review (retrospective)","agent_type":"coordinator"}'
 ```
 
 If stopping, output appropriate message:
-- "Code review FAIL. See `.devkit/plans/[name].code-review.md`."
-- "Tests failed. See `.devkit/plans/[name].test-failure.log`."
-- "QA validation FAIL. See `.devkit/plans/[name].qa-report.md`."
+- "Code review FAIL. See `$PLANS_DIR/[name].code-review.md`."
+- "Tests failed. See `$PLANS_DIR/[name].test-failure.log`."
+- "QA validation FAIL. See `$PLANS_DIR/[name].qa-report.md`."
 
 ## Step 5 — Revision loop (conditional)
 
@@ -1140,7 +1160,7 @@ These emit calls are conditional on Step 5 actually executing. If Step 4 code re
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_5_revision_loop","step_name":"Revision loop","agent_type":"coordinator"}'
 ```
 
@@ -1173,7 +1193,7 @@ Then proceed with the standard worktree workflow:
 
 - Re-create worktrees (Step 3b) — these now branch from the WIP commit containing first-pass code
 - Dispatch coders to worktrees (Step 3c) with modified prompt:
-  "Read the code review at `.devkit/plans/[name].code-review.md`.
+  "Read the code review at `$PLANS_DIR/[name].code-review.md`.
   Address all Critical and Major findings.
 
   **IMPORTANT:** The code review references files in the main directory (e.g., src/Button.tsx).
@@ -1195,14 +1215,14 @@ Re-run Step 4 in its entirety (all three parallel checks: code review + tests + 
 Evaluate results using the same result matrix from Step 4.
 
 **Max 2 revision rounds total.** If still REVISION_NEEDED or FAIL after 2 rounds:
-stop the workflow. Output: "Code review did not converge after 2 rounds. See `.devkit/plans/[name].code-review.md`."
+stop the workflow. Output: "Code review did not converge after 2 rounds. See `$PLANS_DIR/[name].code-review.md`."
 
 **Emit step_end for Step 5 (only if Step 5 executed):**
 
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_5_revision_loop","step_name":"Revision loop","agent_type":"coordinator"}'
 ```
 
@@ -1217,11 +1237,11 @@ bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_6_commit_gate","step_name":"Commit gate","agent_type":"coordinator"}'
 ```
 
-Read `.devkit/plans/[name].qa-report.md`. Check the verdict.
+Read `$PLANS_DIR/[name].qa-report.md`. Check the verdict.
 
 **If PASS or PASS_WITH_NOTES:**
 
@@ -1260,13 +1280,13 @@ Execute it against the current project.
 
 Report your verdict: PASS, PASS_WITH_NOTES, INCOMPLETE, or BLOCKED.
 If BLOCKED, list the Critical CVE findings.
-Write your report to `.devkit/plans/[name].dependency-audit.md`."
+Write your report to `$PLANS_DIR/[name].dependency-audit.md`."
 
 **If dependency audit returns BLOCKED:**
 - At L1 (advisory): Log prominent warning. Auto-downgrade to PASS_WITH_NOTES. Continue.
-  Output: "Dependency audit BLOCKED (L1 advisory — non-blocking). Review findings: `.devkit/plans/[name].dependency-audit.md`."
+  Output: "Dependency audit BLOCKED (L1 advisory — non-blocking). Review findings: `$PLANS_DIR/[name].dependency-audit.md`."
 - At L2/L3: If `--security-override`: Downgrade to PASS_WITH_NOTES. Log override reason. Else: Stop workflow.
-  Output: "Dependency audit BLOCKED. Critical vulnerabilities found. See `.devkit/plans/[name].dependency-audit.md`."
+  Output: "Dependency audit BLOCKED. Critical vulnerabilities found. See `$PLANS_DIR/[name].dependency-audit.md`."
 
 **If dependency audit returns INCOMPLETE:**
 - Log: "Dependency audit INCOMPLETE — no scanner available for this ecosystem. Install the appropriate scanner for full CVE scanning."
@@ -1288,7 +1308,7 @@ Tool: `Bash`
 #   DEP_GATE_VERDICT: "PASS", "PASS_WITH_NOTES", "BLOCKED", "INCOMPLETE", or "not-run"
 #   DEP_ACTION: "pass", "block", "override", or "skip"
 #   DEP_EFFECTIVE_VERDICT: "PASS", "PASS_WITH_NOTES", or "BLOCKED"
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"security_decision\",\"step\":\"step_6_commit_gate\",\"gate\":\"dependency_audit\",\"gate_verdict\":\"${DEP_GATE_VERDICT:-not-run}\",\"action\":\"${DEP_ACTION:-skip}\",\"effective_verdict\":\"${DEP_EFFECTIVE_VERDICT:-PASS}\"}"
 ```
 
@@ -1329,15 +1349,15 @@ if [ -f "$AUDIT_LOG" ]; then
   fi
 
   # Emit step_end for Step 6 (MUST be before state file deletion)
-  bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
     '{"event_type":"step_end","step":"step_6_commit_gate","step_name":"Commit gate","agent_type":"coordinator"}'
 
   # Score computation (pre-run_end, non-blocking)
   # All verdict, security_decision, and step events are already in the log at this point.
   # run_score is emitted before run_end so it is included in L2/L3 committed logs.
-  SCORE_JSON=$(bash scripts/compute-run-score.sh "$AUDIT_LOG" 2>/dev/null)
+  SCORE_JSON=$(bash "$DEVKIT_SCRIPTS/compute-run-score.sh" "$AUDIT_LOG" 2>/dev/null)
   if [ -n "$SCORE_JSON" ]; then
-    bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" "$SCORE_JSON"
+    bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" "$SCORE_JSON"
     echo "Run score computed and logged."
   else
     echo "Warning: Score computation returned empty output. Continuing without score."
@@ -1345,13 +1365,27 @@ if [ -f "$AUDIT_LOG" ]; then
 
   # Emit run_end
   COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-  bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+  bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
     "{\"event_type\":\"run_end\",\"outcome\":\"success\",\"commit_sha\":\"${COMMIT_SHA}\",\"plan_file\":\"${PLAN_PATH:-${ARGUMENTS:-unknown}}\"}"
 
   # Stage audit log for commit at L2/L3
+  # Audit logs live at $PLANS_DIR/audit-logs/ (centralized, outside project repo).
+  # Copy into project's .devkit-audit-logs/ for git staging.
   if [ "$SECURITY_MATURITY" = "enforced" ] || [ "$SECURITY_MATURITY" = "audited" ]; then
-    git add --force "$AUDIT_LOG"
-    echo "Audit log staged for commit (${SECURITY_MATURITY} maturity)."
+    mkdir -p ".devkit-audit-logs"
+    cp -p "$AUDIT_LOG" ".devkit-audit-logs/"
+    git add --force ".devkit-audit-logs/ship-${RUN_ID}.jsonl"
+    echo "Audit log copied and staged for commit (${SECURITY_MATURITY} maturity)."
+
+    # Cleanup trap: remove staged copy if git commit fails
+    _audit_cleanup() {
+      if [ -f ".devkit-audit-logs/ship-${RUN_ID}.jsonl" ] && \
+         ! git diff --cached --name-only | grep -q "devkit-audit-logs/ship-${RUN_ID}"; then
+        rm -f ".devkit-audit-logs/ship-${RUN_ID}.jsonl"
+        rmdir ".devkit-audit-logs" 2>/dev/null || true
+      fi
+    }
+    trap _audit_cleanup EXIT
 
     # L3: also stage key file
     if [ "$SECURITY_MATURITY" = "audited" ]; then
@@ -1402,7 +1436,7 @@ fi
 
      <why this change was needed - one sentence from plan context>
 
-     Implements: .devkit/plans/[name].md
+     Implements: $PLANS_DIR/[name].md
 
      Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
      EOF
@@ -1415,26 +1449,26 @@ fi
 
 4. Clean up artifacts:
    - Tool: `Bash`
-   - Command: `mkdir -p .devkit/plans/archive/[name] && mv .devkit/plans/[name].code-review.md .devkit/plans/[name].qa-report.md .devkit/plans/archive/[name]/ && if [ -f .devkit/plans/[name].feasibility.md ]; then mv .devkit/plans/[name].feasibility.md .devkit/plans/archive/[name]/; fi`
+   - Command: `mkdir -p "$PLANS_DIR/archive/[name]" && mv "$PLANS_DIR/[name].code-review.md" "$PLANS_DIR/[name].qa-report.md" "$PLANS_DIR/archive/[name]/" && if [ -f "$PLANS_DIR/[name].feasibility.md" ]; then mv "$PLANS_DIR/[name].feasibility.md" "$PLANS_DIR/archive/[name]/"; fi`
    - Then, archive test failure log if it exists:
      ```bash
-     if [ -f ".devkit/plans/[name].test-failure.log" ]; then
-       mv ".devkit/plans/[name].test-failure.log" ".devkit/plans/archive/[name]/"
+     if [ -f "$PLANS_DIR/[name].test-failure.log" ]; then
+       mv "$PLANS_DIR/[name].test-failure.log" "$PLANS_DIR/archive/[name]/"
      fi
      ```
    - Then, archive security review and dependency audit artifacts if they exist:
      ```bash
-     if [ -f ".devkit/plans/[name].secure-review.md" ]; then
-       mv ".devkit/plans/[name].secure-review.md" ".devkit/plans/archive/[name]/"
+     if [ -f "$PLANS_DIR/[name].secure-review.md" ]; then
+       mv "$PLANS_DIR/[name].secure-review.md" "$PLANS_DIR/archive/[name]/"
      fi
-     if [ -f ".devkit/plans/[name].dependency-audit.md" ]; then
-       mv ".devkit/plans/[name].dependency-audit.md" ".devkit/plans/archive/[name]/"
+     if [ -f "$PLANS_DIR/[name].dependency-audit.md" ]; then
+       mv "$PLANS_DIR/[name].dependency-audit.md" "$PLANS_DIR/archive/[name]/"
      fi
      ```
 
 5. Output success message:
    - "✅ Implementation complete and committed.
-   - QA report: `.devkit/plans/archive/[name]/[name].qa-report.md`
+   - QA report: `$PLANS_DIR/archive/[name]/[name].qa-report.md`
    - **Next step:** Run `/sync` to update documentation."
 
 **If FAIL:**
@@ -1446,14 +1480,14 @@ Tool: `Bash`
 ```bash
 # Emit step_end for Step 6 on FAIL path, then run_end, then cleanup.
 # The state file still exists because the finalization block (which contains cleanup) was skipped.
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_6_commit_gate","step_name":"Commit gate","agent_type":"coordinator"}'
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   "{\"event_type\":\"run_end\",\"outcome\":\"failure\",\"plan_file\":\"${PLAN_PATH:-${ARGUMENTS:-unknown}}\"}"
 rm -f ".ship-audit-state-${RUN_ID}.json"
 ```
 
-- Output: "❌ QA validation failed. See `.devkit/plans/[name].qa-report.md`."
+- Output: "❌ QA validation failed. See `$PLANS_DIR/[name].qa-report.md`."
 - Stop the workflow.
 
 ## Step 7 — Retro capture (post-commit, non-blocking)
@@ -1466,7 +1500,7 @@ If Step 6 did not commit (FAIL), skip Step 7 entirely.
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_start","step":"step_7_retro","step_name":"Retro capture","agent_type":"coordinator"}'
 ```
 
@@ -1478,11 +1512,11 @@ Prompt:
 "You are extracting learnings from a completed /ship run.
 
 Read the archived review artifacts using glob-based discovery:
-- `.devkit/plans/archive/[name]/*.code-review.md`
-- `.devkit/plans/archive/[name]/*.qa-report.md`
+- `$PLANS_DIR/archive/[name]/*.code-review.md`
+- `$PLANS_DIR/archive/[name]/*.qa-report.md`
 
 If any test failure logs exist, also read:
-- `.devkit/plans/archive/[name]/*.test-failure.log`
+- `$PLANS_DIR/archive/[name]/*.test-failure.log`
 
 Read each file in its entirety. Extract findings regardless of the specific section header format used. Look for issues by severity, positive observations, coverage gaps, and test failures regardless of how the document is structured.
 
@@ -1504,7 +1538,7 @@ Read the existing learnings file (if it exists):
    - Failure categories (what type of test failed and why). Rate each: Critical / High / Medium / Low.
 
 4. From the security review (if exists):
-   - Glob for `.devkit/plans/archive/[name]/*.secure-review.md`
+   - Glob for `$PLANS_DIR/archive/[name]/*.secure-review.md`
      (Note: the secure-review artifact is read from the archive directory because Step 6 moves it there before Step 7 runs.)
    - If found, read the file and check for a `## Threat Model Coverage` section
    - Any threat with `NOT_IMPLEMENTED` status is a threat model gap -- the plan identified
@@ -1562,7 +1596,7 @@ Run `/retro` manually to capture learnings."
 Tool: `Bash`
 
 ```bash
-bash scripts/emit-audit-event.sh ".ship-audit-state-${RUN_ID}.json" \
+bash "$DEVKIT_SCRIPTS/emit-audit-event.sh" ".ship-audit-state-${RUN_ID}.json" \
   '{"event_type":"step_end","step":"step_7_retro","step_name":"Retro capture","agent_type":"coordinator"}'
 
 # Final cleanup: remove audit state file (kept alive through Step 7 for event emission)

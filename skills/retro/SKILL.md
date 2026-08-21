@@ -18,6 +18,32 @@ You do NOT fix code or modify agents — you extract and record patterns.
 
 ## Step 0 — Determine scope and discover artifacts
 
+**Resolve devkit paths (MUST be first action in Step 0):**
+
+Tool: `Bash`
+
+```bash
+# --- Devkit Path Resolution ---
+DEVKIT_SCRIPTS="${CLAUDE_DEVKIT:-$HOME/.claude-devkit}/scripts"
+
+# Source path resolution helper
+if [ -f "$DEVKIT_SCRIPTS/resolve-project-dir.sh" ]; then
+  . "$DEVKIT_SCRIPTS/resolve-project-dir.sh"
+  DEVKIT_PROJECT_DIR_RESOLVED=$(resolve_devkit_project_dir) || {
+    echo "Failed to resolve project directory" >&2; exit 1
+  }
+elif [ -n "${DEVKIT_PROJECT_DIR:-}" ]; then
+  DEVKIT_PROJECT_DIR_RESOLVED="$DEVKIT_PROJECT_DIR"
+else
+  echo "WARNING: devkit is not installed. Using deprecated .devkit/ fallback." >&2
+  DEVKIT_PROJECT_DIR_RESOLVED=".devkit"
+fi
+
+PLANS_DIR="$DEVKIT_PROJECT_DIR_RESOLVED/plans"
+mkdir -p "$PLANS_DIR"
+echo "Plans directory: $PLANS_DIR"
+```
+
 Tool: `Bash`, `Glob` (direct — coordinator does this)
 
 **Determine scope:**
@@ -25,7 +51,7 @@ Tool: `Bash`, `Glob` (direct — coordinator does this)
 - Else: scope = `$ARGUMENTS`
 
 Validate scope:
-- If scope is "recent", "full", or matches an existing directory in `.devkit/plans/archive/`: proceed
+- If scope is "recent", "full", or matches an existing directory in `$PLANS_DIR/archive/`: proceed
 - Else: stop with "Invalid scope. Use: /retro [recent|full|<feature-name>]"
 
 Derive timestamp: `[timestamp]` = current ISO datetime (e.g., `2026-03-12T10-00-00`)
@@ -35,14 +61,15 @@ Derive timestamp: `[timestamp]` = current ISO datetime (e.g., `2026-03-12T10-00-
 Tool: `Bash`
 
 ```bash
-ARCHIVE_DIR=".devkit/plans/archive"
+ARCHIVE_DIR="$PLANS_DIR/archive"
+mkdir -p "$ARCHIVE_DIR"
 
 if [ "$SCOPE" = "recent" ]; then
   # Get 3 most recently added feature directories (by git commit date, excluding sync/ and audit/)
   FEATURES=$(git log --diff-filter=A --name-only --format='' -- "$ARCHIVE_DIR"/*/ \
-    | grep -E '^.devkit/plans/archive/[^/]+/$' \
+    | grep -E '^$PLANS_DIR/archive/[^/]+/$' \
     | grep -v '/sync/' | grep -v '/audit/' \
-    | sed 's|.devkit/plans/archive/||;s|/||' \
+    | sed 's|$PLANS_DIR/archive/||;s|/||' \
     | awk '!seen[$0]++' \
     | head -3)
 elif [ "$SCOPE" = "full" ]; then
@@ -63,14 +90,14 @@ echo "Total features: $FEATURE_COUNT"
 ```
 
 **Fail fast if no artifacts:**
-- If `$FEATURE_COUNT` is 0: stop with "No archived features found in .devkit/plans/archive/. Run /ship on at least one feature first."
+- If `$FEATURE_COUNT` is 0: stop with "No archived features found in $PLANS_DIR/archive/. Run /ship on at least one feature first."
 
 **Collect artifact paths (glob-based discovery):**
 
 For each feature in `$FEATURES`, use glob to discover artifacts:
-- `.devkit/plans/archive/<feature>/*.code-review.md` (all code review files in the directory)
-- `.devkit/plans/archive/<feature>/*.qa-report.md` (all QA report files in the directory)
-- `.devkit/plans/archive/<feature>/*.test-failure.log` (all test failure logs in the directory)
+- `$PLANS_DIR/archive/<feature>/*.code-review.md` (all code review files in the directory)
+- `$PLANS_DIR/archive/<feature>/*.qa-report.md` (all QA report files in the directory)
+- `$PLANS_DIR/archive/<feature>/*.test-failure.log` (all test failure logs in the directory)
 
 Log any feature directories that contain no code-review or QA artifacts: "Skipping <feature>: no review artifacts found."
 
@@ -111,7 +138,7 @@ Patterns that appear as Positives in 2+ reviews.
 ### One-off issues (appeared only once)
 List but mark as non-recurring. Include severity rating.
 
-Write to `.devkit/plans/retro-[timestamp].coder-scan.md` with this structure:
+Write to `$PLANS_DIR/retro-[timestamp].coder-scan.md` with this structure:
 
 ```markdown
 # Coder Calibration Scan — [timestamp]
@@ -166,7 +193,7 @@ Findings that the reviewer flagged but QA did not confirm, or that appear repeat
 ### Missed by reviewers, caught by QA
 Issues in QA reports that the code reviewer did not flag. Rate severity.
 
-Write to `.devkit/plans/retro-[timestamp].reviewer-scan.md` with this structure:
+Write to `$PLANS_DIR/retro-[timestamp].reviewer-scan.md` with this structure:
 
 ```markdown
 # Reviewer Calibration Scan — [timestamp]
@@ -229,7 +256,7 @@ QA findings that appear in 2+ features. Include severity rating.
 ### Test infrastructure issues
 Problems with test setup, fixtures, or environment. Include severity rating.
 
-Write to `.devkit/plans/retro-[timestamp].test-scan.md` with this structure:
+Write to `$PLANS_DIR/retro-[timestamp].test-scan.md` with this structure:
 
 ```markdown
 # Test Pattern Scan — [timestamp]
@@ -259,9 +286,9 @@ Write to `.devkit/plans/retro-[timestamp].test-scan.md` with this structure:
 Tool: `Read` (direct — coordinator does this)
 
 Read all three scan reports:
-- `.devkit/plans/retro-[timestamp].coder-scan.md`
-- `.devkit/plans/retro-[timestamp].reviewer-scan.md`
-- `.devkit/plans/retro-[timestamp].test-scan.md`
+- `$PLANS_DIR/retro-[timestamp].coder-scan.md`
+- `$PLANS_DIR/retro-[timestamp].reviewer-scan.md`
+- `$PLANS_DIR/retro-[timestamp].test-scan.md`
 
 Read existing learnings (if any):
 - `.claude/learnings.md` (may not exist)
@@ -289,7 +316,7 @@ For each recurring pattern from the scan reports:
 
 **Generate summary:**
 
-Write `.devkit/plans/retro-[timestamp].summary.md`:
+Write `$PLANS_DIR/retro-[timestamp].summary.md`:
 
 ```markdown
 # Retro Summary — [scope] — [timestamp]
@@ -324,9 +351,9 @@ Write `.devkit/plans/retro-[timestamp].summary.md`:
 - Stale learnings flagged: N
 
 ## Reports
-- Coder scan: .devkit/plans/retro-[timestamp].coder-scan.md
-- Reviewer scan: .devkit/plans/retro-[timestamp].reviewer-scan.md
-- Test scan: .devkit/plans/retro-[timestamp].test-scan.md
+- Coder scan: $PLANS_DIR/retro-[timestamp].coder-scan.md
+- Reviewer scan: $PLANS_DIR/retro-[timestamp].reviewer-scan.md
+- Test scan: $PLANS_DIR/retro-[timestamp].test-scan.md
 ```
 
 **Verdict rules:**
@@ -343,14 +370,14 @@ Tool: `Read`, `Write` or `Edit` (direct — coordinator does this)
 **If verdict is INSUFFICIENT_DATA:**
 Output: "Not enough data to identify recurring patterns. Run /ship on more features and try again, or run /retro full after building up a learnings baseline.
 
-Summary: .devkit/plans/retro-[timestamp].summary.md"
+Summary: $PLANS_DIR/retro-[timestamp].summary.md"
 
 Skip writing to `.claude/learnings.md`. Continue to archive step.
 
 **If verdict is NO_NEW_LEARNINGS:**
 Output: "No new patterns found. Existing learnings are current.
 
-Summary: .devkit/plans/retro-[timestamp].summary.md"
+Summary: $PLANS_DIR/retro-[timestamp].summary.md"
 
 Skip writing to `.claude/learnings.md`. Continue to archive step.
 
@@ -368,7 +395,7 @@ Output:
 
 [List each new/updated learning with its section]
 
-Summary: .devkit/plans/retro-[timestamp].summary.md
+Summary: $PLANS_DIR/retro-[timestamp].summary.md
 
 Agents in future /ship runs will reference these learnings."
 
@@ -377,8 +404,8 @@ Agents in future /ship runs will reference these learnings."
 Tool: `Bash`
 
 ```bash
-mkdir -p ".devkit/plans/archive/retro/[timestamp]"
-mv .devkit/plans/retro-[timestamp].* ".devkit/plans/archive/retro/[timestamp]/"
+mkdir -p "$PLANS_DIR/archive/retro/[timestamp]"
+mv $PLANS_DIR/retro-[timestamp].* "$PLANS_DIR/archive/retro/[timestamp]/"
 ```
 
-Output: "Retro scan complete. Reports archived to .devkit/plans/archive/retro/[timestamp]/"
+Output: "Retro scan complete. Reports archived to $PLANS_DIR/archive/retro/[timestamp]/"

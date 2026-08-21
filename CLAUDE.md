@@ -68,8 +68,6 @@ claude-devkit/
 │   ├── scanner-value-thresholds.json  # Confidence tiers for scanner value analysis
 │   └── base-definitions/
 │
-├── .devkit/plans/audit-logs/    # JSONL audit event logs (L1: gitignored, L2/L3: committed)
-│
 └── scripts/             # Deployment and utilities
     ├── deploy.sh        # Deploy skills to ~/.claude/skills/
     ├── install.sh       # Automated installation
@@ -84,6 +82,36 @@ claude-devkit/
     ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
     ├── scanner-value-report.sh # Scanner value analysis: cohort comparison by scanner mode
     └── test-integration.sh    # Integration smoke tests (80 tests)
+```
+
+**Centralized Artifact Storage (per-project, outside target repos):**
+
+```
+~/.claude-devkit/
+├── registry.json                    # Cross-project registry
+├── scanner-venv/                    # Tree-sitter scanner venv
+├── cache/                           # Scanner cache
+├── scripts/                         # Deployed helper scripts
+│   ├── emit-audit-event.sh
+│   ├── compute-run-score.sh
+│   ├── codebase-scanner.py
+│   ├── score-reflector.sh
+│   ├── scanner-value-report.sh
+│   ├── audit-log-query.sh
+│   └── resolve-project-dir.sh
+├── runs/                            # Detached execution output
+└── projects/
+    └── <project-id>/                # Per-project artifacts ($DEVKIT_PROJECT_DIR)
+        ├── state.json
+        └── plans/
+            ├── [feature].md                     # Plans from /architect
+            ├── [feature].redteam.md
+            ├── audit-[timestamp].summary.md
+            ├── audit-logs/                      # JSONL audit logs
+            │   ├── ship-[run_id].jsonl
+            │   ├── architect-[run_id].jsonl
+            │   └── audit-[run_id].jsonl
+            └── archive/                         # Archived artifacts
 ```
 
 ### Data Flow
@@ -115,10 +143,10 @@ Skill invocation → codebase-scanner.py (pre-scan) → structured symbol index 
 
 | Skill | Version | Purpose | Model | Steps |
 |-------|---------|---------|-------|-------|
-| **architect** | 3.4.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Stage 2 plan content scan detects security-sensitive features; invokes security-analyst (Required, not Recommended) when deployed and injects threat-model-gate requirements. Plans include `## Work Groups` in Task Breakdown for /ship parallel execution. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `.devkit/plans/audit-logs/architect-<run_id>.jsonl`. | opus-4-6 | 6 |
-| **ship** | 3.8.0 | Pre-flight check → Read plan + security requirements validation (Step 1 checks for threat model output and blocks if required gates are unmet) → Pattern validation (warnings) → Security gates (secrets-scan, secure-review with threat model context passing in Step 4d, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate (emits `run_score` before `run_end`) → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `.devkit/plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. Quantitative scoring (efficiency, security, quality, velocity) emitted as `run_score` event. | opus-4-6 | 8 |
+| **architect** | 3.4.0 | Context discovery → Architect (with project context) → Red Team + Librarian + Feasibility (parallel) → Revision loop → Approval gate. Supports `--fast`. Stage 2 plan content scan detects security-sensitive features; invokes security-analyst (Required, not Recommended) when deployed and injects threat-model-gate requirements. Plans include `## Work Groups` in Task Breakdown for /ship parallel execution. Context alignment and metadata in output. Auto-commits artifacts on verdict. JSONL audit logging to `$DEVKIT_PROJECT_DIR/plans/audit-logs/architect-<run_id>.jsonl`. | opus-4-6 | 6 |
+| **ship** | 3.8.0 | Pre-flight check → Read plan + security requirements validation (Step 1 checks for threat model output and blocks if required gates are unmet) → Pattern validation (warnings) → Security gates (secrets-scan, secure-review with threat model context passing in Step 4d, dependency-audit) with maturity levels (L1/L2/L3) → Worktree isolation → Parallel coders → File boundary validation → Merge → Code review + tests + QA (parallel) → Revision loop → Commit gate (emits `run_score` before `run_end`) → Retro capture. Supports `--security-override`. Structural conflict prevention. Learnings consumption. JSONL audit logging to `$DEVKIT_PROJECT_DIR/plans/audit-logs/ship-<run_id>.jsonl` with maturity-aware retention. Quantitative scoring (efficiency, security, quality, velocity) emitted as `run_score` event. | opus-4-6 | 8 |
 | **retro** | 1.0.0 | Mine review artifacts for recurring patterns and write project learnings. Scope modes: recent/full/feature-name. Glob-based discovery, format-resilient prompts, severity-rated findings, semantic deduplication. | opus-4-6 | 6 |
-| **audit** | 3.3.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan + Anti-pattern scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. JSONL audit logging to `.devkit/plans/audit-logs/audit-<run_id>.jsonl`. | opus-4-6 | 7 |
+| **audit** | 3.3.0 | Scope detection (plan/code/full) → Security scan (composable: invokes /secure-review when deployed, otherwise built-in scan) + Performance scan + Anti-pattern scan → QA regression → Synthesis with PASS/PASS_WITH_NOTES/BLOCKED verdict → Structured reporting with timestamped artifacts. JSONL audit logging to `$DEVKIT_PROJECT_DIR/plans/audit-logs/audit-<run_id>.jsonl`. | opus-4-6 | 7 |
 | **sync** | 3.0.0 | Detect changes (recent/full) → Detect undocumented env vars → Librarian review with CURRENT/UPDATES_NEEDED verdict → Apply updates → User verification with git diff → Archive review. | claude-sonnet-4-6 | 6 |
 | **receiving-code-review** | 1.0.0 | Code review reception discipline: 6-step response pattern (READ through IMPLEMENT), anti-performative-agreement, YAGNI enforcement, source-specific handling, pushback guidelines. Reference archetype. | claude-sonnet-4-6 | Reference |
 | **verification-before-completion** | 1.0.0 | Evidence-before-claims gate: 5-step verification (IDENTIFY, RUN, READ, VERIFY, CLAIM). Requires fresh test/build output before any completion claim. Red flags, rationalization table, key patterns for TDD and bug fixes. Reference archetype. | claude-sonnet-4-6 | Reference |
@@ -190,7 +218,7 @@ The `/ship` skill runs four security gates when the corresponding skills are dep
 **Override Syntax:**
 
 ```bash
-/ship .devkit/plans/feature.md --security-override "False positive: hardcoded test API key in fixture file"
+/ship $DEVKIT_PROJECT_DIR/plans/feature.md --security-override "False positive: hardcoded test API key in fixture file"
 ```
 
 **Notes:**
@@ -201,7 +229,7 @@ The `/ship` skill runs four security gates when the corresponding skills are dep
 
 ## Audit Logging
 
-`/ship`, `/architect`, and `/audit` emit structured JSONL audit events to `.devkit/plans/audit-logs/` on every run, providing a machine-parseable record of what agents did and when.
+`/ship`, `/architect`, and `/audit` emit structured JSONL audit events to `$DEVKIT_PROJECT_DIR/plans/audit-logs/` on every run, providing a machine-parseable record of what agents did and when.
 
 **Event Types:**
 
@@ -219,17 +247,17 @@ The `/ship` skill runs four security gates when the corresponding skills are dep
 
 **Log File Locations:**
 
-- `/ship` logs: `.devkit/plans/audit-logs/ship-<run_id>.jsonl`
-- `/architect` logs: `.devkit/plans/audit-logs/architect-<run_id>.jsonl`
-- `/audit` logs: `.devkit/plans/audit-logs/audit-<run_id>.jsonl`
+- `/ship` logs: `$DEVKIT_PROJECT_DIR/plans/audit-logs/ship-<run_id>.jsonl`
+- `/architect` logs: `$DEVKIT_PROJECT_DIR/plans/audit-logs/architect-<run_id>.jsonl`
+- `/audit` logs: `$DEVKIT_PROJECT_DIR/plans/audit-logs/audit-<run_id>.jsonl`
 
 **Maturity-Aware Retention:**
 
 | Level | Log Retention | HMAC Integrity |
 |-------|--------------|----------------|
-| **L1** (advisory) | Gitignored — ephemeral, available during run for debugging | None |
-| **L2** (enforced) | Committed to git via `git add --force` in Step 6 | None |
-| **L3** (audited) | Committed to git; HMAC chain with key persisted to `.ship-audit-key-<run_id>` | HMAC-SHA256 chain (post-run verifiable) |
+| **L1** (advisory) | Centralized only (`~/.claude-devkit/projects/<id>/`) — ephemeral, not in project | None |
+| **L2** (enforced) | Centralized + copied to project `.devkit-audit-logs/` and committed via `git add --force` | None |
+| **L3** (audited) | Centralized + copied to project + committed; HMAC chain with key persisted to `.ship-audit-key-<run_id>` | HMAC-SHA256 chain (post-run verifiable) |
 
 **Query Utility:**
 
@@ -259,9 +287,9 @@ Requirements: `jq` (required for all commands), `openssl` (required for `verify-
 
 - `scripts/emit-audit-event.sh` — Standalone helper script invoked by each skill step. Reads state from a per-run state file (shell variables don't persist across Bash tool calls). Uses `python3 json.dumps()` for RFC 8259 compliant escaping. Exits 0 on all error paths (never blocks `/ship`).
 - `scripts/compute-run-score.sh` — Reads a run's JSONL audit log, computes per-dimension scores (efficiency, security, quality, velocity), outputs partial event JSON for `emit-audit-event.sh`. Now includes `scanner_mode` and `scanner_tokens` fields in the output JSON (consumed by `scanner-value-report.sh`). Exits 0 on all paths; handles empty, incomplete, and malformed logs gracefully (neutral 0.5 scores). No jq dependency.
-- `scripts/score-reflector.sh` — Deterministic score reflector. Reads all `run_score` events from `.devkit/plans/audit-logs/`, computes statistics and trends, correlates run scores with scanner mode cohorts, outputs candidate learnings entries to stdout for human review. Tiered analysis: 5-9 runs = summary stats, 10+ runs = trends. No jq dependency.
+- `scripts/score-reflector.sh` — Deterministic score reflector. Reads all `run_score` events from `$DEVKIT_PROJECT_DIR/plans/audit-logs/`, computes statistics and trends, correlates run scores with scanner mode cohorts, outputs candidate learnings entries to stdout for human review. Tiered analysis: 5-9 runs = summary stats, 10+ runs = trends. No jq dependency.
 - `configs/audit-event-schema.json` — JSON Schema defining all event types with OTel field mapping documentation.
-- `.devkit/plans/audit-logs/` — Dedicated directory for audit logs (separate lifecycle from `.devkit/plans/archive/`).
+- `$DEVKIT_PROJECT_DIR/plans/audit-logs/` — Dedicated directory for audit logs (separate lifecycle from `$DEVKIT_PROJECT_DIR/plans/archive/`).
 
 **OTel Migration:** The JSONL format is designed for future migration to OpenTelemetry spans via a format adapter. The adapter requires span hierarchy reconstruction (not a trivial field rename) and will be built when Kagenti provides an OTel collector endpoint.
 
@@ -325,7 +353,7 @@ Thresholds and confidence tiers are configured in `configs/scanner-value-thresho
 | 5-9 | Summary statistics only: per-dimension mean, min, max. No trend claims. |
 | 10+ | Full analysis: summary statistics + linear regression trends (slope > 0.05/run threshold). |
 
-**L1 ephemeral log limitation:** At L1 (advisory), JSONL audit logs are gitignored and ephemeral. The `trend` command and `score-reflector.sh` can only analyze runs that still have log files on disk. For meaningful cross-session trend analysis, use L2 or L3 maturity (logs are committed to git). The tools display a notice when operating against gitignored logs.
+**L1 ephemeral log limitation:** At L1 (advisory), JSONL audit logs exist only in the centralized directory (`~/.claude-devkit/projects/<id>/plans/audit-logs/`) and are not copied to the project. The `trend` command and `score-reflector.sh` can only analyze runs that still have log files on disk. For meaningful cross-session trend analysis, use L2 or L3 maturity (logs are copied to the project's `.devkit-audit-logs/` and committed to git). The tools display a notice when operating against ephemeral logs.
 
 **Dimension definitions:** `configs/score-dimensions.json` — plain JSON data file documenting dimension weights, scoring logic, and design notes. Consumed by humans and future tooling (v1 dimensions are hardcoded in `compute-run-score.sh`).
 
@@ -445,7 +473,7 @@ gen-agent . --type all  # Generate all agents (auto-detects stack)
 ```bash
 # In any Claude Code session
 /architect add user authentication
-/ship .devkit/plans/add-user-authentication.md
+/ship $DEVKIT_PROJECT_DIR/plans/add-user-authentication.md
 /audit
 /sync
 ```
@@ -484,7 +512,7 @@ devkit status
 # forwarded verbatim, bypassing the flag-injection guard on skill args)
 devkit architect ~/projects/my-app "add feature" -- --fast
 devkit architect ~/projects/my-app "add feature" --detach -- --fast
-devkit ship ~/projects/my-app .devkit/plans/feature.md -- --security-override "reason"
+devkit ship ~/projects/my-app $DEVKIT_PROJECT_DIR/plans/feature.md -- --security-override "reason"
 ```
 
 ## Complete Workflows
@@ -496,10 +524,10 @@ devkit ship ~/projects/my-app .devkit/plans/feature.md -- --security-override "r
 /architect add shopping cart functionality
 
 # 2. Optional: Audit the plan before implementation
-/audit plan .devkit/plans/add-shopping-cart.md
+/audit plan $DEVKIT_PROJECT_DIR/plans/add-shopping-cart.md
 
 # 3. Implement the plan
-/ship .devkit/plans/add-shopping-cart.md
+/ship $DEVKIT_PROJECT_DIR/plans/add-shopping-cart.md
 
 # 4. Update documentation
 /sync
@@ -509,12 +537,12 @@ devkit ship ~/projects/my-app .devkit/plans/feature.md -- --security-override "r
 ```
 
 **Artifacts Created:**
-- `.devkit/plans/add-shopping-cart.md` — Approved implementation plan
-- `.devkit/plans/add-shopping-cart.redteam.md` — Red team review
-- `.devkit/plans/add-shopping-cart.feasibility.md` — Feasibility review
-- `.devkit/plans/add-shopping-cart.review.md` — Librarian review
-- `.devkit/plans/archive/add-shopping-cart/` — Code review and QA reports
-- `.devkit/plans/audit-[timestamp].summary.md` — Final audit results
+- `$DEVKIT_PROJECT_DIR/plans/add-shopping-cart.md` — Approved implementation plan
+- `$DEVKIT_PROJECT_DIR/plans/add-shopping-cart.redteam.md` — Red team review
+- `$DEVKIT_PROJECT_DIR/plans/add-shopping-cart.feasibility.md` — Feasibility review
+- `$DEVKIT_PROJECT_DIR/plans/add-shopping-cart.review.md` — Librarian review
+- `$DEVKIT_PROJECT_DIR/plans/archive/add-shopping-cart/` — Code review and QA reports
+- `$DEVKIT_PROJECT_DIR/plans/audit-[timestamp].summary.md` — Final audit results
 - `CLAUDE.md` — Updated with new patterns
 
 **Security Gates:**
@@ -533,7 +561,7 @@ At L1 (advisory), BLOCKED verdicts show warnings but don't stop the workflow. At
 /audit full
 
 # 2. Review findings
-cat .devkit/plans/audit-[timestamp].summary.md
+cat $DEVKIT_PROJECT_DIR/plans/audit-[timestamp].summary.md
 
 # 3. Address critical issues
 # ... make fixes ...
@@ -546,11 +574,11 @@ cat .devkit/plans/audit-[timestamp].summary.md
 ```
 
 **Artifacts Created:**
-- `.devkit/plans/audit-[timestamp].summary.md` — Audit summary with verdict
-- `.devkit/plans/audit-[timestamp].security.md` — Security findings
-- `.devkit/plans/audit-[timestamp].performance.md` — Performance findings
-- `.devkit/plans/audit-[timestamp].qa.md` — QA regression results
-- `.devkit/plans/archive/audit/audit-[timestamp]/` — Archived reports
+- `$DEVKIT_PROJECT_DIR/plans/audit-[timestamp].summary.md` — Audit summary with verdict
+- `$DEVKIT_PROJECT_DIR/plans/audit-[timestamp].security.md` — Security findings
+- `$DEVKIT_PROJECT_DIR/plans/audit-[timestamp].performance.md` — Performance findings
+- `$DEVKIT_PROJECT_DIR/plans/audit-[timestamp].qa.md` — QA regression results
+- `$DEVKIT_PROJECT_DIR/plans/archive/audit/audit-[timestamp]/` — Archived reports
 
 ### Workflow 3: Documentation Sync (Weekly Maintenance)
 
@@ -570,10 +598,10 @@ git commit -m "Update CLAUDE.md with recent patterns"
 ```
 
 **Artifacts Created:**
-- `.devkit/plans/sync-[timestamp].review.md` — Librarian review
+- `$DEVKIT_PROJECT_DIR/plans/sync-[timestamp].review.md` — Librarian review
 - `CLAUDE.md` — Updated with current patterns
 - `README.md` — Updated usage docs (if needed)
-- `.devkit/plans/archive/sync/sync-[timestamp].review.md` — Archived review
+- `$DEVKIT_PROJECT_DIR/plans/archive/sync/sync-[timestamp].review.md` — Archived review
 
 ### Workflow 4: Creating New Skills
 
@@ -637,11 +665,11 @@ All skills follow these 10 patterns:
 | **3. Tool declarations** | Each step specifies tools | `Tool:` line in every step |
 | **4. Verdict gates** | Control flow with PASS/FAIL/BLOCKED | Verdict logic in steps |
 | **5. Timestamped artifacts** | All outputs include ISO timestamps | `[timestamp]` references |
-| **6. Structured reporting** | Consistent markdown format | Outputs to `.devkit/plans/` |
+| **6. Structured reporting** | Consistent markdown format | Outputs to `$DEVKIT_PROJECT_DIR/plans/` |
 | **7. Bounded iterations** | Max revision loops prevent cycles | `Max N revision` language |
 | **8. Model selection** | Right model for each task | Valid `model:` in frontmatter |
 | **9. Scope parameters** | Flexible invocation | `## Inputs` with `$ARGUMENTS` |
-| **10. Archive on success** | Move artifacts after completion | References `.devkit/plans/archive/` |
+| **10. Archive on success** | Move artifacts after completion | References `$DEVKIT_PROJECT_DIR/plans/archive/` |
 | **11. Worktree isolation** | Structural conflict prevention for parallel work | Git worktrees per work unit with validation |
 
 ### Archetype Patterns
@@ -857,7 +885,7 @@ Do not attempt `/threat-model` -- knowledge-base skills have no workflow steps t
 ## Artifact Locations
 
 ```
-.devkit/plans/
+$DEVKIT_PROJECT_DIR/plans/              # ~/.claude-devkit/projects/<project-id>/plans/
 ├── [feature].md                           # Plans from /architect
 ├── [feature].redteam.md                   # Red team reviews
 ├── [feature].feasibility.md               # Feasibility reviews
@@ -873,7 +901,7 @@ Do not attempt `/threat-model` -- knowledge-base skills have no workflow steps t
 ├── retro-[timestamp].test-scan.md         # Test pattern scan (from /retro)
 ├── retro-[timestamp].summary.md           # Retro summary with verdict
 ├── audit-logs/                            # JSONL audit event logs (queryable across runs)
-│   ├── ship-[run_id].jsonl                # /ship run audit log (L1: gitignored, L2/L3: committed)
+│   ├── ship-[run_id].jsonl                # /ship run audit log (L2/L3: copied to project for git)
 │   ├── architect-[run_id].jsonl           # /architect run audit log
 │   └── audit-[run_id].jsonl              # /audit run audit log
 └── archive/
@@ -893,7 +921,7 @@ Do not attempt `/threat-model` -- knowledge-base skills have no workflow steps t
         └── fix-[finding-id]-[timestamp]-reverify.security-review.md # Fallback security review (from /fix, no /secure-review deployed)
 ```
 
-`.claude/learnings.md` — Project-level learnings (lives outside `.devkit/plans/`, created by `/retro` and `/ship` Step 7)
+`.claude/learnings.md` — Project-level learnings (lives in the project directory, created by `/retro` and `/ship` Step 7)
 
 ## Development Rules
 
@@ -1031,7 +1059,7 @@ Shared configurations and pattern definitions.
 - `skill-patterns.json` — Validation patterns
 - `scanner-languages.json` — Language grammar configuration for codebase scanner (extensions, tree-sitter queries, package versions for Python, TypeScript, Java, Go)
 - `scanner-value-thresholds.json` — Confidence tier configuration for scanner value analysis (INSUFFICIENT/PRELIMINARY/RELIABLE/HIGH_CONFIDENCE thresholds)
-- `devkit-defaults.json` — Default configuration for the meta-harness CLI (registry path, `.devkit/` state dir name, `allowed_roots`, `claude` command/flag, size limits, `clean_retention_days` for detached run cleanup). Loaded by `scripts/devkit_cli.py` at startup; hardcoded fallback defaults are used if missing or corrupt.
+- `devkit-defaults.json` — Default configuration for the meta-harness CLI (registry path, `allowed_roots`, `claude` command/flag, size limits, `clean_retention_days` for detached run cleanup, `scripts_dir_name`). Loaded by `scripts/devkit_cli.py` at startup; hardcoded fallback defaults are used if missing or corrupt.
 - `tech-stack-definitions/` — Stack-specific configs (7 stacks: python, fastapi, typescript, react, nextjs, astro, security)
 - `base-definitions/` — Reserved for future use (currently empty)
 
@@ -1045,7 +1073,7 @@ Deployment and utility scripts.
 - `uninstall.sh` — Clean uninstallation with backup restoration
 - `validate-all.sh` — Health check - validate all skills in one pass
 - `codebase-scanner.py` — Deterministic codebase symbol index for agent context. Extracts functions, classes, methods, and import graph. Uses tree-sitter (>=0.25.0) when available in `~/.claude-devkit/scanner-venv/`, falls back to regex. Invoked by `/architect` Step 1 and `/ship` Step 1. Tree-sitter venv created by `install.sh`.
-- `devkit_cli.py` — Meta-harness CLI implementation (Python 3.8+, stdlib only). Validates target repositories and skill names, manages per-project state (`.devkit/state.json`) and the global registry (`~/.claude-devkit/registry.json`), and delegates skill execution to Claude Code via `subprocess.run(["claude", "--print", ...])` (or `os.execvp` for `devkit shell`). Supports detached/background execution (`--detach`) with run output capture to `~/.claude-devkit/runs/`. Reads defaults from `configs/devkit-defaults.json` with hardcoded fallback.
+- `devkit_cli.py` — Meta-harness CLI implementation (Python 3.8+, stdlib only). Validates target repositories and skill names, manages per-project state (`~/.claude-devkit/projects/<project-id>/state.json`) and the global registry (`~/.claude-devkit/registry.json`), and delegates skill execution to Claude Code via `subprocess.run(["claude", "--print", ...])` (or `os.execvp` for `devkit shell`). Sets `DEVKIT_PROJECT_DIR` and `DEVKIT_SCRIPTS` env vars before invocation. Supports detached/background execution (`--detach`) with run output capture to `~/.claude-devkit/runs/`. Reads defaults from `configs/devkit-defaults.json` with hardcoded fallback.
 - `devkit` — Thin bash entry point wrapper that execs `devkit_cli.py` with `python3`. Installed as a shell alias and added to PATH by `install.sh`.
 - `emit-audit-event.sh` — Standalone helper script for skill audit event emission (invoked by `/ship`, `/architect`, `/audit`)
 - `audit-log-query.sh` — Query utility for JSONL audit logs (summary, timeline, security, verdicts, files, overrides, verify-chain, recent, scores, trend)
@@ -1166,9 +1194,11 @@ devkit CLI  (scripts/devkit_cli.py)
   |
   +-- validate target path (git repo? no symlinks? under allowed_roots?)
   +-- validate skill name and args (reject flag-injection-shaped input)
-  +-- read/create .devkit/state.json in target project
+  +-- compute project ID from resolved path (SHA-256 based)
+  +-- read/create ~/.claude-devkit/projects/<project-id>/state.json
   +-- update ~/.claude-devkit/registry.json
   +-- check skill deployment (~/.claude/skills/<skill>/SKILL.md exists?)
+  +-- set DEVKIT_PROJECT_DIR and DEVKIT_SCRIPTS env vars
   +-- set CLAUDE_DEVKIT env var
   |
   v
@@ -1178,7 +1208,7 @@ subprocess.run(["claude", "--print", "/<skill> <args>"], cwd=<resolved target>)
 **Key model:**
 - Skills remain plain `SKILL.md` files executed by Claude Code -- the harness never
   duplicates skill logic.
-- Per-project state (`.devkit/state.json`, gitignored by default) tracks the last
+- Per-project state (`~/.claude-devkit/projects/<project-id>/state.json`) tracks the last
   invocation. It is informational only; no skill reads it.
 - The global registry (`~/.claude-devkit/registry.json`) provides cross-project
   visibility (`devkit status`) but is never authoritative -- every access
@@ -1193,7 +1223,8 @@ subprocess.run(["claude", "--print", "/<skill> <args>"], cwd=<resolved target>)
 **Commands:** `devkit init <target>`, `devkit <skill> <target> [args]`,
 `devkit shell <target>`, `devkit status [<target>]`, `devkit deploy [--validate]`,
 `devkit jobs [<target>]`, `devkit result <run-id>`, `devkit logs <run-id>`,
-`devkit clean [--days N]`.
+`devkit clean [--days N]`, `devkit migrate <target>`, `devkit relink <old> <new>`,
+`devkit path <target> [subpath]`.
 
 **Detached execution (`--detach`):** Adding `--detach` to any skill invocation
 spawns Claude Code in the background and returns a run ID immediately. A watcher
@@ -1222,6 +1253,36 @@ Run directories are stored at `~/.claude-devkit/runs/<run-id>/` with `meta.json`
 Directory permissions are 0o700; files are 0o600. Stale runs (watcher died before
 finalizing) are detected via PID liveness checks.
 
+**Environment variables set by the CLI:**
+
+| Variable | Set By | Used By | Value |
+|----------|--------|---------|-------|
+| `DEVKIT_PROJECT_DIR` | `devkit_cli.py` (cmd_run_skill, cmd_shell, _spawn_detached) | All skills | `~/.claude-devkit/projects/<project-id>` |
+| `DEVKIT_SCRIPTS` | `devkit_cli.py` (cmd_run_skill, cmd_shell, _spawn_detached) | All skills | `~/.claude-devkit/scripts` |
+| `CLAUDE_DEVKIT` | `install.sh` (shell config) | Generators, development fallback | Path to devkit source repo |
+
+Skills use `$DEVKIT_PROJECT_DIR/plans/` for artifact storage. When invoked without the CLI
+(directly in Claude Code), skills compute the project directory from CWD using a three-tier
+resolution: (1) `$DEVKIT_PROJECT_DIR` env var, (2) computed from CWD when `$CLAUDE_DEVKIT` or
+`~/.claude-devkit/` exists, (3) deprecated legacy `.devkit/plans/` fallback with warning.
+
+**New commands for centralized artifact management:**
+
+```bash
+# Migrate existing .devkit/ artifacts to centralized location
+devkit migrate ~/projects/my-app
+
+# Recover artifacts after project directory rename/move
+devkit relink ~/old/path/my-app ~/new/path/my-app
+
+# Print the centralized artifact directory path for a project
+devkit path ~/projects/my-app
+devkit path ~/projects/my-app plans/feature.md
+```
+
+`devkit init` creates the project directory at `~/.claude-devkit/projects/<project-id>/` and does
+NOT create any `.devkit/` directory in the target project. Zero runtime footprint in target projects.
+
 **Passing flags through (`--` separator):** `validate_args()` rejects any skill
 argument starting with `--` as a flag-injection guard, so skill flags like `--fast`
 or `--security-override "reason"` cannot be passed directly. Use `--` to mark the
@@ -1230,7 +1291,7 @@ skill (see `split_skill_args()` in `devkit_cli.py`):
 
 ```bash
 devkit architect ~/projects/my-app "add feature" -- --fast
-devkit ship ~/projects/my-app .devkit/plans/feature.md -- --security-override "reason"
+devkit ship ~/projects/my-app $DEVKIT_PROJECT_DIR/plans/feature.md -- --security-override "reason"
 ```
 
 **Known limitation:** `devkit shell` replaces the harness process via `os.execvp()`,
@@ -1485,8 +1546,9 @@ venv/
 tmp/
 temp/
 
-# Audit logs (L1 ephemeral — gitignored at advisory maturity)
-.devkit/plans/audit-logs/*.jsonl
+# L2/L3 compliance artifacts (staged into project for git tracking at L1: gitignore)
+.devkit-audit-logs/
+.devkit-plans/
 
 # Audit run state files (ephemeral — deleted at run end)
 .ship-audit-state-*
