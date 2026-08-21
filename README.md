@@ -648,7 +648,7 @@ cd ~/projects/claude-devkit
 bash scripts/test-integration.sh
 ```
 
-**Integration Test Coverage (60 tests):**
+**Integration Test Coverage (118 tests):**
 - Coordinator lifecycle (generate → validate → deploy → undeploy)
 - `validate-all.sh` health check
 - Pipeline lifecycle
@@ -660,10 +660,12 @@ bash scripts/test-integration.sh
 - Threat model consumption structural tests across /ship, /architect, /secure-review (10 tests)
 - Codebase-scanner integration tests (8 tests)
 - Fix skill structural tests (2 tests)
-- Scanner value instrumentation tests (5 tests: `compute-run-score.sh scanner_mode extraction`, `scanner_mode absent default`, `scanner-value-report.sh empty dir`, `scanner-value-report.sh cohort table`, `scanner_invocation schema registration`)
+- Scanner value instrumentation tests (5 tests)
 - Quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases)
-- Meta-harness CLI tests (13 tests: 8 functional, 5 security — symlink rejection, `allowed_roots`
-  enforcement, oversized state file, invalid skill name, `--`-prefixed argument injection)
+- Anti-pattern scan structural tests (6 tests)
+- Meta-harness CLI tests (13 tests: 8 functional, 5 security)
+- Detached execution tests (20 tests: run ID, flag extraction, watcher lifecycle, jobs/result/logs, cleanup, permissions, path traversal)
+- Zero-project-footprint tests (38 tests: project ID, central storage, env vars, migration, helper scripts, security, relink/path, backward compatibility)
 
 ## Structure
 
@@ -714,7 +716,9 @@ claude-devkit/
 │   ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log (includes scanner_mode and scanner_tokens fields)
 │   ├── score-reflector.sh     # Deterministic score reflector (candidate learnings, scanner-aware cohort analysis)
 │   ├── scanner-value-report.sh  # Scanner value cohort analysis report
-│   └── test-integration.sh    # Integration smoke tests (60 tests)
+│   ├── ship-queue.sh          # Sequential /ship runner for unattended batch execution
+│   ├── resolve-project-dir.sh # Project artifact directory resolution helper
+│   └── test-integration.sh    # Integration smoke tests (118 tests)
 │
 ├── .claude/                   # Project-specific agents
 │   └── agents/

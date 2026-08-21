@@ -81,7 +81,9 @@ claude-devkit/
     ├── compute-run-score.sh   # Compute per-dimension scores from a JSONL audit log
     ├── score-reflector.sh     # Deterministic score reflector (candidate learnings)
     ├── scanner-value-report.sh # Scanner value analysis: cohort comparison by scanner mode
-    └── test-integration.sh    # Integration smoke tests (80 tests)
+    ├── ship-queue.sh          # Sequential /ship runner for unattended batch execution
+    ├── resolve-project-dir.sh # Reusable shell function for project artifact directory resolution
+    └── test-integration.sh    # Integration smoke tests (118 tests)
 ```
 
 **Centralized Artifact Storage (per-project, outside target repos):**
@@ -1080,7 +1082,9 @@ Deployment and utility scripts.
 - `compute-run-score.sh` — Compute per-dimension quantitative scores from a JSONL audit log (python3, no jq)
 - `score-reflector.sh` — Deterministic score reflector for candidate learnings generation (python3, no jq)
 - `scanner-value-report.sh` — Scanner value analysis: cohort comparison of /ship run scores by scanner mode (tree-sitter-partial vs regex-fallback vs absent). No jq dependency.
-- `test-integration.sh` — Integration smoke tests (80 tests): emit-audit-event.sh JSONL correctness,
+- `ship-queue.sh` — Sequential `/ship` runner for unattended batch execution via `devkit ship`. Clean-tree gates between runs prevent cascading failures.
+- `resolve-project-dir.sh` — Reusable shell function for three-tier project artifact directory resolution (`DEVKIT_PROJECT_DIR` env var > computed from CWD > deprecated `.devkit/` fallback)
+- `test-integration.sh` — Integration smoke tests (118 tests): emit-audit-event.sh JSONL correctness,
   L3 HMAC chain verification, 10+ call state persistence, end-to-end generate/validate/deploy
   lifecycle, threat model consumption structural tests across /ship, /architect, /secure-review,
   quantitative scoring tests (8 tests: 4 positive, 4 negative/edge cases),
@@ -1089,9 +1093,12 @@ Deployment and utility scripts.
   anti-pattern scan structural tests (6 tests),
   meta-harness tests (13 tests: 8 functional, 5 security -- symlink rejection, allowed_roots
   enforcement, oversized state file, invalid skill name, `--`-prefixed argument injection),
-  and detached execution tests (20 tests: run ID generation/validation, `--detach` flag
+  detached execution tests (20 tests: run ID generation/validation, `--detach` flag
   extraction, watcher lifecycle with mock processes, jobs/result/logs commands, cleanup
-  with stale PID detection, directory permissions, path traversal rejection, no shell=True)
+  with stale PID detection, directory permissions, path traversal rejection, no shell=True),
+  and zero-project-footprint tests (38 tests: project ID determinism/uniqueness/case-normalization/
+  sanitization, central storage, env var propagation, migration with rollback, helper script
+  deployment with checksums, security permissions, relink/path commands, backward compatibility)
 
 **Usage:**
 ```bash
