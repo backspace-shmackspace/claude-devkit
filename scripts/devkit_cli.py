@@ -49,6 +49,7 @@ VERSION = "0.3.0"
 
 STATE_SCHEMA_VERSION = "1.1.0"
 REGISTRY_SCHEMA_VERSION = "1.0.0"
+PLAN_REF_SCHEMA_VERSION = "1.0.0"
 
 # Hardcoded defaults matching configs/devkit-defaults.json schema.
 # Used when the config file is missing or corrupt so a deleted/damaged
@@ -64,12 +65,17 @@ FALLBACK_DEFAULTS = {
     "max_state_file_bytes": 65536,
     "max_registry_file_bytes": 1048576,
     "clean_retention_days": 7,
+    "max_cross_repo_targets": 10,
 }
 
 # Skill names must be lowercase, start with a letter, and contain only
 # letters/digits/hyphens. This blocks path traversal (`../../etc/passwd`),
 # leading-dash flag confusion, and non-filesystem-safe characters.
 SKILL_NAME_RE = re.compile(r'^[a-z][a-z0-9-]*$')
+
+# Project IDs are <basename>-<12-hex-chars> computed from SHA-256 of resolved paths.
+# Used by resolve_devkit_uri() and validate_plan_targets() for format validation.
+PROJECT_ID_RE = re.compile(r'^[a-zA-Z0-9._-]+-[0-9a-f]{12}$')
 
 KNOWN_COMMANDS = (
     "init", "shell", "status", "deploy", "jobs", "result", "logs", "clean",
