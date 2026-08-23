@@ -642,7 +642,7 @@ def main():
                     raise ValueError
             except ValueError:
                 print(
-                    f"Error: --min-projects must be a positive integer",
+                    "Error: --min-projects must be a positive integer",
                     file=sys.stderr
                 )
                 sys.exit(2)

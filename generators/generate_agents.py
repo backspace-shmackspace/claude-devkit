@@ -398,11 +398,11 @@ def generate_agents(
     target_dir = target_dir.resolve()
     agent_dir = target_dir / '.claude' / 'agents'
 
-    print(f"🤖 Specialist Agent Generator")
-    print(f"")
+    print("🤖 Specialist Agent Generator")
+    print("")
     print(f"Target directory: {target_dir}")
     print(f"Agent directory: {agent_dir}")
-    print(f"")
+    print("")
 
     # Auto-detect tech stack
     print("🔍 Auto-detecting tech stack...")
@@ -416,12 +416,12 @@ def generate_agents(
         print(f"  Security Tools: {', '.join(tech_stack['security_tools'])}")
     if tech_stack["test_framework"]:
         print(f"  Test Framework: {tech_stack['test_framework']}")
-    print(f"")
+    print("")
 
     # Show suggestions
     if tech_stack["suggested_agents"] and not tech_stack_override:
         print(f"💡 Suggested agents: {', '.join(tech_stack['suggested_agents'])}")
-        print(f"")
+        print("")
 
     # Create agent directory
     agent_dir.mkdir(parents=True, exist_ok=True)
@@ -465,21 +465,21 @@ def generate_agents(
         generated.append(filename)
         print(f"✅ Generated: {filename}")
 
-    print(f"")
-    print(f"Summary:")
+    print("")
+    print("Summary:")
     print(f"  Generated: {len(generated)} agent(s)")
     if skipped:
         print(f"  Skipped: {len(skipped)} agent(s)")
-    print(f"")
+    print("")
 
     if generated:
-        print(f"Next steps:")
+        print("Next steps:")
         print(f"1. Review and customize generated agents in {agent_dir}")
-        print(f"2. Update CLAUDE.md with agent routing instructions")
+        print("2. Update CLAUDE.md with agent routing instructions")
         print(f"3. Validate agents: validate-agent {agent_dir}/*.md")
-        print(f"4. Restart Claude Code to register agents")
-        print(f"")
-        print(f"Done! 🎉")
+        print("4. Restart Claude Code to register agents")
+        print("")
+        print("Done! 🎉")
 
     return 1 if (write_failures > 0 or unknown_types > 0) else 0
 

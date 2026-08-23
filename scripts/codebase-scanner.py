@@ -30,7 +30,6 @@ import signal
 import sys
 import tempfile
 import time
-from pathlib import Path
 from typing import Any, Optional
 
 __version__ = "1.0.0"
@@ -436,10 +435,6 @@ class RegexFallbackParser:
         symbols: list[SymbolEntry] = []
         imports: list[ImportEntry] = []
         lines = content.splitlines()
-
-        # Track current class for method assignment
-        current_class: Optional[str] = None
-        current_class_indent = -1
 
         class_line_map: dict[str, int] = {}
         for m in self._PY_CLASS.finditer(content):
@@ -1459,7 +1454,6 @@ class Scanner:
 def run_self_test() -> bool:
     """Run internal validation tests. Returns True if all pass."""
     import tempfile
-    import shutil
 
     failures: list[str] = []
 
@@ -1735,7 +1729,7 @@ func (s *Server) Start() error {
             print(f)
         return False
     else:
-        print(f"SELF-TEST PASSED (all checks)")
+        print("SELF-TEST PASSED (all checks)")
         return True
 
 
@@ -1836,10 +1830,10 @@ def main() -> int:
     if args.languages:
         languages = [lang.strip().lower() for lang in args.languages.split(",") if lang.strip()]
         valid_langs = set(LANGUAGE_EXTENSIONS.values())
-        invalid = [l for l in languages if l not in valid_langs]
+        invalid = [name for name in languages if name not in valid_langs]
         if invalid:
             print(f"WARNING: Unknown languages ignored: {', '.join(invalid)}", file=sys.stderr)
-            languages = [l for l in languages if l in valid_langs]
+            languages = [name for name in languages if name in valid_langs]
 
     # Validate max-tokens
     if args.max_tokens < 100:

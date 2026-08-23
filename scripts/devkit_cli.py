@@ -391,7 +391,6 @@ def parse_plan_frontmatter(content):
             continue
         for marker in ("|", ">"):
             if stripped.endswith(marker) and ":" in stripped:
-                before_colon = stripped.split(":")[0]
                 after_colon = stripped.split(":", 1)[1].strip()
                 if after_colon == marker:
                     return {}, f"unsupported YAML feature (block scalar): {stripped}"
@@ -601,7 +600,7 @@ def resolve_devkit_uri(uri, config=None):
     try:
         resolved.resolve().relative_to(base_dir.resolve())
     except ValueError:
-        return "", f"path traversal rejected: resolved path escapes project directory"
+        return "", "path traversal rejected: resolved path escapes project directory"
 
     return str(resolved), ""
 
@@ -1553,7 +1552,7 @@ def cmd_run_skill(skill, target_str, validated_args, passthrough_args, config,
         run_id = _generate_run_id()
         _spawn_detached(skill, resolved, args_str, config, run_id)
         print(f"{Colors.GREEN}Detached:{Colors.RESET} {run_id}")
-        print(f"  Check status: devkit jobs")
+        print("  Check status: devkit jobs")
         print(f"  View result:  devkit result {run_id}")
         print(f"  View logs:    devkit logs {run_id}")
         return 0
@@ -2446,7 +2445,7 @@ def _plan_sync(target_str, config):
 
     try:
         project_dir = get_project_dir(resolved)
-        project_id = compute_project_id(resolved)
+        compute_project_id(resolved)
     except ValueError as e:
         print(f"{Colors.RED}Error:{Colors.RESET} {e}", file=sys.stderr)
         return 1
@@ -2553,7 +2552,6 @@ def _plan_sync(target_str, config):
     plan_refs_dir = project_dir / "plan-refs"
     if plan_refs_dir.is_dir():
         for ref_file in list(plan_refs_dir.glob("*.ref.json")):
-            ref_name = ref_file.stem.replace(".ref", "")
             try:
                 ref_data = json.loads(ref_file.read_text())
             except (OSError, json.JSONDecodeError):

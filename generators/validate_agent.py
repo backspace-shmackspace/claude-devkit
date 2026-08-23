@@ -16,7 +16,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List
 
 
 class Colors:
@@ -256,7 +256,7 @@ def format_human_readable(agent_path: Path, header: Dict, issues: List[Dict], st
     output.append(f"File: {agent_path}")
 
     if header.get('is_standalone'):
-        output.append(f"Type: Standalone Agent")
+        output.append("Type: Standalone Agent")
         if header.get('agent_id'):
             output.append(f"Agent: {header['agent_id']} (v{header.get('version', 'unknown')})")
     else:
