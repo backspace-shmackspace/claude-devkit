@@ -520,7 +520,13 @@ Available agent types:
 
     parser.add_argument(
         '--tech-stack', '-s',
+        dest='tech_stack',
         help='Override tech stack (e.g., "Python FastAPI")'
+    )
+    parser.add_argument(
+        '--project-type',
+        dest='tech_stack',
+        help='Deprecated alias for --tech-stack'
     )
 
     parser.add_argument(

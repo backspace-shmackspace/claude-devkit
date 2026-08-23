@@ -3140,6 +3140,17 @@ print('PASS: backup directory skipped during aggregation')
      rm -rf \"\$BACKUP_DIR\"" \
     0
 
+# Test 167: HMAC key with quotes must not be interpolated into python -c
+run_test 167 "audit-log-query.sh verify-chain does not interpolate HMAC key into python" \
+    "INJECT_DIR=/tmp/integration-hmac-inject-\$\$ && \
+     MARKER=\$INJECT_DIR/pwned && \
+     mkdir -p \$INJECT_DIR && \
+     printf '%s\\n' '{\"event_type\":\"run_start\",\"security_maturity\":\"audited\"}' > \$INJECT_DIR/ship-injecttest.jsonl && \
+     printf \"%s\" \"'; import os; os.system('touch \$MARKER'); x='\" > \$INJECT_DIR/evil.key && \
+     AUDIT_LOG_DIR=\$INJECT_DIR '$REPO_DIR/scripts/audit-log-query.sh' verify-chain injecttest --key \$INJECT_DIR/evil.key >/dev/null 2>&1 || true && \
+     test ! -f \$MARKER; ST=\$?; rm -rf \$INJECT_DIR; test \$ST -eq 0" \
+    0
+
 # Test 9: Cleanup
 echo ""
 echo -e "${BLUE}Test 9: Cleanup${RESET}"

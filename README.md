@@ -154,7 +154,6 @@ Reusable templates for skills and agents:
 - **skill-pipeline.md.template** — Pipeline workflow pattern
 - **skill-scan.md.template** — Scan workflow pattern
 - **claude-md-security-section.md.template** — Security section for project CLAUDE.md
-- **senior-architect.md.template** — Local architect agent (legacy)
 
 **Agent Templates (templates/agents/):**
 - **coder-specialist.md.template** — Code implementation specialist
@@ -589,7 +588,7 @@ export PATH="$PATH:$CLAUDE_DEVKIT/generators"
 
 alias gen-skill='python $CLAUDE_DEVKIT/generators/generate_skill.py'
 alias gen-agent='python $CLAUDE_DEVKIT/generators/generate_agents.py'
-alias gen-architect='python $CLAUDE_DEVKIT/generators/generate_senior_architect.py'
+alias gen-architect='python $CLAUDE_DEVKIT/generators/generate_agents.py --type senior-architect'
 alias validate-skill='python $CLAUDE_DEVKIT/generators/validate_skill.py'
 alias validate-agent='python $CLAUDE_DEVKIT/generators/validate_agent.py'
 alias deploy-skills='cd $CLAUDE_DEVKIT && ./scripts/deploy.sh'
@@ -624,13 +623,13 @@ cd ~/projects/claude-devkit
 
 ```bash
 # Symlink generators
-ln -s ~/projects/claude-devkit/generators/generate_senior_architect.py scripts/
+ln -s ~/projects/claude-devkit/generators/generate_agents.py scripts/
 
 # Copy templates
-cp ~/projects/claude-devkit/templates/senior-architect.md.template .claude/templates/
+cp ~/projects/claude-devkit/templates/agents/senior-architect.md.template .claude/templates/
 
 # Use locally
-python scripts/generate_senior_architect.py .
+python scripts/generate_agents.py . --type senior-architect
 ```
 
 ## Testing
@@ -712,14 +711,13 @@ claude-devkit/
 ├── generators/                # Code generation scripts
 │   ├── generate_skill.py              # Create skills
 │   ├── generate_agents.py             # Create all project agents (unified)
-│   ├── generate_senior_architect.py   # Create architects (legacy)
+│   ├── generate_senior_architect.py   # Deprecated wrapper → generate_agents.py
 │   ├── validate_skill.py              # Validate skills
 │   ├── validate_agent.py              # Validate agents
 │   ├── test_skill_generator.sh        # Test suite
 │   └── README.md
 │
 ├── templates/                 # Reusable templates
-│   ├── senior-architect.md.template
 │   ├── skill-coordinator.md.template
 │   ├── skill-pipeline.md.template
 │   └── skill-scan.md.template

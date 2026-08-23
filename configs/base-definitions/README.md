@@ -140,7 +140,7 @@ EOF
 Generators can reference these definitions:
 
 ```python
-# In generate_senior_architect.py
+# In generate_agents.py
 def load_stack_patterns(stack_type):
     """Load relevant stack patterns from base definitions."""
     patterns_dir = Path.home() / 'workspaces/claude-tools/configs/base-definitions/tech-stacks'
