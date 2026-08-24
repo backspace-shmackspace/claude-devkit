@@ -1360,8 +1360,12 @@ try:
     result_fd = os.open(str(result_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(result_fd, "w") as f:
         json.dump(data, f, indent=2)
-except Exception:
-    pass
+except Exception as e:
+    try:
+        with open(run_dir / "stderr.log", "a") as err:
+            err.write(f"\n[watcher] failed to write result.json: {e}\n")
+    except OSError:
+        pass
 
 # Finalize meta.json (atomic)
 meta["completed_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

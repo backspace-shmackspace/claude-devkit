@@ -1008,14 +1008,32 @@ class CacheManager:
             print(msg, file=sys.stderr)
 
     def _derive_hmac_secret(self) -> bytes:
-        """Derive a per-user HMAC secret from stable user identity."""
+        """Load or create a 32-byte HMAC key at ~/.claude-devkit/cache/.hmac-key."""
+        cache_root = os.path.join(os.path.expanduser("~"), ".claude-devkit", "cache")
+        key_path = os.path.join(cache_root, ".hmac-key")
         try:
-            user = os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
-            home = os.path.expanduser("~")
-            secret = f"{user}:{home}:{self._project_hash}"
-            return secret.encode()
-        except Exception:
-            return b"claude-devkit-default-secret"
+            if os.path.islink(key_path):
+                raise OSError("HMAC key path is a symlink")
+            if os.path.isfile(key_path):
+                with open(key_path, "rb") as f:
+                    secret = f.read()
+                if len(secret) >= 32:
+                    return secret
+            os.makedirs(cache_root, mode=0o700, exist_ok=True)
+            secret = os.urandom(32)
+            fd, tmp_path = tempfile.mkstemp(
+                dir=cache_root, prefix=".hmac-", suffix=".tmp"
+            )
+            try:
+                os.write(fd, secret)
+            finally:
+                os.close(fd)
+            os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, key_path)
+            os.chmod(key_path, 0o600)
+            return secret
+        except OSError:
+            return os.urandom(32)
 
     def _compute_hmac(self, data: str) -> str:
         return hmac.new(self._hmac_secret, data.encode(), hashlib.sha256).hexdigest()
