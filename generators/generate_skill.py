@@ -16,10 +16,11 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Tuple
+
+from fs_utils import atomic_write, validate_target_dir
 
 GENERATOR_VERSION = "1.0.0"
 
@@ -92,46 +93,6 @@ def validate_description(desc: str) -> Tuple[bool, str]:
     return True, ""
 
 
-def validate_target_dir(path: str) -> Tuple[bool, str]:
-    """
-    Validate target directory against all rules.
-    Returns (is_valid, error_message).
-    """
-    try:
-        # Resolve to absolute path
-        resolved = Path(path).resolve()
-
-        # Check if directory exists
-        if not resolved.is_dir():
-            return False, f"Target directory does not exist: {resolved}"
-
-        # Check if writable
-        if not os.access(resolved, os.W_OK):
-            return False, f"Target directory is not writable: {resolved}"
-
-        # Path traversal check - must be under ~/workspaces/, claude-devkit's own dir, or /tmp/
-        home_workspaces = Path.home() / "workspaces"
-        tmp = Path("/tmp").resolve()  # Resolve /tmp to handle /private/tmp on macOS
-        # Allow the claude-devkit root (parent of generators/) wherever it lives
-        devkit_root = Path(__file__).resolve().parent.parent
-
-        allowed = False
-        for allowed_parent in [home_workspaces, tmp, devkit_root]:
-            try:
-                resolved.relative_to(allowed_parent)
-                allowed = True
-                break
-            except ValueError:
-                pass
-
-        if not allowed:
-            return False, f"Target directory must be under ~/workspaces/, {devkit_root}, or /tmp/"
-
-        return True, ""
-    except Exception as e:
-        return False, f"Invalid target directory: {e}"
-
-
 def run_preflight_checks(target_dir: Path, deploy: bool) -> Tuple[bool, str]:
     """
     Run pre-flight checks on target directory.
@@ -179,43 +140,6 @@ def substitute_placeholders(template: str, **kwargs) -> str:
     for key, value in kwargs.items():
         result = result.replace('{' + key + '}', str(value))
     return result
-
-
-def atomic_write(target_path: Path, content: str) -> Tuple[bool, str]:
-    """
-    Write content to file atomically using temp file + rename.
-    Returns (success, error_message).
-    """
-    # Ensure parent directory exists
-    try:
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        return False, f"Cannot create directory: {target_path.parent}. {e}"
-
-    # Write to temp file in same directory (ensures same filesystem for atomic rename)
-    tmp_path = None
-    try:
-        fd, tmp_path = tempfile.mkstemp(
-            dir=target_path.parent,
-            prefix=".skill-",
-            suffix=".tmp"
-        )
-
-        with os.fdopen(fd, 'w') as f:
-            f.write(content)
-
-        # Atomic rename
-        os.replace(tmp_path, target_path)
-        return True, ""
-
-    except Exception as e:
-        # Clean up temp file on failure
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-        return False, f"Cannot write to {target_path}. {e}"
 
 
 def validate_generated_skill(skill_path: Path, script_dir: Path) -> Tuple[bool, str]:

@@ -17,12 +17,12 @@ Examples:
 
 import argparse
 import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+
+from fs_utils import atomic_write, validate_target_dir
 
 
 # Agent type definitions
@@ -114,48 +114,48 @@ def detect_tech_stack(target_dir: Path) -> Dict[str, any]:
                     # Simple text parsing fallback
                     with open(pyproject_toml, 'r') as f:
                         text = f.read()
-                        data = {'project': {'dependencies': [], 'optional-dependencies': {}}}
-                        # Extract basic info from text
-                        if 'fastapi' in text.lower():
-                            data['project']['dependencies'].append('fastapi')
-                        if 'flask' in text.lower():
-                            data['project']['dependencies'].append('flask')
-                        if 'bandit' in text.lower():
-                            data['project']['dependencies'].append('bandit')
-                        if 'safety' in text.lower():
-                            data['project']['dependencies'].append('safety')
-                        if 'pytest' in text.lower():
-                            data['project']['dependencies'].append('pytest')
+                    data = {'project': {'dependencies': [], 'optional-dependencies': {}}}
+                    # Extract basic info from text
+                    if 'fastapi' in text.lower():
+                        data['project']['dependencies'].append('fastapi')
+                    if 'flask' in text.lower():
+                        data['project']['dependencies'].append('flask')
+                    if 'bandit' in text.lower():
+                        data['project']['dependencies'].append('bandit')
+                    if 'safety' in text.lower():
+                        data['project']['dependencies'].append('safety')
+                    if 'pytest' in text.lower():
+                        data['project']['dependencies'].append('pytest')
 
-                    # Check dependencies
-                    deps = []
-                    if 'project' in data and 'dependencies' in data['project']:
-                        deps.extend(data['project']['dependencies'])
-                    if 'project' in data and 'optional-dependencies' in data['project']:
-                        for group in data['project']['optional-dependencies'].values():
-                            deps.extend(group)
+                # Check dependencies (tomllib path and text fallback)
+                deps = []
+                if 'project' in data and 'dependencies' in data['project']:
+                    deps.extend(data['project']['dependencies'] or [])
+                if 'project' in data and 'optional-dependencies' in data['project']:
+                    for group in (data['project']['optional-dependencies'] or {}).values():
+                        deps.extend(group)
 
-                    deps_str = ' '.join(deps).lower()
+                deps_str = ' '.join(str(d) for d in deps).lower()
 
-                    # Detect framework
-                    if 'fastapi' in deps_str:
-                        result["framework"] = "FastAPI"
-                    elif 'flask' in deps_str:
-                        result["framework"] = "Flask"
-                    elif 'django' in deps_str:
-                        result["framework"] = "Django"
+                # Detect framework
+                if 'fastapi' in deps_str:
+                    result["framework"] = "FastAPI"
+                elif 'flask' in deps_str:
+                    result["framework"] = "Flask"
+                elif 'django' in deps_str:
+                    result["framework"] = "Django"
 
-                    # Detect security tools
-                    if 'bandit' in deps_str:
-                        result["security_tools"].append("bandit")
-                    if 'safety' in deps_str:
-                        result["security_tools"].append("safety")
+                # Detect security tools
+                if 'bandit' in deps_str:
+                    result["security_tools"].append("bandit")
+                if 'safety' in deps_str:
+                    result["security_tools"].append("safety")
 
-                    # Detect test framework
-                    if 'pytest' in deps_str:
-                        result["test_framework"] = "pytest"
+                # Detect test framework
+                if 'pytest' in deps_str:
+                    result["test_framework"] = "pytest"
 
-                    result["is_security_focused"] = len(result["security_tools"]) > 0
+                result["is_security_focused"] = len(result["security_tools"]) > 0
 
             except Exception:
                 pass  # Ignore parse errors, use defaults
@@ -336,53 +336,6 @@ def generate_agent_content(
     content = content.replace('{temperature}', str(agent_def.get('temperature', 0.3)))
 
     return filename, content
-
-
-def validate_target_dir(path: str) -> tuple:
-    """Validate target directory is within allowed boundaries."""
-    try:
-        resolved = Path(path).resolve()
-        if not resolved.is_dir():
-            return False, f"Target directory does not exist: {resolved}"
-        if not os.access(resolved, os.W_OK):
-            return False, f"Target directory is not writable: {resolved}"
-        home_workspaces = Path.home() / "workspaces"
-        home_projects = Path.home() / "projects"
-        tmp = Path("/tmp").resolve()
-        devkit_root = Path(__file__).resolve().parent.parent
-        for allowed_parent in [home_workspaces, home_projects, tmp, devkit_root]:
-            try:
-                resolved.relative_to(allowed_parent)
-                return True, ""
-            except ValueError:
-                pass
-        return False, f"Target directory must be under ~/workspaces/, ~/projects/, {devkit_root}, or /tmp/"
-    except Exception as e:
-        return False, f"Invalid target directory: {e}"
-
-
-def atomic_write(target_path: Path, content: str) -> tuple:
-    """Write content to file atomically using temp file + rename."""
-    try:
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        return False, f"Cannot create directory: {target_path.parent}. {e}"
-    tmp_path = None
-    try:
-        fd, tmp_path = tempfile.mkstemp(
-            dir=target_path.parent, prefix=".agent-", suffix=".tmp"
-        )
-        with os.fdopen(fd, 'w') as f:
-            f.write(content)
-        os.replace(tmp_path, target_path)
-        return True, ""
-    except Exception as e:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-        return False, f"Cannot write to {target_path}. {e}"
 
 
 def generate_agents(

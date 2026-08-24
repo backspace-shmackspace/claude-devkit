@@ -344,14 +344,14 @@ test_force_overwrite() {
     echo "Test 15: Force overwrite existing agent"
 
     mkdir -p "$TEST_DIR/force-test/.claude/agents"
-    echo "existing" > "$TEST_DIR/force-test/.claude/agents/coder.md"
+    echo "PREEXISTING_AGENT_MARKER" > "$TEST_DIR/force-test/.claude/agents/coder.md"
 
     python3 "$GENERATOR" "$TEST_DIR/force-test" --type coder --force > /dev/null 2>&1
     assert_success "Force overwrite"
 
-    # Should have new content
+    # Unique sentinel — generated templates contain the word "existing"
     TESTS_RUN=$((TESTS_RUN + 1))
-    if ! grep -q "existing" "$TEST_DIR/force-test/.claude/agents/"*.md 2>/dev/null; then
+    if ! grep -q "PREEXISTING_AGENT_MARKER" "$TEST_DIR/force-test/.claude/agents/"*.md 2>/dev/null; then
         echo -e "${GREEN}✓${NC} File was overwritten"
         TESTS_PASSED=$((TESTS_PASSED + 1))
     else
