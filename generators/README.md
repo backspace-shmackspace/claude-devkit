@@ -28,33 +28,27 @@ Use the Python equivalent or the unified agent generator instead:
 # Recommended: unified agent generator
 python3 generators/generate_agents.py . --type senior-architect
 
-# Alternative: Python generator
+# Deprecated wrapper (forwards to generate_agents.py)
 python3 generators/generate_senior_architect.py [target-directory] [--project-type TYPE]
 ```
 
-See `generate_senior_architect.py` and `generate_agents.py` sections below for usage.
+See `generate_agents.py` below. `generate_senior_architect.py` is a thin compatibility wrapper.
 
 The shell script is preserved in the repository so that existing references produce a clear deprecation error rather than "command not found".
 
-### generate_senior_architect.py (Python)
+### generate_senior_architect.py (Python) — DEPRECATED WRAPPER
 
-More feature-rich Python version with auto-detection.
+Forwards to `generate_agents.py --type senior-architect`. `--project-type` is mapped to `--tech-stack`.
 
-**Usage:**
+**Preferred usage:**
 ```bash
-python scripts/generate_senior_architect.py [target-directory] --project-type TYPE
+python3 generators/generate_agents.py [target-directory] --type senior-architect [--tech-stack TYPE]
 ```
 
-**Examples:**
+**Legacy wrapper (still works):**
 ```bash
-# Auto-detect project type from package.json, requirements.txt, etc.
-python scripts/generate_senior_architect.py ~/projects/my-app
-
-# Specify project type explicitly
-python scripts/generate_senior_architect.py . --project-type "Next.js 14 TypeScript 5.3"
-
-# Overwrite existing agent
-python scripts/generate_senior_architect.py . --force
+python3 generators/generate_senior_architect.py [target-directory] --project-type TYPE
+python3 generators/generate_senior_architect.py . --force
 ```
 
 **Auto-Detection:**
@@ -159,7 +153,7 @@ chmod +x ~/bin/generate_senior_architect.py
 Add to your `~/.bashrc` or `~/.zshrc`:
 ```bash
 alias gen-agent='python ~/workspaces/claude-devkit/generators/generate_agents.py'
-alias gen-architect='python ~/workspaces/claude-devkit/generators/generate_senior_architect.py'
+alias gen-architect='python ~/workspaces/claude-devkit/generators/generate_agents.py --type senior-architect'
 ```
 
 Or use the automated installer:

@@ -385,7 +385,7 @@ with project type detection and pattern templates.
 substitution → Atomic write → Validation
 
 **Integration Points:**
-- Project type detection (shared with generate_senior_architect.py)
+- Project type detection (shared with generate_agents.py)
 - CLAUDE.md template (`templates/claude-md.template`)
 - Optional: Integration with project-init workflow
 

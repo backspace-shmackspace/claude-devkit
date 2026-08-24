@@ -25,6 +25,8 @@ Your reviews are:
 **Project:** claude-devkit
 **Stack:** General
 
+# Project Patterns Reference
+
 **READ FIRST:** ../../../CLAUDE.md for project-specific patterns and standards.
 
 # Review Dimensions

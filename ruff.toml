@@ -1,0 +1,18 @@
+# Ruff config for claude-devkit.
+# Generators and scripts are stdlib-only Python 3.9+.
+# Run locally: ruff check generators scripts
+
+target-version = "py39"
+line-length = 100
+src = ["generators", "scripts"]
+
+[lint]
+# Keep the default rule set: syntax/runtime errors and pyflakes.
+# Do not enable format-as-check or import sorting until a dedicated cleanup.
+select = ["E4", "E7", "E9", "F"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"

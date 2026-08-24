@@ -321,7 +321,7 @@ def cmd_approve(args):
 
     print(f"Approved: {promo_id}")
     print(f"  By: {actor}")
-    print(f"  Next: implement the change, then run:")
+    print("  Next: implement the change, then run:")
     print(
         f"  python3 scripts/learnings_promotions.py promote "
         f"{promo_id} --commit <sha>"

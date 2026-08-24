@@ -8,8 +8,8 @@
 #   generate_senior_architect.sh ../frontend "Vue.js Nuxt"
 
 echo "DEPRECATED: generate_senior_architect.sh is deprecated."
-echo "Use the Python equivalent instead:"
-echo "  python3 generators/generate_senior_architect.py [target-directory] [--project-type TYPE]"
+echo "Use the unified generator instead:"
+echo "  python3 generators/generate_agents.py [target-directory] --type senior-architect [--tech-stack TYPE]"
 echo ""
 echo "See: generators/README.md for updated usage."
 exit 1

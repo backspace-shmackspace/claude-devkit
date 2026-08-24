@@ -407,7 +407,7 @@ def generate_skill(
     }
 
     # Substitute placeholders
-    print(f"Generating skill...")
+    print("Generating skill...")
     content = substitute_placeholders(template, **substitutions)
 
     # Atomic write
@@ -420,7 +420,7 @@ def generate_skill(
     print()
 
     # Validate generated file
-    print(f"Validating generated skill...")
+    print("Validating generated skill...")
     success, error = validate_generated_skill(skill_file, script_dir)
     if not success:
         # Remove generated file on validation failure
@@ -437,7 +437,7 @@ def generate_skill(
 
     # Deploy if requested
     if deploy:
-        print(f"Deploying skill...")
+        print("Deploying skill...")
         success, error = deploy_skill(skill_name, target_dir)
         if not success:
             print(f"{Colors.RED}❌ {error}{Colors.RESET}", file=sys.stderr)
@@ -450,17 +450,17 @@ def generate_skill(
     # Print next steps
     print(f"{Colors.BOLD}Next steps:{Colors.RESET}")
     print(f"1. Customize the skill: {skill_file}")
-    print(f"   - Replace [TODO: ...] placeholders with actual logic")
-    print(f"   - Adjust prompts and tool declarations")
-    print(f"   - Add project-specific validation")
-    print(f"2. Test the skill manually")
+    print("   - Replace [TODO: ...] placeholders with actual logic")
+    print("   - Adjust prompts and tool declarations")
+    print("   - Add project-specific validation")
+    print("2. Test the skill manually")
     if not deploy:
         print(f"3. Deploy: cd {target_dir} && ./deploy.sh {skill_name}")
         print(f"4. Use the skill: /{skill_name} [arguments]")
     else:
         print(f"3. Use the skill: /{skill_name} [arguments]")
     print()
-    print(f"Generated file contains metadata:")
+    print("Generated file contains metadata:")
     print(f"  - Generator version: {GENERATOR_VERSION}")
     print(f"  - Archetype: {archetype}")
     print(f"  - Timestamp: {timestamp}")

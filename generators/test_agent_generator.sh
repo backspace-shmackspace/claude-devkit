@@ -36,8 +36,9 @@ setup() {
 
 # Test utilities
 assert_success() {
+    local status=$?
     TESTS_RUN=$((TESTS_RUN + 1))
-    if [ $? -eq 0 ]; then
+    if [ $status -eq 0 ]; then
         echo -e "${GREEN}✓${NC} $1"
         TESTS_PASSED=$((TESTS_PASSED + 1))
     else
@@ -47,8 +48,9 @@ assert_success() {
 }
 
 assert_failure() {
+    local status=$?
     TESTS_RUN=$((TESTS_RUN + 1))
-    if [ $? -ne 0 ]; then
+    if [ $status -ne 0 ]; then
         echo -e "${GREEN}✓${NC} $1"
         TESTS_PASSED=$((TESTS_PASSED + 1))
     else
@@ -250,8 +252,10 @@ test_validate_invalid() {
 This is missing required sections.
 EOF
 
+    set +e
     python3 "$VALIDATOR" "$TEST_DIR/invalid-test/.claude/agents/broken.md" > /dev/null 2>&1
     assert_failure "Validation fails for invalid agent"
+    set -e
 }
 
 # Test 11: Auto-detection for TypeScript project

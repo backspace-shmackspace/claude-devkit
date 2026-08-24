@@ -51,12 +51,12 @@ claude-devkit/
 │
 ├── generators/          # Tier 2: Code generation
 │   ├── generate_skill.py              # Create new skills
-│   ├── generate_senior_architect.py   # Create architect agents
+│   ├── generate_agents.py             # Create project agents (unified)
+│   ├── generate_senior_architect.py   # Deprecated wrapper → generate_agents.py
 │   ├── validate_skill.py              # Validate skill definitions
 │   └── README.md
 │
 ├── templates/           # Tier 3: Reusable templates
-│   ├── senior-architect.md.template   # Local architect agent
 │   ├── skill-coordinator.md.template  # Coordinator pattern
 │   ├── skill-pipeline.md.template     # Pipeline pattern
 │   └── skill-scan.md.template         # Scan pattern
@@ -463,7 +463,7 @@ cd ~/projects/workspaces/helper-mcps/redhat-browser-mcp/
 |-----------|---------|--------|
 | **generate_skill.py** | Create new skill definitions from archetypes | `skills/<name>/SKILL.md` |
 | **generate_agents.py** | Create all project agents (unified generator) | `.claude/agents/*` |
-| **generate_senior_architect.py** | Create single architect agent (legacy - use generate_agents.py instead) | `.claude/agents/senior-architect.md` |
+| **generate_senior_architect.py** | Deprecated wrapper for `generate_agents.py --type senior-architect` | `.claude/agents/senior-architect.md` |
 | **validate_skill.py** | Validate skills against v2.0.0 patterns | Exit code 0/1/2 + validation report |
 | **validate_agent.py** | Validate agents for inheritance patterns | Exit code 0/1/2 + validation report |
 
@@ -475,7 +475,6 @@ cd ~/projects/workspaces/helper-mcps/redhat-browser-mcp/
 | **skill-coordinator.md.template** | Coordinator workflow | Coordinator | Multi-agent delegation, revision loops |
 | **skill-pipeline.md.template** | Pipeline workflow | Pipeline | Sequential validation checkpoints |
 | **skill-scan.md.template** | Scan workflow | Scan | Parallel analysis, severity ratings |
-| **senior-architect.md.template** | Local architect agent (legacy) | N/A | High-level design and planning |
 | **claude-md-security-section.md.template** | Security section for project CLAUDE.md | N/A | Project bootstrapping |
 
 ### Agent Templates (templates/agents/)
@@ -523,7 +522,7 @@ export PATH="$PATH:$CLAUDE_DEVKIT/generators"
 # Aliases
 alias gen-skill='python $CLAUDE_DEVKIT/generators/generate_skill.py'
 alias gen-agent='python $CLAUDE_DEVKIT/generators/generate_agents.py'
-alias gen-architect='python $CLAUDE_DEVKIT/generators/generate_senior_architect.py'
+alias gen-architect='python $CLAUDE_DEVKIT/generators/generate_agents.py --type senior-architect'
 alias validate-skill='python $CLAUDE_DEVKIT/generators/validate_skill.py'
 alias validate-agent='python $CLAUDE_DEVKIT/generators/validate_agent.py'
 alias deploy-skills='cd $CLAUDE_DEVKIT && ./scripts/deploy.sh'
@@ -1114,7 +1113,7 @@ Python scripts for code generation with validation and atomic writes.
 **Scripts:**
 - `generate_skill.py` — Create skills from archetypes
 - `generate_agents.py` — Create all project agents (unified generator)
-- `generate_senior_architect.py` — Create architect agents (legacy)
+- `generate_senior_architect.py` — Deprecated wrapper around `generate_agents.py --type senior-architect`
 - `validate_skill.py` — Validate skill definitions
 - `validate_agent.py` — Validate agents for inheritance patterns
 - `test_skill_generator.sh` — Test suite (66 tests)
@@ -1131,7 +1130,6 @@ Python scripts for code generation with validation and atomic writes.
 Reusable templates with placeholder substitution.
 
 **Templates:**
-- `senior-architect.md.template` — Local architect agent
 - `skill-coordinator.md.template` — Coordinator archetype
 - `skill-pipeline.md.template` — Pipeline archetype
 - `skill-scan.md.template` — Scan archetype

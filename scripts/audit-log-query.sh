@@ -445,13 +445,14 @@ cmd_verify_chain() {
     echo "Replaying HMAC chain..."
     echo ""
 
-    python3 -c "
+    # Pass log path and key via argv — never interpolate into python -c
+    if ! python3 - "$log_file" "$hmac_key" <<'PY'
 import json
 import subprocess
 import sys
 
-log_file = '${log_file}'
-hmac_key = '${hmac_key}'
+log_file = sys.argv[1]
+hmac_key = sys.argv[2]
 
 events = []
 with open(log_file) as f:
@@ -481,7 +482,7 @@ for i, event in enumerate(events):
 
     stored_hmac = event.get('hmac', '')
     if not stored_hmac:
-        print(f'  [{seq:3d}] {event.get(\"event_type\",\"?\"):<20} SKIP (no hmac field -- not L3)')
+        print(f'  [{seq:3d}] {event.get("event_type","?"):<20} SKIP (no hmac field -- not L3)')
         warnings += 1
         prev_hmac = 'genesis'  # Reset chain for non-L3 events
         continue
@@ -499,15 +500,15 @@ for i, event in enumerate(events):
         )
         computed = result.stdout.decode().strip().split()[-1]
     except Exception as e:
-        print(f'  [{seq:3d}] {event.get(\"event_type\",\"?\"):<20} ERROR computing HMAC: {e}')
+        print(f'  [{seq:3d}] {event.get("event_type","?"):<20} ERROR computing HMAC: {e}')
         errors += 1
         continue
 
     if computed == stored_hmac:
-        print(f'  [{seq:3d}] {event.get(\"event_type\",\"?\"):<20} OK  {stored_hmac[:16]}...')
+        print(f'  [{seq:3d}] {event.get("event_type","?"):<20} OK  {stored_hmac[:16]}...')
         prev_hmac = stored_hmac
     else:
-        print(f'  [{seq:3d}] {event.get(\"event_type\",\"?\"):<20} MISMATCH!')
+        print(f'  [{seq:3d}] {event.get("event_type","?"):<20} MISMATCH!')
         print(f'        stored:   {stored_hmac}')
         print(f'        computed: {computed}')
         errors += 1
@@ -524,10 +525,11 @@ elif errors == 0:
 else:
     print(f'Chain verification: FAIL ({errors} HMAC mismatches, {warnings} warnings)')
     sys.exit(1)
-" 2>/dev/null || {
+PY
+    then
         echo "Error running chain verification." >&2
         exit 1
-    }
+    fi
 }
 
 # --- recent ---
